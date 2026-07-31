@@ -1,4 +1,4 @@
-import logo from "@/assets/msm-logo.png";
+import logoAsset from "@/assets/msm-logo-official.png.asset.json";
 import {
   ADDRESS,
   EMAIL,
