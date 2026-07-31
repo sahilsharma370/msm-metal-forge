@@ -39,7 +39,9 @@ export function ContactFooter() {
       <footer className="bg-navy-deep py-20">
         <div className="mx-auto grid max-w-7xl gap-12 px-6 sm:grid-cols-2 lg:grid-cols-4">
           <div>
-            <img src={logo} alt="MSM Scrap" loading="lazy" width={1152} height={576} className="w-36" />
+            <div className="inline-block rounded-xl bg-foreground/95 px-3 py-2">
+              <img src={logoAsset.url} alt="MSM Scrap" loading="lazy" width={1490} height={508} className="w-36" />
+            </div>
             <p className="mt-6 text-sm text-muted-foreground">
               Mohammed Sihabuddin Metal Scrap Trading LLC — buying, selling, exporting and importing
               metal scrap across the UAE.
