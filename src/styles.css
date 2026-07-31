@@ -19,6 +19,14 @@
  */
 
 @theme inline {
+  --font-display: var(--brand-display);
+  --font-sans: var(--brand-body);
+  --color-navy: var(--navy);
+  --color-navy-deep: var(--navy-deep);
+  --color-navy-soft: var(--navy-soft);
+  --color-copper: var(--copper);
+  --color-copper-bright: var(--copper-bright);
+  --color-copper-deep: var(--copper-deep);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -63,25 +71,46 @@
 
 :root {
   --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.129 0.042 264.695);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.129 0.042 264.695);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.129 0.042 264.695);
-  --primary: oklch(0.208 0.042 265.755);
-  --primary-foreground: oklch(0.984 0.003 247.858);
-  --secondary: oklch(0.968 0.007 247.896);
-  --secondary-foreground: oklch(0.208 0.042 265.755);
-  --muted: oklch(0.968 0.007 247.896);
-  --muted-foreground: oklch(0.554 0.046 257.417);
-  --accent: oklch(0.968 0.007 247.896);
-  --accent-foreground: oklch(0.208 0.042 265.755);
+  /* Brand */
+  --navy: oklch(0.245 0.062 265.5);
+  --navy-deep: oklch(0.195 0.055 265.5);
+  --navy-soft: oklch(0.315 0.06 264);
+  --copper: oklch(0.583 0.135 45.5);
+  --copper-bright: oklch(0.72 0.13 60);
+  --copper-deep: oklch(0.46 0.11 42);
+
+  --background: oklch(0.245 0.062 265.5);
+  --foreground: oklch(0.98 0.005 250);
+  --card: oklch(0.28 0.058 265);
+  --card-foreground: oklch(0.98 0.005 250);
+  --popover: oklch(0.245 0.062 265.5);
+  --popover-foreground: oklch(0.98 0.005 250);
+  --primary: oklch(0.583 0.135 45.5);
+  --primary-foreground: oklch(0.99 0.003 250);
+  --secondary: oklch(0.315 0.06 264);
+  --secondary-foreground: oklch(0.98 0.005 250);
+  --muted: oklch(0.315 0.06 264);
+  --muted-foreground: oklch(0.75 0.02 258);
+  --accent: oklch(0.583 0.135 45.5);
+  --accent-foreground: oklch(0.99 0.003 250);
   --destructive: oklch(0.577 0.245 27.325);
   --destructive-foreground: oklch(0.984 0.003 247.858);
-  --border: oklch(0.929 0.013 255.508);
-  --input: oklch(0.929 0.013 255.508);
-  --ring: oklch(0.704 0.04 256.788);
+  --border: oklch(1 0 0 / 12%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.583 0.135 45.5);
+
+  --brand-display: "General Sans", "Plus Jakarta Sans", system-ui, sans-serif;
+  --brand-body: "Inter", system-ui, sans-serif;
+  --gradient-copper: linear-gradient(
+    100deg,
+    oklch(0.46 0.11 42) 0%,
+    oklch(0.62 0.13 50) 22%,
+    oklch(0.88 0.07 75) 50%,
+    oklch(0.62 0.13 50) 78%,
+    oklch(0.46 0.11 42) 100%
+  );
+  --shadow-glass:
+    0 24px 60px -24px oklch(0.12 0.05 265 / 0.75), 0 2px 12px oklch(0.12 0.05 265 / 0.35);
   --chart-1: oklch(0.646 0.222 41.116);
   --chart-2: oklch(0.6 0.118 184.704);
   --chart-3: oklch(0.398 0.07 227.392);
@@ -140,5 +169,182 @@
   body {
     background-color: var(--color-background);
     color: var(--color-foreground);
+    font-family: var(--brand-body);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--brand-display);
+  }
+}
+
+@utility glass-panel {
+  background:
+    linear-gradient(
+      180deg,
+      oklch(0.55 0.05 265 / 0.28) 0%,
+      oklch(0.28 0.06 265 / 0.34) 100%
+    );
+  backdrop-filter: blur(22px) saturate(180%);
+  box-shadow:
+    var(--shadow-glass),
+    inset 0 1px 0 oklch(1 0 0 / 0.28),
+    inset 0 -1px 0 oklch(0.583 0.135 45.5 / 0.18);
+  border: 1px solid transparent;
+  background-clip: padding-box;
+  position: relative;
+}
+
+@utility glass-ring {
+  &::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1px;
+    background: linear-gradient(
+      140deg,
+      oklch(1 0 0 / 0.55) 0%,
+      oklch(1 0 0 / 0.06) 38%,
+      oklch(0.583 0.135 45.5 / 0.5) 100%
+    );
+    -webkit-mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+}
+
+@utility text-copper-metal {
+  background: var(--gradient-copper);
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+}
+
+@utility label-eyebrow {
+  font-family: var(--brand-display);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+
+@utility diagonal-tag {
+  clip-path: polygon(14% 0, 100% 0, 86% 100%, 0 100%);
+}
+
+@keyframes float-scale {
+  0%,
+  100% {
+    transform: translateY(-6px);
+  }
+  50% {
+    transform: translateY(6px);
+  }
+}
+
+@utility animate-float-scale {
+  animation: float-scale 4s ease-in-out infinite;
+}
+
+@keyframes settle-in {
+  0% {
+    opacity: 0;
+    transform: translateY(-28px) scale(0.9);
+  }
+  60% {
+    opacity: 1;
+    transform: translateY(6px) scale(1.02);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@utility animate-settle-in {
+  animation: settle-in 0.9s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@utility animate-rise-in {
+  animation: rise-in 0.8s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes drop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@utility animate-drop-in {
+  animation: drop-in 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes panel-wipe-left {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(-115%, 0, 0);
+  }
+}
+
+@keyframes panel-wipe-right {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(115%, 0, 0);
+  }
+}
+
+@keyframes sheen-sweep {
+  from {
+    transform: translateX(-60%) rotate(8deg);
+  }
+  to {
+    transform: translateX(160%) rotate(8deg);
+  }
+}
+
+@keyframes logo-cut-reveal {
+  0% {
+    opacity: 0;
+    clip-path: polygon(0 0, 0 0, 0 100%, 0 100%);
+    transform: translateY(14px);
+  }
+  70% {
+    opacity: 1;
+    clip-path: polygon(0 0, 130% 0, 100% 100%, 0 100%);
+  }
+  100% {
+    opacity: 1;
+    clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%);
+    transform: translateY(0);
   }
 }
