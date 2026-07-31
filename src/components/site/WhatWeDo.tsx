@@ -52,20 +52,6 @@ export function WhatWeDo() {
                 <stop offset="55%" stopColor="#E08B3F" />
                 <stop offset="100%" stopColor="#C1622E" />
               </radialGradient>
-              <filter
-                id="filamentGlow"
-                filterUnits="userSpaceOnUse"
-                x="0"
-                y="0"
-                width="500"
-                height="500"
-              >
-                <feGaussianBlur stdDeviation="5" result="b" />
-                <feMerge>
-                  <feMergeNode in="b" />
-                  <feMergeNode in="SourceGraphic" />
-                </feMerge>
-              </filter>
               <linearGradient id="boltFace" x1="0" y1="0" x2="1" y2="1">
                 <stop offset="0%" stopColor="#E8EDF6" />
                 <stop offset="28%" stopColor="#8E9AB2" />
@@ -113,22 +99,30 @@ export function WhatWeDo() {
             {BEAMS.map((beam, i) => {
               const local = Math.min(Math.max(progress * BEAMS.length - i, 0), 1);
               return (
-                <line
-                  key={beam.label}
-                  x1={beam.x1}
-                  y1={beam.y1}
-                  x2={beam.x2}
-                  y2={beam.y2}
-                  stroke="url(#filament)"
-                  strokeWidth="3.5"
-                  strokeLinecap="round"
-                  filter="url(#filamentGlow)"
-                  pathLength={1}
-                  strokeDasharray="1"
-                  strokeDashoffset={1 - local}
-                  opacity={local > 0.01 ? 1 : 0}
-                  style={{ transition: "stroke-dashoffset 120ms linear" }}
-                />
+                <g key={beam.label} opacity={local > 0.01 ? 1 : 0}>
+                  {[
+                    { w: 14, o: 0.12 },
+                    { w: 8, o: 0.22 },
+                    { w: 4, o: 0.55 },
+                    { w: 1.6, o: 1 },
+                  ].map((layer) => (
+                    <line
+                      key={layer.w}
+                      x1={beam.x1}
+                      y1={beam.y1}
+                      x2={beam.x2}
+                      y2={beam.y2}
+                      stroke={layer.w > 2 ? "url(#filament)" : "#FDEBD6"}
+                      strokeOpacity={layer.o}
+                      strokeWidth={layer.w}
+                      strokeLinecap="round"
+                      pathLength={1}
+                      strokeDasharray="1"
+                      strokeDashoffset={1 - local}
+                      style={{ transition: "stroke-dashoffset 120ms linear" }}
+                    />
+                  ))}
+                </g>
               );
             })}
           </svg>
