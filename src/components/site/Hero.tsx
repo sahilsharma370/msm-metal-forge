@@ -1,4 +1,4 @@
-import logo from "@/assets/msm-logo.png";
+import logoAsset from "@/assets/msm-logo-official.png.asset.json";
 import { WHATSAPP_URL } from "@/lib/site";
 import { DotGrid } from "./DotGrid";
 import { ScaleIcon } from "./ScaleIcon";
@@ -16,16 +16,20 @@ export function Hero() {
           Sharjah · United Arab Emirates
         </p>
 
-        <img
-          src={logo}
-          alt="MSM Scrap — Mohammed Sihabuddin Metal Scrap Trading LLC"
-          width={1152}
-          height={576}
-          className="mt-8 w-52 sm:w-64"
+        <div
+          className="mt-8 rounded-2xl bg-foreground/95 px-6 py-4 shadow-[0_24px_60px_-24px_oklch(0.12_0.05_265/0.8)]"
           style={{
             animation: "logo-cut-reveal 1.1s cubic-bezier(0.76, 0, 0.24, 1) 0.6s both",
           }}
-        />
+        >
+          <img
+            src={logoAsset.url}
+            alt="MSM Scrap — Mohammed Sihabuddin Metal Scrap Trading LLC"
+            width={1490}
+            height={508}
+            className="w-56 sm:w-72"
+          />
+        </div>
 
         <h1
           className="font-display animate-rise-in mt-10 text-[2.6rem] leading-[1.08] font-bold tracking-[-0.02em] sm:text-[3.5rem]"
@@ -66,9 +70,7 @@ export function Hero() {
           className="animate-settle-in mt-20 flex flex-col items-center"
           style={{ animationDelay: "2.6s" }}
         >
-          <p className="label-eyebrow text-[0.65rem] text-muted-foreground">
-            100% Transparent Weighing
-          </p>
+          <p className="label-eyebrow text-[0.65rem] text-muted-foreground">100%</p>
           <ScaleIcon className="animate-float-scale mt-5 h-16 w-20 text-copper/85" />
         </div>
       </div>
