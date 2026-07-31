@@ -1,12 +1,38 @@
 import { useEffect, useRef, useState } from "react";
 import { DotGrid } from "./DotGrid";
+import hexNut from "@/assets/hex-nut.png";
 
-/** Clockwise order: Buy (top) → Export (right) → Sell (bottom) → Import (left) */
+/** Clockwise order: Buy (top) → Export (right) → Sell (bottom) → Import (left).
+ *  Each beam is a gently waving flame path from the hex nut out to its tag. */
 const BEAMS = [
-  { label: "Buy", x1: 250, y1: 150, x2: 250, y2: 70, pos: "top-1 left-1/2 -translate-x-1/2" },
-  { label: "Export", x1: 350, y1: 250, x2: 430, y2: 250, pos: "right-0 top-1/2 -translate-y-1/2" },
-  { label: "Sell", x1: 250, y1: 350, x2: 250, y2: 430, pos: "bottom-1 left-1/2 -translate-x-1/2" },
-  { label: "Import", x1: 150, y1: 250, x2: 70, y2: 250, pos: "left-0 top-1/2 -translate-y-1/2" },
+  {
+    label: "Buy",
+    d: "M250 152 C 258 128, 242 108, 250 72",
+    pos: "top-1 left-1/2 -translate-x-1/2",
+  },
+  {
+    label: "Export",
+    d: "M348 250 C 372 258, 392 242, 428 250",
+    pos: "right-0 top-1/2 -translate-y-1/2",
+  },
+  {
+    label: "Sell",
+    d: "M250 348 C 242 372, 258 392, 250 428",
+    pos: "bottom-1 left-1/2 -translate-x-1/2",
+  },
+  {
+    label: "Import",
+    d: "M152 250 C 128 242, 108 258, 72 250",
+    pos: "left-0 top-1/2 -translate-y-1/2",
+  },
+];
+
+/** Layered strokes: wide soft flame body → warm mid glow → bright white-hot core. */
+const FLAME_LAYERS = [
+  { w: 18, o: 0.12, color: "url(#flameWarm)", blur: "url(#flameWobble)" },
+  { w: 11, o: 0.28, color: "url(#flameWarm)", blur: "url(#flameWobble)" },
+  { w: 5, o: 0.7, color: "url(#flameCore)", blur: "url(#flameSoft)" },
+  { w: 1.8, o: 1, color: "#FFF3DC", blur: undefined },
 ];
 
 export function WhatWeDo() {
@@ -47,85 +73,79 @@ export function WhatWeDo() {
         <div className="relative mx-auto mt-10 aspect-square w-full max-w-[500px]">
           <svg viewBox="0 0 500 500" className="absolute inset-0 h-full w-full" aria-hidden="true">
             <defs>
-              <radialGradient id="filament" gradientUnits="userSpaceOnUse" cx="250" cy="250" r="200">
-                <stop offset="0%" stopColor="#FBE6CC" />
-                <stop offset="55%" stopColor="#E08B3F" />
+              <radialGradient id="flameWarm" gradientUnits="userSpaceOnUse" cx="250" cy="250" r="220">
+                <stop offset="0%" stopColor="#FFD9A0" />
+                <stop offset="45%" stopColor="#E8871F" />
                 <stop offset="100%" stopColor="#C1622E" />
               </radialGradient>
-              <linearGradient id="boltFace" x1="0" y1="0" x2="1" y2="1">
-                <stop offset="0%" stopColor="#E8EDF6" />
-                <stop offset="28%" stopColor="#8E9AB2" />
-                <stop offset="52%" stopColor="#2A3652" />
-                <stop offset="74%" stopColor="#B0742F" />
-                <stop offset="100%" stopColor="#5C4326" />
-              </linearGradient>
-              <linearGradient id="boltBevel" x1="0" y1="1" x2="1" y2="0">
-                <stop offset="0%" stopColor="#141F38" />
-                <stop offset="45%" stopColor="#C1622E" />
-                <stop offset="100%" stopColor="#F2E2D2" />
-              </linearGradient>
-              <radialGradient id="boltHole" cx="50%" cy="42%" r="60%">
-                <stop offset="0%" stopColor="#0B1224" />
-                <stop offset="100%" stopColor="#38414F" />
+              <radialGradient id="flameCore" gradientUnits="userSpaceOnUse" cx="250" cy="250" r="220">
+                <stop offset="0%" stopColor="#FFF6E4" />
+                <stop offset="60%" stopColor="#FFC66B" />
+                <stop offset="100%" stopColor="#F09030" />
+              </radialGradient>
+              <filter id="flameWobble" x="-60%" y="-60%" width="220%" height="220%">
+                <feTurbulence type="fractalNoise" baseFrequency="0.022 0.05" numOctaves="2" seed="7">
+                  <animate
+                    attributeName="baseFrequency"
+                    dur="7s"
+                    values="0.022 0.05;0.034 0.062;0.022 0.05"
+                    repeatCount="indefinite"
+                  />
+                </feTurbulence>
+                <feDisplacementMap in="SourceGraphic" scale="14" xChannelSelector="R" yChannelSelector="G" />
+                <feGaussianBlur stdDeviation="4" />
+              </filter>
+              <filter id="flameSoft" x="-60%" y="-60%" width="220%" height="220%">
+                <feGaussianBlur stdDeviation="2.2" />
+              </filter>
+              <radialGradient id="nutHalo" cx="50%" cy="50%" r="50%">
+                <stop offset="0%" stopColor="#FFB864" stopOpacity="0.5" />
+                <stop offset="70%" stopColor="#C1622E" stopOpacity="0.16" />
+                <stop offset="100%" stopColor="#C1622E" stopOpacity="0" />
               </radialGradient>
             </defs>
 
-            <g transform="translate(250 250)">
-              <polygon
-                points="0,-92 80,-46 80,46 0,92 -80,46 -80,-46"
-                fill="url(#boltBevel)"
-                opacity="0.9"
-              />
-              <polygon points="0,-80 69,-40 69,40 0,80 -69,40 -69,-40" fill="url(#boltFace)" />
-              <polygon
-                points="0,-80 69,-40 69,40 0,80 -69,40 -69,-40"
-                fill="none"
-                stroke="#F3E4D3"
-                strokeOpacity="0.35"
-              />
-              <circle cx="0" cy="0" r="34" fill="url(#boltHole)" />
-              <circle cx="0" cy="0" r="34" fill="none" stroke="#0A1020" strokeOpacity="0.6" />
-              <circle
-                cx="0"
-                cy="0"
-                r="40"
-                fill="none"
-                stroke="#F6D2A8"
-                strokeOpacity="0.25"
-                strokeWidth="2"
-              />
-            </g>
+            <circle cx="250" cy="250" r="160" fill="url(#nutHalo)" />
 
             {BEAMS.map((beam, i) => {
               const local = Math.min(Math.max(progress * BEAMS.length - i, 0), 1);
               return (
                 <g key={beam.label} opacity={local > 0.01 ? 1 : 0}>
-                  {[
-                    { w: 14, o: 0.12 },
-                    { w: 8, o: 0.22 },
-                    { w: 4, o: 0.55 },
-                    { w: 1.6, o: 1 },
-                  ].map((layer) => (
-                    <line
+                  {FLAME_LAYERS.map((layer) => (
+                    <path
                       key={layer.w}
-                      x1={beam.x1}
-                      y1={beam.y1}
-                      x2={beam.x2}
-                      y2={beam.y2}
-                      stroke={layer.w > 2 ? "url(#filament)" : "#FDEBD6"}
+                      d={beam.d}
+                      fill="none"
+                      stroke={layer.color}
                       strokeOpacity={layer.o}
                       strokeWidth={layer.w}
                       strokeLinecap="round"
+                      filter={layer.blur}
                       pathLength={1}
                       strokeDasharray="1"
                       strokeDashoffset={1 - local}
-                      style={{ transition: "stroke-dashoffset 120ms linear" }}
+                      style={{
+                        transition: "stroke-dashoffset 120ms linear",
+                        animation:
+                          layer.w > 2
+                            ? `flame-flicker ${2.2 + layer.w * 0.12}s ease-in-out infinite`
+                            : undefined,
+                      }}
                     />
                   ))}
                 </g>
               );
             })}
           </svg>
+
+          <img
+            src={hexNut}
+            alt=""
+            width={1024}
+            height={1024}
+            loading="lazy"
+            className="absolute top-1/2 left-1/2 w-[42%] -translate-x-1/2 -translate-y-1/2 drop-shadow-[0_18px_40px_oklch(0.12_0.05_265/0.8)]"
+          />
 
           {BEAMS.map((beam, i) => {
             const local = Math.min(Math.max(progress * BEAMS.length - i, 0), 1);
