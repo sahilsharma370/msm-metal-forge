@@ -100,7 +100,7 @@
   --ring: oklch(0.583 0.135 45.5);
 
   --brand-display: "General Sans", "Plus Jakarta Sans", system-ui, sans-serif;
-  --brand-body: "Inter", system-ui, sans-serif;
+  --brand-body: "General Sans", "Inter", system-ui, sans-serif;
   --gradient-copper: linear-gradient(
     100deg,
     oklch(0.46 0.11 42) 0%,
@@ -330,32 +330,18 @@
 
 
 
-/* --- Icon shine sweep (What We Do cards) --- */
-@keyframes icon-shine-sweep {
-  0% {
-    transform: translateX(-140%) skewX(-18deg);
+/* --- Material switch zoom --- */
+@keyframes material-zoom {
+  from {
+    opacity: 0;
+    transform: scale(0.965);
   }
-  60%,
-  100% {
-    transform: translateX(240%) skewX(-18deg);
+  to {
+    opacity: 1;
+    transform: scale(1);
   }
 }
 
-.icon-shine {
-  overflow: hidden;
-}
-
-.icon-shine::after {
-  content: "";
-  position: absolute;
-  inset: -30% -10%;
-  width: 45%;
-  background: linear-gradient(
-    90deg,
-    transparent,
-    oklch(1 0 0 / 0.55),
-    transparent
-  );
-  animation: icon-shine-sweep 3.6s ease-in-out infinite;
-  pointer-events: none;
+@utility animate-material-zoom {
+  animation: material-zoom 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
