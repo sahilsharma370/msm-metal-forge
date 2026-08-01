@@ -408,3 +408,33 @@
     opacity: 1;
   }
 }
+
+/* --- Icon shine sweep (What We Do cards) --- */
+@keyframes icon-shine-sweep {
+  0% {
+    transform: translateX(-140%) skewX(-18deg);
+  }
+  60%,
+  100% {
+    transform: translateX(240%) skewX(-18deg);
+  }
+}
+
+.icon-shine {
+  overflow: hidden;
+}
+
+.icon-shine::after {
+  content: "";
+  position: absolute;
+  inset: -30% -10%;
+  width: 45%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    oklch(1 0 0 / 0.55),
+    transparent
+  );
+  animation: icon-shine-sweep 3.6s ease-in-out infinite;
+  pointer-events: none;
+}

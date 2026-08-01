@@ -66,11 +66,8 @@ export function WhatWeDo() {
           <div className="relative h-24 sm:h-32">
             <div className="absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-copper/45 to-transparent" />
             <div
-              className="absolute bottom-0 left-0 w-[26%] max-w-[220px] min-w-[130px] will-change-transform"
-              style={{
-                transform: `translate3d(calc(${(eased * 100).toFixed(3)}% * (100vw / 100) * 0), 0, 0)`,
-                left: `calc(${(eased * 100).toFixed(3)}% - ${(eased * 100).toFixed(3)}% * 0.26)`,
-              }}
+              className="absolute bottom-0 left-0 w-[26%] max-w-[220px] min-w-[120px] will-change-transform"
+              style={{ transform: `translate3d(${(eased * 285).toFixed(3)}%, 0, 0)` }}
             >
               <img
                 src={truckImg}
