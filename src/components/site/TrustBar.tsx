@@ -83,7 +83,7 @@ export function TrustBar() {
 
       <div
         ref={ref}
-        className="relative mx-auto grid max-w-7xl gap-5 px-6 pt-28 pb-64 sm:grid-cols-2 lg:grid-cols-4"
+        className="relative mx-auto grid max-w-7xl gap-5 px-6 pt-24 pb-[22rem] sm:grid-cols-2 lg:grid-cols-4"
       >
         {STATS.map((stat) => (
           <div

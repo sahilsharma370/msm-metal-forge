@@ -29,8 +29,8 @@ export function Materials() {
           loading="lazy"
           className="h-full w-full scale-110 object-cover blur-[18px]"
         />
-        <div className="absolute inset-0 bg-navy-deep/80" />
-        <div className="absolute inset-0 bg-gradient-to-b from-background via-transparent to-background" />
+        <div className="absolute inset-0 bg-navy-deep/72" />
+        <div className="absolute inset-0 bg-gradient-to-b from-background via-transparent to-background opacity-80" />
       </div>
 
       <div className="relative mx-auto max-w-7xl px-6">
