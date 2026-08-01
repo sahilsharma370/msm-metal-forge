@@ -1,4 +1,4 @@
-import logoWhite from "@/assets/msm-logo-white.png";
+import logoClean from "@/assets/msm-logo-clean.png.asset.json";
 import { WHATSAPP_URL } from "@/lib/site";
 import { DotGrid } from "./DotGrid";
 import { ScaleIcon } from "./ScaleIcon";
@@ -13,10 +13,10 @@ export function Hero() {
 
         <div className="mt-8">
           <img
-            src={logoWhite}
+            src={logoClean.url}
             alt="MSM Scrap — Mohammed Sihabuddin Metal Scrap Trading LLC"
-            width={924}
-            height={347}
+            width={1174}
+            height={417}
             className="w-64 sm:w-80"
           />
         </div>
@@ -25,7 +25,7 @@ export function Hero() {
           <span className="text-copper-metal">14 Years</span> of Trusted Metal Trading in the UAE
         </h1>
 
-        <p className="mt-6 max-w-2xl text-base text-muted-foreground sm:text-lg">
+        <p className="font-display mt-6 max-w-2xl text-base font-semibold text-foreground sm:text-lg">
           We buy, sell, export, and import all metal scrap — copper, aluminium, steel, and lead —
           with transparent weighing and UAE-wide pickup.
         </p>

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import copperAsset from "@/assets/material-copper.png.asset.json";
+import scrapTexture from "@/assets/scrap-texture.jpg.asset.json";
 import aluminium from "@/assets/material-aluminium.jpg";
 import steel from "@/assets/material-steel.jpg";
 import lead from "@/assets/material-lead.jpg";
@@ -18,9 +19,24 @@ export function Materials() {
   const material = MATERIALS[active]!;
 
   return (
-    <section id="materials" className="bg-background py-28">
-      <div className="mx-auto max-w-7xl px-6">
-        <p className="label-eyebrow text-copper/90">Our Inventory</p>
+    <section id="materials" className="relative overflow-hidden bg-background py-28">
+      {/* Ambient scrap-metal backdrop: heavily blurred and darkened */}
+      <div className="pointer-events-none absolute inset-0">
+        <img
+          src={scrapTexture.url}
+          alt=""
+          aria-hidden="true"
+          loading="lazy"
+          className="h-full w-full scale-110 object-cover blur-[18px]"
+        />
+        <div className="absolute inset-0 bg-navy-deep/72" />
+        <div className="absolute inset-0 bg-gradient-to-b from-background via-transparent to-background opacity-80" />
+      </div>
+
+      <div className="relative mx-auto max-w-7xl px-6">
+        <p className="glass-panel glass-ring label-eyebrow inline-block rounded-full px-5 py-2 text-copper">
+          Our Inventory
+        </p>
         <h2 className="font-display mt-4 text-3xl font-semibold tracking-[0.02em] uppercase sm:text-4xl">
           What we trade
         </h2>
@@ -33,8 +49,8 @@ export function Materials() {
               onClick={() => setActive(i)}
               className={`font-display rounded-full border px-6 py-2.5 text-sm font-semibold transition-colors ${
                 i === active
-                  ? "border-copper bg-copper text-primary-foreground"
-                  : "border-border text-foreground/80 hover:border-copper/60"
+                  ? "border-copper/70 bg-copper text-primary-foreground shadow-[0_10px_30px_-12px_oklch(0.583_0.135_45.5/0.9)]"
+                  : "glass-panel glass-ring border-transparent text-foreground hover:text-copper"
               }`}
             >
               {m.name}
@@ -51,9 +67,12 @@ export function Materials() {
             height={960}
             className="aspect-[4/3] w-full rounded-2xl object-cover"
           />
-          <div>
-            <h3 className="font-display text-3xl font-bold">{material.name}</h3>
-            <p className="mt-5 max-w-xl text-base text-muted-foreground sm:text-lg">
+          <div
+            key={material.name}
+            className="glass-panel glass-ring animate-material-zoom rounded-3xl p-8 sm:p-10"
+          >
+            <h3 className="font-display text-3xl font-bold text-foreground">{material.name}</h3>
+            <p className="font-display mt-5 max-w-xl text-base font-medium text-foreground/90 sm:text-lg">
               We source, weigh, and process {material.name.toLowerCase()} from factories, workshops,
               and demolition sites across the UAE, ensuring fair pricing and reliable pickup.
             </p>
@@ -61,7 +80,7 @@ export function Materials() {
               {TAGS.map((tag) => (
                 <span
                   key={tag}
-                  className="rounded-full border border-border px-4 py-2 text-sm text-foreground/85"
+                  className="glass-panel glass-ring font-display rounded-full px-4 py-2 text-sm font-semibold text-foreground"
                 >
                   {tag}
                 </span>
