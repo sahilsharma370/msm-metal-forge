@@ -1,4 +1,4 @@
-import logoAsset from "@/assets/msm-logo-v2.png.asset.json";
+import logoWhite from "@/assets/msm-logo-white.png";
 import {
   ADDRESS,
   EMAIL,
@@ -40,11 +40,11 @@ export function ContactFooter() {
         <div className="mx-auto grid max-w-7xl gap-12 px-6 sm:grid-cols-2 lg:grid-cols-4">
           <div>
             <img
-              src={logoAsset.url}
+              src={logoWhite}
               alt="MSM Scrap"
               loading="lazy"
-              width={1280}
-              height={830}
+              width={924}
+              height={347}
               className="w-40"
             />
             <p className="mt-4 text-sm text-muted-foreground">

@@ -4,10 +4,7 @@ import { YearsBadge } from "./YearsBadge";
 
 export function Header() {
   return (
-    <header
-      className="animate-drop-in fixed inset-x-0 top-0 z-40"
-      style={{ animationDelay: "1.45s" }}
-    >
+    <header className="fixed inset-x-0 top-0 z-40">
       <div className="flex items-center justify-between gap-4 px-6 py-4 sm:px-10">
         <YearsBadge className="w-32 shrink-0" />
 
