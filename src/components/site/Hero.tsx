@@ -17,7 +17,7 @@ export function Hero() {
         </p>
 
         <div
-          className="mt-8 rounded-2xl bg-foreground/95 px-6 py-4 shadow-[0_24px_60px_-24px_oklch(0.12_0.05_265/0.8)]"
+          className="mt-8"
           style={{
             animation: "logo-cut-reveal 1.1s cubic-bezier(0.76, 0, 0.24, 1) 0.6s both",
           }}
@@ -25,9 +25,9 @@ export function Hero() {
           <img
             src={logoAsset.url}
             alt="MSM Scrap — Mohammed Sihabuddin Metal Scrap Trading LLC"
-            width={1490}
-            height={508}
-            className="w-56 sm:w-72"
+            width={1280}
+            height={830}
+            className="w-64 sm:w-80"
           />
         </div>
 
