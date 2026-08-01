@@ -54,10 +54,10 @@ export function WhatWeDo() {
     <section className="relative overflow-hidden bg-navy py-28">
       <DotGrid glow={0.9} />
       <div className="relative mx-auto max-w-6xl px-6 text-center">
-        <p className="font-display text-sm font-bold tracking-[0.28em] text-foreground uppercase sm:text-base">
+        <p className="font-display text-2xl font-bold tracking-[0.28em] text-foreground uppercase sm:text-4xl">
           Our Services
         </p>
-        <h3 className="font-display mt-4 text-2xl font-bold sm:text-3xl">
+        <h3 className="font-display mt-5 text-2xl font-bold sm:text-3xl">
           What We <span className="text-copper">Do</span>
         </h3>
 
@@ -72,8 +72,8 @@ export function WhatWeDo() {
               <img
                 src={truckImg}
                 alt=""
-                width={1024}
-                height={576}
+                width={1108}
+                height={511}
                 loading="lazy"
                 className="w-full drop-shadow-[0_18px_30px_oklch(0.12_0.05_265/0.75)]"
               />
@@ -95,7 +95,7 @@ export function WhatWeDo() {
                   >
                     {/* Front */}
                     <div className="glass-panel glass-ring absolute inset-0 flex flex-col items-center justify-center rounded-2xl [backface-visibility:hidden]">
-                      <span className="icon-shine relative inline-block">
+                      <span className="relative inline-block">
                         <img
                           src={handshakeImg}
                           alt=""
@@ -105,7 +105,7 @@ export function WhatWeDo() {
                           className="h-12 w-auto"
                         />
                       </span>
-                      <span className="font-display mt-5 text-xl font-bold tracking-[0.06em] text-foreground">
+                      <span className="font-display mt-5 text-2xl font-bold tracking-[0.06em] text-foreground">
                         {card.label}
                       </span>
                     </div>
@@ -115,7 +115,7 @@ export function WhatWeDo() {
                       className="absolute inset-0 flex flex-col items-center justify-center rounded-2xl bg-copper px-6 [backface-visibility:hidden]"
                       style={{ transform: "rotateY(180deg)" }}
                     >
-                      <span className="icon-shine relative inline-block">
+                      <span className="relative inline-block">
                         <img
                           src={handshakeImg}
                           alt=""
@@ -125,10 +125,12 @@ export function WhatWeDo() {
                           className="h-12 w-auto brightness-0 invert"
                         />
                       </span>
-                      <span className="font-display mt-4 text-xl font-bold tracking-[0.06em] text-primary-foreground">
+                      <span className="font-display mt-4 text-2xl font-bold tracking-[0.06em] text-primary-foreground">
                         {card.label}
                       </span>
-                      <p className="mt-2 text-xs text-primary-foreground/85">{card.copy}</p>
+                      <p className="font-display mt-2 text-sm font-semibold text-primary-foreground">
+                        {card.copy}
+                      </p>
                     </div>
                   </div>
                 </div>
