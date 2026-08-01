@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from "react";
+import { Scale, ShieldCheck, Truck, Users } from "lucide-react";
+import skyline from "@/assets/dubai-skyline.jpg";
+import { DotGrid } from "./DotGrid";
 
 const STATS = [
-  { value: 14, suffix: "+", label: "Years Established" },
-  { value: null, display: "UAE-Wide", label: "Pickup Coverage" },
-  { value: 100, suffix: "%", label: "Transparent Weighing" },
-  { value: 500, suffix: "+", label: "Happy Customers" },
+  { value: 14, suffix: "+", label: "Years Established", Icon: ShieldCheck },
+  { value: null, display: "UAE-Wide", label: "Pickup Coverage", Icon: Truck },
+  { value: 100, suffix: "%", label: "Transparent Weighing", Icon: Scale },
+  { value: 500, suffix: "+", label: "Happy Clients", Icon: Users },
 ] as const;
 
 function useInView<T extends HTMLElement>() {
@@ -56,11 +59,39 @@ export function TrustBar() {
   const { ref, inView } = useInView<HTMLDivElement>();
 
   return (
-    <section className="relative bg-navy-deep pb-24">
-      <div ref={ref} className="mx-auto grid max-w-7xl gap-5 px-6 sm:grid-cols-2 lg:grid-cols-4">
+    <section className="relative overflow-hidden bg-navy-deep">
+      <img
+        src={skyline}
+        alt="Dubai skyline at night with the Burj Khalifa"
+        loading="lazy"
+        width={1920}
+        height={832}
+        className="absolute inset-0 h-full w-full object-cover"
+      />
+      <div className="absolute inset-0 bg-gradient-to-b from-navy-deep/70 via-navy-deep/15 to-navy-deep/85" />
+
+      {/* Dot texture over the sky only — masked out before the skyline itself */}
+      <div
+        className="pointer-events-none absolute inset-x-0 top-0 h-[55%]"
+        style={{
+          maskImage: "linear-gradient(to bottom, black 55%, transparent 100%)",
+          WebkitMaskImage: "linear-gradient(to bottom, black 55%, transparent 100%)",
+        }}
+      >
+        <DotGrid glow={0.5} />
+      </div>
+
+      <div
+        ref={ref}
+        className="relative mx-auto grid max-w-7xl gap-5 px-6 pt-40 pb-44 sm:grid-cols-2 lg:grid-cols-4"
+      >
         {STATS.map((stat) => (
-          <div key={stat.label} className="glass-panel glass-ring rounded-2xl px-6 py-10 text-center">
-            <div className="font-display text-3xl font-bold sm:text-4xl">
+          <div
+            key={stat.label}
+            className="glass-panel glass-ring flex flex-col items-center rounded-2xl px-6 py-9 text-center"
+          >
+            <stat.Icon className="h-6 w-6 text-copper" strokeWidth={1.5} aria-hidden="true" />
+            <div className="font-display mt-5 text-3xl font-bold sm:text-4xl">
               {stat.value === null ? (
                 stat.display
               ) : (
@@ -70,6 +101,7 @@ export function TrustBar() {
             <div className="label-eyebrow mt-3 text-[0.65rem] text-muted-foreground">
               {stat.label}
             </div>
+            <div className="mt-5 h-px w-8 bg-copper" />
           </div>
         ))}
       </div>
