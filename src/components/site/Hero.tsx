@@ -1,4 +1,4 @@
-import logoAsset from "@/assets/msm-logo-official.png.asset.json";
+import logoAsset from "@/assets/msm-logo-v2.png.asset.json";
 import { WHATSAPP_URL } from "@/lib/site";
 import { DotGrid } from "./DotGrid";
 import { ScaleIcon } from "./ScaleIcon";
@@ -13,7 +13,7 @@ export function Hero() {
           className="label-eyebrow animate-rise-in text-copper/90"
           style={{ animationDelay: "1.75s" }}
         >
-          Sharjah · United Arab Emirates
+          United Arab Emirates
         </p>
 
         <div

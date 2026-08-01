@@ -62,11 +62,7 @@ export function WhatWeDo() {
       <DotGrid glow={0.9} />
       <div ref={sectionRef} className="relative mx-auto max-w-5xl px-6 text-center">
         <p className="label-eyebrow text-copper/90">Our Services</p>
-        <h2 className="font-display mt-4 text-3xl font-semibold tracking-[0.02em] uppercase sm:text-4xl">
-          A full-cycle scrap trading partner
-        </h2>
-
-        <h3 className="font-display mt-16 text-2xl font-bold sm:text-3xl">
+        <h3 className="font-display mt-4 text-2xl font-bold sm:text-3xl">
           What We <span className="text-copper">Do</span>
         </h3>
 

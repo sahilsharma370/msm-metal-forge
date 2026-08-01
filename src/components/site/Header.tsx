@@ -23,7 +23,7 @@ export function Header() {
                 <li>
                   <a
                     href={link.href}
-                    className="block rounded-full px-4 py-1 text-[0.95rem] text-foreground/90 transition-colors hover:text-copper"
+                    className="block rounded-full px-4 py-1 text-[0.95rem] font-semibold text-foreground transition-colors hover:text-[oklch(0.72_0.19_52)]"
                   >
                     {link.label}
                   </a>

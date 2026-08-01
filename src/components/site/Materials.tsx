@@ -52,10 +52,7 @@ export function Materials() {
             className="aspect-[4/3] w-full rounded-2xl object-cover"
           />
           <div>
-            <p className="label-eyebrow text-copper/90">
-              Material {String(active + 1).padStart(2, "0")}
-            </p>
-            <h3 className="font-display mt-4 text-3xl font-bold">{material.name}</h3>
+            <h3 className="font-display text-3xl font-bold">{material.name}</h3>
             <p className="mt-5 max-w-xl text-base text-muted-foreground sm:text-lg">
               We source, weigh, and process {material.name.toLowerCase()} from factories, workshops,
               and demolition sites across the UAE, ensuring fair pricing and reliable pickup.
