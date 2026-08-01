@@ -68,7 +68,7 @@ export function TrustBar() {
         height={832}
         className="absolute inset-0 h-full w-full object-cover"
       />
-      <div className="absolute inset-0 bg-gradient-to-b from-navy-deep/85 via-navy-deep/45 to-navy-deep/90" />
+      <div className="absolute inset-0 bg-gradient-to-b from-navy-deep/70 via-navy-deep/15 to-navy-deep/85" />
 
       {/* Dot texture over the sky only — masked out before the skyline itself */}
       <div
@@ -83,7 +83,7 @@ export function TrustBar() {
 
       <div
         ref={ref}
-        className="relative mx-auto grid max-w-7xl gap-5 px-6 py-28 sm:grid-cols-2 lg:grid-cols-4"
+        className="relative mx-auto grid max-w-7xl gap-5 px-6 pt-40 pb-44 sm:grid-cols-2 lg:grid-cols-4"
       >
         {STATS.map((stat) => (
           <div
