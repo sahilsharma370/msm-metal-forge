@@ -43,8 +43,9 @@ export function ContactEvidenceStep({ restoredFilesNotice }: ContactEvidenceStep
 
       {restoredFilesNotice && (
         <p className="mt-3 rounded-xl border border-copper/25 bg-[oklch(0.583_0.135_45.5/0.08)] px-4 py-2.5 text-xs leading-relaxed text-foreground/75">
-          We restored your saved answers, but files aren't kept between sessions — please re-add any
-          photos or documents.
+          {isSeller
+            ? "We restored your saved answers. Uploaded photos aren't included in saved drafts, so please add them again."
+            : "We restored your saved answers. Uploaded files aren't included in saved drafts, so please add them again."}
         </p>
       )}
 
@@ -53,6 +54,10 @@ export function ContactEvidenceStep({ restoredFilesNotice }: ContactEvidenceStep
         <div className="space-y-4">
           {isSeller ? (
             <>
+              <p className="text-sm font-semibold text-foreground/90">
+                Photos{" "}
+                <span className="font-normal text-foreground/50">(recommended, not required)</span>
+              </p>
               <p className="text-xs leading-relaxed text-foreground/60">
                 Add one wide photo showing the approximate quantity and one close-up of the
                 material. Visible markings or cut ends are also helpful.
@@ -61,6 +66,7 @@ export function ContactEvidenceStep({ restoredFilesNotice }: ContactEvidenceStep
                 title="Add photos"
                 browseLabel="Browse files or use your camera"
                 acceptLine="JPG, PNG or WebP · Up to 5 photos"
+                countLabel="photos added"
                 files={form.watch("sellerPhotos")}
                 onChange={(files) => form.setValue("sellerPhotos", files, { shouldDirty: true })}
                 maxFiles={5}
@@ -72,6 +78,10 @@ export function ContactEvidenceStep({ restoredFilesNotice }: ContactEvidenceStep
             </>
           ) : (
             <>
+              <p className="text-sm font-semibold text-foreground/90">
+                Supporting files{" "}
+                <span className="font-normal text-foreground/50">(recommended, not required)</span>
+              </p>
               <p className="text-xs leading-relaxed text-foreground/60">
                 A specification sheet, sample photo or purchase reference can help MSM review the
                 requirement.
@@ -80,6 +90,7 @@ export function ContactEvidenceStep({ restoredFilesNotice }: ContactEvidenceStep
                 title="Add a supporting document or image"
                 browseLabel="Browse files"
                 acceptLine="PDF, JPG, PNG or WebP · Up to 3 files"
+                countLabel="files attached"
                 files={form.watch("buyerDocuments")}
                 onChange={(files) => form.setValue("buyerDocuments", files, { shouldDirty: true })}
                 maxFiles={3}
@@ -207,7 +218,9 @@ export function ContactEvidenceStep({ restoredFilesNotice }: ContactEvidenceStep
                     {isImportExport ? (
                       ""
                     ) : (
-                      <span className="font-normal text-foreground/50">(optional)</span>
+                      <span className="font-normal text-foreground/50">
+                        (optional, recommended)
+                      </span>
                     )}
                   </Label>
                   <Input
@@ -258,6 +271,7 @@ export function ContactEvidenceStep({ restoredFilesNotice }: ContactEvidenceStep
                   shouldDirty: true,
                 });
                 form.clearErrors(field);
+                if (v !== "email") form.clearErrors(isSeller ? "sellerEmail" : "buyerEmail");
               }}
               error={
                 isSeller

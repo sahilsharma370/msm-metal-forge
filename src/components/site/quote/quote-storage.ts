@@ -12,6 +12,9 @@ import { QUOTE_INTENTS, QUOTE_MATERIAL_KEYS, QUOTE_TRADE_ROUTES } from "./quote-
 import type { QuoteFormValues } from "./quote-schema";
 
 const DRAFT_KEY = "msm-quote-draft-v1";
+const DRAFT_VERSION = 1;
+/** F-13: a stale draft (e.g. from a much earlier visit) is discarded rather than silently resumed. */
+const DRAFT_EXPIRY_MS = 24 * 60 * 60 * 1000;
 
 const optionalString = z.string().optional().catch(undefined);
 function optionalEnum<T extends readonly [string, ...string[]]>(values: T) {
@@ -28,15 +31,18 @@ const draftValuesSchema = z.object({
   intent: optionalEnum(QUOTE_INTENTS),
   material: optionalEnum(QUOTE_MATERIAL_KEYS),
   subtype: optionalString,
+  subtypeOtherText: optionalString,
   otherMaterialText: optionalString,
   materialSpec: optionalString,
   sellerQuantityValue: optionalString,
   sellerQuantityUnit: optionalEnum(QUOTE_UNITS),
+  sellerQuantityUnitOther: optionalString,
   sellerQuantityUnsure: z.boolean().optional().catch(undefined),
   sellerCondition: optionalEnum(CONDITIONS),
   sellerDescription: optionalString,
   buyerQuantityValue: optionalString,
   buyerQuantityUnit: optionalEnum(QUOTE_UNITS),
+  buyerQuantityUnitOther: optionalString,
   buyerTradeRequirement: optionalEnum(QUOTE_TRADE_ROUTES),
   buyerRequiredByDate: optionalString,
   buyerAdditionalSpec: optionalString,
@@ -48,10 +54,12 @@ const draftValuesSchema = z.object({
   sellerAccessNote: optionalString,
   buyerDestinationEmirate: optionalEnum(EMIRATES),
   buyerDestinationArea: optionalString,
+  buyerDestinationMapLink: optionalString,
   buyerFulfilment: optionalEnum(FULFILMENT_CHOICES),
   buyerDestinationCountry: optionalString,
   buyerDestinationCityPort: optionalString,
   buyerPreferredPort: optionalEnum(PREFERRED_PORTS),
+  buyerPreferredPortOther: optionalString,
   buyerOriginCountryPreference: optionalString,
   buyerLogisticsRequirement: optionalEnum(FULFILMENT_CHOICES),
   buyerLogisticsNote: optionalString,
@@ -70,6 +78,7 @@ const draftValuesSchema = z.object({
 });
 
 const draftEnvelopeSchema = z.object({
+  version: z.literal(DRAFT_VERSION),
   step: z.number().int().min(1).max(6).catch(1),
   values: draftValuesSchema,
   hadSellerPhotos: z.boolean().catch(false),
@@ -88,6 +97,7 @@ export function saveQuoteDraft(step: number, values: QuoteFormValues): void {
   if (!isBrowser()) return;
   const { sellerPhotos, buyerDocuments, ...rest } = values;
   const envelope: QuoteDraftEnvelope = {
+    version: DRAFT_VERSION,
     step,
     values: rest,
     hadSellerPhotos: sellerPhotos.length > 0,
@@ -108,7 +118,15 @@ export function loadQuoteDraft(): QuoteDraftEnvelope | null {
   try {
     const parsed: unknown = JSON.parse(raw);
     const result = draftEnvelopeSchema.safeParse(parsed);
-    return result.success ? result.data : null;
+    if (!result.success) {
+      window.sessionStorage.removeItem(DRAFT_KEY);
+      return null;
+    }
+    if (Date.now() - result.data.savedAt > DRAFT_EXPIRY_MS) {
+      window.sessionStorage.removeItem(DRAFT_KEY);
+      return null;
+    }
+    return result.data;
   } catch {
     return null;
   }

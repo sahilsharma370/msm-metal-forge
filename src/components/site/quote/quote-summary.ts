@@ -2,14 +2,21 @@ import {
   EMIRATE_LABELS,
   FULFILMENT_LABELS,
   PREFERRED_CONTACT_LABELS,
+  PREFERRED_PORT_LABELS,
   TRADE_REQUIREMENT_LABELS,
   UNIT_LABELS,
   getMaterialLabel,
   getSubtypeLabel,
 } from "./quote-options";
-import type { QuoteFormValues } from "./quote-schema";
+import {
+  isBuyerContactComplete,
+  isMaterialComplete,
+  isSellerContactComplete,
+  type QuoteFormValues,
+} from "./quote-schema";
 
-export type ReadinessState = "complete" | "needs_attention" | "not_added_yet" | "recommended";
+export type ReadinessState =
+  "complete" | "required" | "needs_attention" | "not_added_yet" | "recommended";
 
 export interface ReadinessItem {
   key: string;
@@ -17,6 +24,8 @@ export interface ReadinessItem {
   state: ReadinessState;
   /** The step this field lives on — used to tell "not yet visited" apart from "visited but incomplete". */
   step: number;
+  /** Overrides the generic state label with an evidence count, e.g. "3 added". */
+  stateLabelOverride?: string | undefined;
 }
 
 type RawReadiness = "complete" | "incomplete" | "recommended";
@@ -26,30 +35,56 @@ interface RawReadinessItem {
   label: string;
   step: number;
   raw: RawReadiness;
+  /** True if the user has entered *something* for this item, even if it's invalid — distinguishes "empty" from "wrong". */
+  hasValue: boolean;
+  count?: number;
+  countUnit?: "added" | "attached";
 }
 
+/**
+ * A5/A6/A7/A8 readiness-state contract:
+ * - complete/recommended pass straight through.
+ * - a field that HAS a value but fails validation is always "needs attention",
+ *   regardless of timing (covers restored invalid drafts — F-08).
+ * - an empty field on a step beyond the furthest one reached is "not added yet".
+ * - an empty field on a step already attempted-and-failed is "needs attention".
+ * - an empty field on the current step, never attempted, is "required" (neutral, not an error).
+ */
 function resolveState(
-  raw: RawReadiness,
-  step: number,
+  item: RawReadinessItem,
+  currentStep: number,
   furthestStepReached: number,
+  attemptedSteps: ReadonlySet<number>,
 ): ReadinessState {
-  if (raw === "complete") return "complete";
-  if (raw === "recommended") return "recommended";
-  return step > furthestStepReached ? "not_added_yet" : "needs_attention";
+  if (item.raw === "complete") return "complete";
+  if (item.raw === "recommended") return "recommended";
+  if (item.hasValue) return "needs_attention";
+  if (item.step > furthestStepReached) return "not_added_yet";
+  if (attemptedSteps.has(item.step)) return "needs_attention";
+  if (item.step === currentStep) return "required";
+  return "needs_attention";
 }
 
-function materialComplete(values: QuoteFormValues): boolean {
-  if (!values.material) return false;
-  if (values.material === "other") return !!values.otherMaterialText?.trim();
-  return true;
+function sellerMaterialDetailsComplete(values: QuoteFormValues): boolean {
+  const quantityOk = !!values.sellerQuantityUnsure || sellerQuantityComplete(values);
+  return quantityOk && !!values.sellerCondition;
 }
 
 function sellerQuantityComplete(values: QuoteFormValues): boolean {
-  return !!values.sellerQuantityValue?.trim() && !!values.sellerQuantityUnit;
+  if (!values.sellerQuantityValue?.trim() || !values.sellerQuantityUnit) return false;
+  if (values.sellerQuantityUnit === "other" && !values.sellerQuantityUnitOther?.trim())
+    return false;
+  return true;
 }
 
 function sellerLocationComplete(values: QuoteFormValues): boolean {
   return !!values.sellerEmirate && !!values.sellerArea?.trim();
+}
+
+function buyerQuantityComplete(values: QuoteFormValues): boolean {
+  if (!values.buyerQuantityValue?.trim() || !values.buyerQuantityUnit) return false;
+  if (values.buyerQuantityUnit === "other" && !values.buyerQuantityUnitOther?.trim()) return false;
+  return true;
 }
 
 function buyerDestinationComplete(values: QuoteFormValues): boolean {
@@ -61,17 +96,42 @@ function buyerDestinationComplete(values: QuoteFormValues): boolean {
     );
   }
   if (values.buyerTradeRequirement === "import") {
-    return !!values.buyerDestinationEmirate;
+    return !!values.buyerDestinationEmirate && !!values.buyerLogisticsRequirement;
   }
   if (values.buyerTradeRequirement === "export") {
-    return !!values.buyerDestinationCountry?.trim() && !!values.buyerDestinationCityPort?.trim();
+    return (
+      !!values.buyerDestinationCountry?.trim() &&
+      !!values.buyerDestinationCityPort?.trim() &&
+      !!values.buyerLogisticsRequirement
+    );
   }
   return false;
 }
 
-function buyerCompanyOk(values: QuoteFormValues): boolean {
-  if (values.buyerTradeRequirement === "local") return true;
-  return !!values.buyerCompany?.trim();
+function buyerDestinationHasValue(values: QuoteFormValues): boolean {
+  if (values.buyerTradeRequirement === "local") {
+    return (
+      !!values.buyerDestinationEmirate ||
+      !!values.buyerDestinationArea?.trim() ||
+      !!values.buyerFulfilment
+    );
+  }
+  if (values.buyerTradeRequirement === "import") {
+    return (
+      !!values.buyerDestinationEmirate ||
+      !!values.buyerPreferredPort ||
+      !!values.buyerOriginCountryPreference?.trim() ||
+      !!values.buyerLogisticsRequirement
+    );
+  }
+  if (values.buyerTradeRequirement === "export") {
+    return (
+      !!values.buyerDestinationCountry?.trim() ||
+      !!values.buyerDestinationCityPort?.trim() ||
+      !!values.buyerLogisticsRequirement
+    );
+  }
+  return false;
 }
 
 function getSellerReadinessRaw(values: QuoteFormValues): RawReadinessItem[] {
@@ -81,46 +141,58 @@ function getSellerReadinessRaw(values: QuoteFormValues): RawReadinessItem[] {
       label: "Enquiry type",
       step: 1,
       raw: values.intent === "sell" ? "complete" : "incomplete",
+      hasValue: false,
     },
     {
       key: "material",
       label: "Material",
       step: 2,
-      raw: materialComplete(values) ? "complete" : "incomplete",
+      raw: isMaterialComplete(values.material, values.otherMaterialText)
+        ? "complete"
+        : "incomplete",
+      hasValue: !!values.material,
     },
     {
-      key: "quantity",
-      label: "Quantity",
+      key: "materialDetails",
+      label: "Material details",
       step: 3,
-      raw: values.sellerQuantityUnsure
-        ? "incomplete"
-        : sellerQuantityComplete(values)
-          ? "complete"
-          : "incomplete",
+      raw: sellerMaterialDetailsComplete(values) ? "complete" : "incomplete",
+      hasValue:
+        !!values.sellerQuantityValue?.trim() ||
+        !!values.sellerQuantityUnsure ||
+        !!values.sellerQuantityUnit ||
+        !!values.sellerCondition,
     },
     {
       key: "location",
       label: "Location",
       step: 4,
       raw: sellerLocationComplete(values) ? "complete" : "incomplete",
+      hasValue: !!values.sellerEmirate || !!values.sellerArea?.trim(),
     },
     {
       key: "pickup",
       label: "Pickup",
       step: 4,
       raw: values.sellerPickupRequired ? "complete" : "incomplete",
+      hasValue: false,
     },
     {
       key: "contact",
       label: "Contact details",
       step: 5,
-      raw: values.sellerName?.trim() && values.sellerPhone?.trim() ? "complete" : "incomplete",
+      raw: isSellerContactComplete(values) ? "complete" : "incomplete",
+      hasValue:
+        !!values.sellerName?.trim() || !!values.sellerPhone?.trim() || !!values.sellerEmail?.trim(),
     },
     {
       key: "photos",
       label: "Photos",
       step: 5,
       raw: values.sellerPhotos.length > 0 ? "complete" : "recommended",
+      hasValue: false,
+      count: values.sellerPhotos.length,
+      countUnit: "added",
     },
   ];
 }
@@ -132,70 +204,89 @@ function getBuyerReadinessRaw(values: QuoteFormValues): RawReadinessItem[] {
       label: "Enquiry type",
       step: 1,
       raw: values.intent === "buy" ? "complete" : "incomplete",
+      hasValue: false,
     },
     {
       key: "material",
       label: "Material",
       step: 2,
-      raw: materialComplete(values) ? "complete" : "incomplete",
+      raw: isMaterialComplete(values.material, values.otherMaterialText)
+        ? "complete"
+        : "incomplete",
+      hasValue: !!values.material,
     },
     {
       key: "quantity",
       label: "Quantity",
       step: 3,
-      raw:
-        values.buyerQuantityValue?.trim() && values.buyerQuantityUnit ? "complete" : "incomplete",
+      raw: buyerQuantityComplete(values) ? "complete" : "incomplete",
+      hasValue: !!values.buyerQuantityValue?.trim() || !!values.buyerQuantityUnit,
     },
     {
       key: "tradeRoute",
       label: "Trade route",
       step: 3,
       raw: values.buyerTradeRequirement ? "complete" : "incomplete",
+      hasValue: false,
     },
     {
       key: "destination",
       label: "Destination & logistics",
       step: 4,
       raw: buyerDestinationComplete(values) ? "complete" : "incomplete",
+      hasValue: buyerDestinationHasValue(values),
     },
     {
       key: "contact",
       label: "Contact details",
       step: 5,
-      raw:
-        values.buyerContactPerson?.trim() && values.buyerPhone?.trim() && buyerCompanyOk(values)
-          ? "complete"
-          : "incomplete",
+      raw: isBuyerContactComplete(values) ? "complete" : "incomplete",
+      hasValue:
+        !!values.buyerContactPerson?.trim() ||
+        !!values.buyerPhone?.trim() ||
+        !!values.buyerEmail?.trim(),
     },
     {
-      key: "specification",
-      label: "Specification / documents",
+      key: "documents",
+      label: "Documents",
       step: 5,
-      raw:
-        values.buyerAdditionalSpec?.trim() ||
-        values.materialSpec?.trim() ||
-        values.buyerDocuments.length > 0
-          ? "complete"
-          : "recommended",
+      raw: values.buyerDocuments.length > 0 ? "complete" : "recommended",
+      hasValue: false,
+      count: values.buyerDocuments.length,
+      countUnit: "attached",
     },
   ];
 }
 
-/** `furthestStepReached` distinguishes a genuinely-skipped required field ("Needs attention") from one the user hasn't reached yet ("Not added yet"). */
-export function getReadiness(values: QuoteFormValues, furthestStepReached = 6): ReadinessItem[] {
-  const raw =
-    values.intent === "buy" ? getBuyerReadinessRaw(values) : getSellerReadinessRaw(values);
-  return raw.map((item) => ({
+function getRawReadiness(values: QuoteFormValues): RawReadinessItem[] {
+  return values.intent === "buy" ? getBuyerReadinessRaw(values) : getSellerReadinessRaw(values);
+}
+
+/**
+ * `currentStep`/`furthestStepReached`/`attemptedSteps` are UI-only concerns — they exist
+ * purely to pick between "required" and "needs attention" for an empty field, per A-05/A-06.
+ */
+export function getReadiness(
+  values: QuoteFormValues,
+  currentStep: number,
+  furthestStepReached: number,
+  attemptedSteps: ReadonlySet<number>,
+): ReadinessItem[] {
+  return getRawReadiness(values).map((item) => ({
     key: item.key,
     label: item.label,
     step: item.step,
-    state: resolveState(item.raw, item.step, furthestStepReached),
+    state: resolveState(item, currentStep, furthestStepReached, attemptedSteps),
+    stateLabelOverride:
+      item.raw === "complete" && item.count !== undefined && item.count > 0
+        ? `${item.count} ${item.countUnit}`
+        : undefined,
   }));
 }
 
-/** Blocking items only — "recommended" items (photos/spec) never gate submission. */
+/** Pure business-rule gate for Review/dev-preview — ignores UI timing (required vs needs-attention) entirely. */
 export function isReadyForReview(values: QuoteFormValues): boolean {
-  return getReadiness(values, 6).every((item) => item.state !== "needs_attention");
+  return getRawReadiness(values).every((item) => item.raw !== "incomplete");
 }
 
 function materialLine(values: QuoteFormValues): string {
@@ -203,17 +294,32 @@ function materialLine(values: QuoteFormValues): string {
     values.material === "other"
       ? values.otherMaterialText?.trim()
       : getMaterialLabel(values.material);
-  const subtype = getSubtypeLabel(values.material, values.subtype);
   if (!label) return "Material not specified";
-  return subtype && subtype !== "Not sure" ? `${label} · ${subtype}` : label;
+  const subtypeLabel =
+    values.subtype === "other"
+      ? values.subtypeOtherText?.trim()
+      : getSubtypeLabel(values.material, values.subtype);
+  return subtypeLabel && subtypeLabel !== "Not sure" ? `${label} · ${subtypeLabel}` : label;
+}
+
+function unitLabel(
+  values: QuoteFormValues,
+  unit: QuoteFormValues["sellerQuantityUnit"],
+  other: string | undefined,
+): string | undefined {
+  if (!unit) return undefined;
+  if (unit === "other") return other?.trim() || UNIT_LABELS.other;
+  return UNIT_LABELS[unit];
 }
 
 function compactQuantity(
   value: string | undefined,
   unit: QuoteFormValues["sellerQuantityUnit"],
+  unitOther?: string,
 ): string | undefined {
   if (!value?.trim() || !unit) return undefined;
-  return `${value.trim()} ${UNIT_LABELS[unit]}`;
+  const label = unit === "other" ? unitOther?.trim() || UNIT_LABELS.other : UNIT_LABELS[unit];
+  return `${value.trim()} ${label}`;
 }
 
 /** "Area, Emirate" — the natural order people use when describing a UAE location. */
@@ -233,7 +339,7 @@ function buyerDestinationLine(values: QuoteFormValues): string | undefined {
   }
   if (values.buyerTradeRequirement === "import") {
     return values.buyerDestinationEmirate
-      ? `${EMIRATE_LABELS[values.buyerDestinationEmirate]}, UAE (import arrival)`
+      ? EMIRATE_LABELS[values.buyerDestinationEmirate]
       : undefined;
   }
   if (values.buyerTradeRequirement === "export") {
@@ -255,10 +361,18 @@ export function buildSmartBrief(values: QuoteFormValues): string {
     if (values.sellerQuantityUnsure) {
       parts.push("quantity unsure");
     } else {
-      const qty = compactQuantity(values.sellerQuantityValue, values.sellerQuantityUnit);
+      const qty = compactQuantity(
+        values.sellerQuantityValue,
+        values.sellerQuantityUnit,
+        values.sellerQuantityUnitOther,
+      );
       if (qty) parts.push(`approx. ${qty}`);
     }
-    if (values.sellerEmirate) parts.push(EMIRATE_LABELS[values.sellerEmirate]);
+    const location = naturalLocation(
+      values.sellerArea,
+      values.sellerEmirate ? EMIRATE_LABELS[values.sellerEmirate] : undefined,
+    );
+    if (location) parts.push(location);
     if (values.sellerPickupRequired === "yes") parts.push("pickup required");
     if (values.sellerPhotos.length > 0) {
       parts.push(
@@ -268,12 +382,22 @@ export function buildSmartBrief(values: QuoteFormValues): string {
   } else if (values.intent === "buy") {
     parts.push("Buy enquiry");
     parts.push(materialLine(values));
-    const qty = compactQuantity(values.buyerQuantityValue, values.buyerQuantityUnit);
+    const qty = compactQuantity(
+      values.buyerQuantityValue,
+      values.buyerQuantityUnit,
+      values.buyerQuantityUnitOther,
+    );
     if (qty) parts.push(qty);
     if (values.buyerTradeRequirement)
       parts.push(TRADE_REQUIREMENT_LABELS[values.buyerTradeRequirement]);
     const destination = buyerDestinationLine(values);
-    if (destination) parts.push(`destination: ${destination}`);
+    if (destination) {
+      parts.push(
+        values.buyerTradeRequirement === "import"
+          ? `Final delivery: ${destination}`
+          : `destination: ${destination}`,
+      );
+    }
   } else {
     return "Enquiry details not yet complete.";
   }
@@ -287,11 +411,19 @@ function pushBullet(lines: string[], label: string, value: string | undefined | 
 
 function condLabel(condition: NonNullable<QuoteFormValues["sellerCondition"]>): string {
   return {
-    clean_separated: "Clean / separated",
-    mixed: "Mixed material",
-    used_surplus: "Used / surplus",
+    clean_separated: "Clean and separated",
+    mixed: "Mixed or unsorted",
+    used_surplus: "Used or surplus",
     not_sure: "Not sure",
   }[condition];
+}
+
+function buyerLogisticsLabel(values: QuoteFormValues): string | undefined {
+  const requirement =
+    values.buyerTradeRequirement === "local"
+      ? values.buyerFulfilment
+      : values.buyerLogisticsRequirement;
+  return requirement ? FULFILMENT_LABELS[requirement] : undefined;
 }
 
 /** Deterministic WhatsApp handoff message — never emits "undefined" or empty rows. */
@@ -306,7 +438,11 @@ export function buildWhatsAppMessage(values: QuoteFormValues): string {
       "Approx. quantity",
       values.sellerQuantityUnsure
         ? "Not sure"
-        : compactQuantity(values.sellerQuantityValue, values.sellerQuantityUnit),
+        : compactQuantity(
+            values.sellerQuantityValue,
+            values.sellerQuantityUnit,
+            values.sellerQuantityUnitOther,
+          ),
     );
     pushBullet(
       lines,
@@ -321,6 +457,7 @@ export function buildWhatsAppMessage(values: QuoteFormValues): string {
         values.sellerEmirate ? EMIRATE_LABELS[values.sellerEmirate] : undefined,
       ),
     );
+    pushBullet(lines, "Maps link", values.sellerMapLink);
     pushBullet(
       lines,
       "Pickup",
@@ -332,6 +469,10 @@ export function buildWhatsAppMessage(values: QuoteFormValues): string {
             ? "Not sure"
             : undefined,
     );
+    if (values.sellerPickupRequired === "yes") {
+      pushBullet(lines, "Preferred pickup date", formatDateForDisplay(values.sellerPickupDate));
+      pushBullet(lines, "Access and loading notes", values.sellerAccessNote);
+    }
     pushBullet(
       lines,
       "Preferred contact",
@@ -339,11 +480,14 @@ export function buildWhatsAppMessage(values: QuoteFormValues): string {
         ? PREFERRED_CONTACT_LABELS[values.sellerPreferredContact]
         : undefined,
     );
+    pushBullet(lines, "Notes", values.sellerNotes);
 
     const closing: string[] = [];
     if (values.sellerName?.trim()) closing.push(`- Name: ${values.sellerName.trim()}`);
     if (values.sellerCompany?.trim()) closing.push(`- Company: ${values.sellerCompany.trim()}`);
-    if (values.sellerPhotos.length > 0) closing.push("- I will attach the photos here.");
+    if (values.sellerPhotos.length > 0) {
+      closing.push(`- Photos: ${values.sellerPhotos.length} selected — I will attach them here.`);
+    }
     if (closing.length > 0) lines.push("", ...closing);
 
     lines.push("", "Could you review this and advise the next step?");
@@ -353,7 +497,11 @@ export function buildWhatsAppMessage(values: QuoteFormValues): string {
     pushBullet(
       lines,
       "Required quantity",
-      compactQuantity(values.buyerQuantityValue, values.buyerQuantityUnit),
+      compactQuantity(
+        values.buyerQuantityValue,
+        values.buyerQuantityUnit,
+        values.buyerQuantityUnitOther,
+      ),
     );
     pushBullet(
       lines,
@@ -363,24 +511,42 @@ export function buildWhatsAppMessage(values: QuoteFormValues): string {
         : undefined,
     );
     pushBullet(lines, "Destination", buyerDestinationLine(values));
-    const logistics =
-      values.buyerTradeRequirement === "local"
-        ? values.buyerFulfilment
-          ? FULFILMENT_LABELS[values.buyerFulfilment]
-          : undefined
-        : values.buyerLogisticsRequirement
-          ? FULFILMENT_LABELS[values.buyerLogisticsRequirement]
-          : undefined;
-    pushBullet(lines, "Fulfilment/logistics requirement", logistics);
-    pushBullet(lines, "Required-by", values.buyerRequiredByDate);
-    pushBullet(lines, "Specification", values.buyerAdditionalSpec ?? values.materialSpec);
+    if (values.buyerTradeRequirement === "local") {
+      pushBullet(lines, "Maps link", values.buyerDestinationMapLink);
+    }
+    if (values.buyerTradeRequirement === "import") {
+      pushBullet(
+        lines,
+        "Preferred port",
+        values.buyerPreferredPort === "other"
+          ? values.buyerPreferredPortOther
+          : values.buyerPreferredPort
+            ? PREFERRED_PORT_LABELS[values.buyerPreferredPort]
+            : undefined,
+      );
+      pushBullet(lines, "Origin preference", values.buyerOriginCountryPreference);
+    }
+    pushBullet(lines, "Fulfilment/logistics requirement", buyerLogisticsLabel(values));
+    if (values.buyerTradeRequirement !== "local") {
+      pushBullet(lines, "Logistics note", values.buyerLogisticsNote);
+    }
+    pushBullet(lines, "Needed by", formatDateForDisplay(values.buyerRequiredByDate));
+    pushBullet(lines, "Specification", values.materialSpec);
+    pushBullet(lines, "Additional requirements", values.buyerAdditionalSpec);
 
     const closing: string[] = [];
     if (values.buyerContactPerson?.trim())
       closing.push(`- Contact person: ${values.buyerContactPerson.trim()}`);
     if (values.buyerCompany?.trim()) closing.push(`- Company: ${values.buyerCompany.trim()}`);
-    if (values.buyerDocuments.length > 0)
-      closing.push("- I will attach the specification or document here.");
+    if (values.buyerPhone?.trim())
+      closing.push(`- Phone: ${formatPhoneForDisplay(values.buyerPhone)}`);
+    if (values.buyerEmail?.trim()) closing.push(`- Email: ${values.buyerEmail.trim()}`);
+    if (values.buyerNotes?.trim()) closing.push(`- Notes: ${values.buyerNotes.trim()}`);
+    if (values.buyerDocuments.length > 0) {
+      closing.push(
+        `- Supporting files: ${values.buyerDocuments.length} selected — I will attach them here.`,
+      );
+    }
     if (closing.length > 0) lines.push("", ...closing);
 
     lines.push("", "Please confirm availability and the next step.");
@@ -394,7 +560,7 @@ export function buildWhatsAppUrl(phoneNumber: string, message: string): string {
 }
 
 /**
- * Display-only UAE phone formatting for the Review screen — never mutates the
+ * Display-only UAE phone formatting for Review/WhatsApp — never mutates the
  * stored value, and falls back to the raw trimmed input for anything that
  * doesn't match a recognisable UAE shape rather than guessing at digits.
  */
@@ -415,4 +581,13 @@ export function formatPhoneForDisplay(raw: string | undefined): string | undefin
     return `+971 ${withCountryCode.slice(0, 2)} ${withCountryCode.slice(2, 5)} ${withCountryCode.slice(5)}`;
   }
   return trimmed;
+}
+
+/** E-15: renders a stored ISO (`2026-09-24`) or free date string as `24 Sep 2026`; falls back to the raw value if unparsable. */
+export function formatDateForDisplay(raw: string | undefined): string | undefined {
+  const trimmed = raw?.trim();
+  if (!trimmed) return undefined;
+  const parsed = new Date(trimmed);
+  if (Number.isNaN(parsed.getTime())) return trimmed;
+  return parsed.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 }

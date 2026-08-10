@@ -21,9 +21,9 @@ export const UNIT_LABELS: Record<QuoteUnit, string> = {
 export const CONDITIONS = ["clean_separated", "mixed", "used_surplus", "not_sure"] as const;
 export type QuoteCondition = (typeof CONDITIONS)[number];
 export const CONDITION_LABELS: Record<QuoteCondition, string> = {
-  clean_separated: "Clean / separated",
-  mixed: "Mixed material",
-  used_surplus: "Used / surplus",
+  clean_separated: "Clean and separated",
+  mixed: "Mixed or unsorted",
+  used_surplus: "Used or surplus",
   not_sure: "Not sure",
 };
 
@@ -57,9 +57,10 @@ export const EMIRATE_LABELS: Record<QuoteEmirate, string> = {
 
 export const FULFILMENT_CHOICES = ["delivery", "collection", "discuss"] as const;
 export type QuoteFulfilment = (typeof FULFILMENT_CHOICES)[number];
+/** Actor-based copy (D-13) — subject to owner confirmation of exact wording. */
 export const FULFILMENT_LABELS: Record<QuoteFulfilment, string> = {
-  delivery: "Delivery required",
-  collection: "Buyer collection",
+  delivery: "MSM-arranged delivery",
+  collection: "Buyer-arranged collection",
   discuss: "Discuss with MSM",
 };
 
@@ -71,18 +72,21 @@ export const PREFERRED_CONTACT_LABELS: Record<QuotePreferredContact, string> = {
   email: "Email",
 };
 
+/** Customer-facing, perspective-explicit route terminology (D-06). */
 export const TRADE_REQUIREMENT_LABELS: Record<QuoteTradeRoute, string> = {
   local: "UAE local supply",
-  import: "Import enquiry",
-  export: "Export enquiry",
+  import: "Import into UAE",
+  export: "Export from UAE",
 };
 
-export const PREFERRED_PORTS = ["jebel_ali", "khalifa_port", "other_not_sure"] as const;
+/** D-18: `other` (known but unlisted, reveals a port-name field) is kept separate from `no_preference` (genuinely unsure/open). */
+export const PREFERRED_PORTS = ["jebel_ali", "khalifa_port", "other", "no_preference"] as const;
 export type QuotePreferredPort = (typeof PREFERRED_PORTS)[number];
 export const PREFERRED_PORT_LABELS: Record<QuotePreferredPort, string> = {
   jebel_ali: "Jebel Ali",
   khalifa_port: "Khalifa Port",
-  other_not_sure: "Other / Not sure",
+  other: "Other",
+  no_preference: "No preference / Not sure",
 };
 
 export interface MaterialSubtype {

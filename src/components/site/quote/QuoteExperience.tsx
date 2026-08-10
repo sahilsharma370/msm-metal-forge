@@ -27,18 +27,9 @@ interface QuoteExperienceProps {
 
 const isDev = import.meta.env.DEV;
 
-/** Compact display-only labels for the desktop rail — the underlying readiness keys/data are untouched. */
+/** Compact display-only label for the desktop rail so it never wraps at 232px — the underlying readiness key/data is untouched. */
 const RAIL_LABEL_OVERRIDES: Record<string, string> = {
-  enquiryType: "Enquiry type",
-  material: "Material",
-  quantity: "Quantity",
-  location: "Location",
-  pickup: "Pickup",
-  contact: "Contact details",
-  photos: "Photos",
-  tradeRoute: "Trade route",
   destination: "Destination",
-  specification: "Documents",
 };
 
 function nextPreviewReference(): string {
@@ -64,6 +55,7 @@ export function QuoteExperience({ mode, initialContext, onClose }: QuoteExperien
 
   const [step, setStep] = useState(draft?.step ?? 1);
   const [furthestStep, setFurthestStep] = useState(draft?.step ?? 1);
+  const [attemptedSteps, setAttemptedSteps] = useState<ReadonlySet<number>>(new Set());
   const [showCloseConfirm, setShowCloseConfirm] = useState(false);
   const [confirmationRef, setConfirmationRef] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -83,8 +75,9 @@ export function QuoteExperience({ mode, initialContext, onClose }: QuoteExperien
 
   const intent = form.watch("intent");
   const values = form.watch();
-  const readiness = getReadiness(values, furthestStep);
-  const restoredFilesNotice = !!draft && (draft.hadSellerPhotos || draft.hadBuyerDocuments);
+  const readiness = getReadiness(values, step, furthestStep, attemptedSteps);
+  const restoredFilesNotice =
+    !!draft && (intent === "buy" ? draft.hadBuyerDocuments : draft.hadSellerPhotos);
   const hasMeaningfulProgress = !!intent;
   const step5Name = intent === "buy" ? "Documents & Contact" : "Photos & Contact";
 
@@ -114,6 +107,7 @@ export function QuoteExperience({ mode, initialContext, onClose }: QuoteExperien
     if (schema) {
       const result = schema.safeParse(form.getValues());
       if (!result.success) {
+        setAttemptedSteps((prev) => new Set(prev).add(step));
         form.clearErrors();
         let firstField: keyof QuoteFormValues | null = null;
         for (const issue of result.error.issues) {
@@ -150,6 +144,7 @@ export function QuoteExperience({ mode, initialContext, onClose }: QuoteExperien
     form.reset(buildDefaultQuoteValues(initialContext));
     setStep(1);
     setFurthestStep(1);
+    setAttemptedSteps(new Set());
     setConfirmationRef(null);
     setShowCloseConfirm(false);
   }
@@ -242,7 +237,7 @@ export function QuoteExperience({ mode, initialContext, onClose }: QuoteExperien
                   }}
                   className="text-xs font-semibold text-foreground/45 underline-offset-2 hover:text-destructive hover:underline"
                 >
-                  Discard and start over
+                  Discard and close
                 </button>
               </div>
             </div>
@@ -259,7 +254,7 @@ export function QuoteExperience({ mode, initialContext, onClose }: QuoteExperien
                 type="button"
                 onClick={requestClose}
                 aria-label="Close quote experience"
-                className="flex h-10 w-10 items-center justify-center rounded-full text-foreground/60 transition-colors hover:bg-white/10 hover:text-foreground"
+                className="flex h-10 w-10 items-center justify-center rounded-full text-foreground/60 transition-colors hover:bg-white/10 hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-copper"
               >
                 <X aria-hidden="true" className="h-4 w-4" />
               </button>
@@ -280,7 +275,7 @@ export function QuoteExperience({ mode, initialContext, onClose }: QuoteExperien
             <button
               type="button"
               onClick={handleStartOver}
-              className="rounded text-xs font-semibold text-foreground/45 underline-offset-2 hover:text-foreground/75 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-copper"
+              className="rounded text-xs font-semibold text-foreground/60 underline-offset-2 hover:text-foreground/85 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-copper"
             >
               Start over
             </button>
@@ -320,7 +315,7 @@ export function QuoteExperience({ mode, initialContext, onClose }: QuoteExperien
         <div className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col bg-[#080A1D]">
           <div
             ref={scrollRef}
-            className="relative min-h-0 flex-1 overflow-y-auto px-5 py-6 sm:px-8 sm:py-8 md:px-12 md:py-10"
+            className="quote-scroll relative min-h-0 flex-1 overflow-y-auto px-5 py-6 sm:px-8 sm:py-8 md:px-12 md:py-10"
           >
             <div className="mb-6 md:hidden">
               <QuoteReadiness items={readiness} compact />

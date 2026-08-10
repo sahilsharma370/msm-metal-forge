@@ -1,5 +1,5 @@
-import { MessageCircle, Pencil } from "lucide-react";
-import type { QuoteFormValues } from "../quote-schema";
+import { MessageCircle, Paperclip, Pencil } from "lucide-react";
+import type { QuoteFormValues, QuoteLocalFile } from "../quote-schema";
 import {
   CONDITION_LABELS,
   EMIRATE_LABELS,
@@ -17,6 +17,7 @@ import {
   buildSmartBrief,
   buildWhatsAppMessage,
   buildWhatsAppUrl,
+  formatDateForDisplay,
   formatPhoneForDisplay,
   isReadyForReview,
 } from "../quote-summary";
@@ -38,21 +39,25 @@ interface ReviewSection {
   step: number;
   title: string;
   rows: ReviewRow[];
+  files?: QuoteLocalFile[];
 }
 
 function materialAndSubtype(v: QuoteFormValues): string | undefined {
   const label = v.material === "other" ? v.otherMaterialText?.trim() : getMaterialLabel(v.material);
   if (!label) return undefined;
-  const subtype = getSubtypeLabel(v.material, v.subtype);
-  return subtype && subtype !== "Not sure" ? `${label} · ${subtype}` : label;
+  const subtypeLabel =
+    v.subtype === "other" ? v.subtypeOtherText?.trim() : getSubtypeLabel(v.material, v.subtype);
+  return subtypeLabel && subtypeLabel !== "Not sure" ? `${label} · ${subtypeLabel}` : label;
 }
 
 function compactQuantity(
   value: string | undefined,
   unit: QuoteFormValues["sellerQuantityUnit"],
+  unitOther?: string,
 ): string | undefined {
   if (!value?.trim() || !unit) return undefined;
-  return `${value.trim()} ${UNIT_LABELS[unit]}`;
+  const label = unit === "other" ? unitOther?.trim() || UNIT_LABELS.other : UNIT_LABELS[unit];
+  return `${value.trim()} ${label}`;
 }
 
 function buildSellerSections(v: QuoteFormValues): ReviewSection[] {
@@ -67,7 +72,11 @@ function buildSellerSections(v: QuoteFormValues): ReviewSection[] {
           label: "Quantity",
           value: v.sellerQuantityUnsure
             ? "Not sure"
-            : compactQuantity(v.sellerQuantityValue, v.sellerQuantityUnit),
+            : compactQuantity(
+                v.sellerQuantityValue,
+                v.sellerQuantityUnit,
+                v.sellerQuantityUnitOther,
+              ),
         },
         {
           label: "Condition",
@@ -87,16 +96,26 @@ function buildSellerSections(v: QuoteFormValues): ReviewSection[] {
               .filter(Boolean)
               .join(", ") || undefined,
         },
+        { label: "Maps link", value: v.sellerMapLink },
         {
           label: "Pickup required",
           value: v.sellerPickupRequired ? PICKUP_CHOICE_LABELS[v.sellerPickupRequired] : undefined,
         },
-        { label: "Pickup date", value: v.sellerPickupDate },
+        {
+          label: "Preferred pickup date",
+          value:
+            v.sellerPickupRequired === "yes" ? formatDateForDisplay(v.sellerPickupDate) : undefined,
+        },
+        {
+          label: "Access and loading notes",
+          value: v.sellerPickupRequired === "yes" ? v.sellerAccessNote : undefined,
+        },
       ],
     },
     {
       step: 5,
       title: "Photos & Contact",
+      files: v.sellerPhotos,
       rows: [
         { label: "Name", value: v.sellerName },
         { label: "Phone", value: formatPhoneForDisplay(v.sellerPhone) },
@@ -108,11 +127,12 @@ function buildSellerSections(v: QuoteFormValues): ReviewSection[] {
             ? PREFERRED_CONTACT_LABELS[v.sellerPreferredContact]
             : undefined,
         },
+        { label: "Notes", value: v.sellerNotes },
         {
           label: "Photos",
           value:
             v.sellerPhotos.length > 0
-              ? `${v.sellerPhotos.length} attached`
+              ? undefined // shown as thumbnails instead of a text row
               : "No photos added — recommended for a faster review.",
         },
       ],
@@ -133,6 +153,7 @@ function buyerDestinationRows(v: QuoteFormValues): ReviewRow[] {
             .filter(Boolean)
             .join(", ") || undefined,
       },
+      { label: "Maps link", value: v.buyerDestinationMapLink },
       {
         label: "Fulfilment",
         value: v.buyerFulfilment ? FULFILMENT_LABELS[v.buyerFulfilment] : undefined,
@@ -142,12 +163,17 @@ function buyerDestinationRows(v: QuoteFormValues): ReviewRow[] {
   if (v.buyerTradeRequirement === "import") {
     return [
       {
-        label: "Arrival emirate",
+        label: "Final delivery emirate",
         value: v.buyerDestinationEmirate ? EMIRATE_LABELS[v.buyerDestinationEmirate] : undefined,
       },
       {
         label: "Preferred port",
-        value: v.buyerPreferredPort ? PREFERRED_PORT_LABELS[v.buyerPreferredPort] : undefined,
+        value:
+          v.buyerPreferredPort === "other"
+            ? v.buyerPreferredPortOther
+            : v.buyerPreferredPort
+              ? PREFERRED_PORT_LABELS[v.buyerPreferredPort]
+              : undefined,
       },
       { label: "Origin preference", value: v.buyerOriginCountryPreference },
       {
@@ -196,7 +222,11 @@ function buildBuyerSections(v: QuoteFormValues): ReviewSection[] {
       rows: [
         {
           label: "Required quantity",
-          value: compactQuantity(v.buyerQuantityValue, v.buyerQuantityUnit),
+          value: compactQuantity(
+            v.buyerQuantityValue,
+            v.buyerQuantityUnit,
+            v.buyerQuantityUnitOther,
+          ),
         },
         {
           label: "Trade route",
@@ -204,14 +234,15 @@ function buildBuyerSections(v: QuoteFormValues): ReviewSection[] {
             ? TRADE_REQUIREMENT_LABELS[v.buyerTradeRequirement]
             : undefined,
         },
-        { label: "Required by", value: v.buyerRequiredByDate },
-        { label: "Additional spec", value: v.buyerAdditionalSpec },
+        { label: "Needed by", value: formatDateForDisplay(v.buyerRequiredByDate) },
+        { label: "Additional requirements", value: v.buyerAdditionalSpec },
       ],
     },
     { step: 4, title: "Location & Logistics", rows: buyerDestinationRows(v) },
     {
       step: 5,
       title: "Documents & Contact",
+      files: v.buyerDocuments,
       rows: [
         { label: "Contact person", value: v.buyerContactPerson },
         { label: "Phone", value: formatPhoneForDisplay(v.buyerPhone) },
@@ -223,16 +254,42 @@ function buildBuyerSections(v: QuoteFormValues): ReviewSection[] {
             ? PREFERRED_CONTACT_LABELS[v.buyerPreferredContact]
             : undefined,
         },
+        { label: "Notes", value: v.buyerNotes },
         {
           label: "Documents",
           value:
             v.buyerDocuments.length > 0
-              ? `${v.buyerDocuments.length} attached`
+              ? undefined
               : "No documents added — recommended for a faster review.",
         },
       ],
     },
   ];
+}
+
+function FileThumbnails({ files }: { files: QuoteLocalFile[] }) {
+  if (files.length === 0) return null;
+  return (
+    <div className="mt-2 flex flex-wrap gap-2 sm:col-span-2">
+      {files.map((f) => (
+        <div
+          key={f.id}
+          className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-lg border border-white/12 bg-white/5"
+          title={f.name}
+        >
+          {f.previewUrl ? (
+            <img
+              src={f.previewUrl}
+              alt={`Preview of ${f.name}`}
+              className="h-full w-full object-cover"
+            />
+          ) : (
+            <Paperclip aria-hidden="true" className="h-4 w-4 text-foreground/50" />
+          )}
+        </div>
+      ))}
+    </div>
+  );
 }
 
 export function ReviewStep({ values, onEditStep, onPreviewConfirmation, isDev }: ReviewStepProps) {
@@ -288,10 +345,12 @@ export function ReviewStep({ values, onEditStep, onPreviewConfirmation, isDev }:
                     </dd>
                   </div>
                 ))}
-              {section.rows.every((row) => !row.value) && (
-                <p className="text-[0.8rem] text-foreground/45">Not provided.</p>
-              )}
+              {section.rows.every((row) => !row.value) &&
+                (!section.files || section.files.length === 0) && (
+                  <p className="text-[0.8rem] text-foreground/45">Not provided.</p>
+                )}
             </dl>
+            {section.files && <FileThumbnails files={section.files} />}
           </div>
         ))}
       </div>

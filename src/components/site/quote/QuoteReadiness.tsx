@@ -10,6 +10,7 @@ interface QuoteReadinessProps {
 
 const STATE_ICON: Record<ReadinessItem["state"], typeof Check> = {
   complete: Check,
+  required: Circle,
   needs_attention: CircleAlert,
   not_added_yet: Circle,
   recommended: Sparkles,
@@ -17,13 +18,15 @@ const STATE_ICON: Record<ReadinessItem["state"], typeof Check> = {
 
 const STATE_STYLES: Record<ReadinessItem["state"], string> = {
   complete: "text-copper-bright",
-  needs_attention: "text-foreground/60",
+  required: "text-foreground/70",
+  needs_attention: "text-foreground/70",
   not_added_yet: "text-foreground/35",
   recommended: "text-foreground/55",
 };
 
 const STATE_LABEL: Record<ReadinessItem["state"], string> = {
   complete: "Complete",
+  required: "Required",
   needs_attention: "Needs attention",
   not_added_yet: "Not added yet",
   recommended: "Recommended",
@@ -37,6 +40,7 @@ export function QuoteReadiness({ items, compact = false, labelOverrides }: Quote
         {items.map((item) => {
           const Icon = STATE_ICON[item.state];
           const label = labelOverrides?.[item.key] ?? item.label;
+          const stateLabel = item.stateLabelOverride ?? STATE_LABEL[item.state];
           return (
             <li key={item.key} className="flex items-center gap-2 text-xs">
               <Icon
@@ -49,10 +53,10 @@ export function QuoteReadiness({ items, compact = false, labelOverrides }: Quote
                 <span
                   className={`ml-auto shrink-0 text-[0.68rem] font-medium whitespace-nowrap ${STATE_STYLES[item.state]}`}
                 >
-                  {STATE_LABEL[item.state]}
+                  {stateLabel}
                 </span>
               )}
-              <span className="sr-only">{!compact ? "" : `: ${STATE_LABEL[item.state]}`}</span>
+              <span className="sr-only">{!compact ? "" : `: ${stateLabel}`}</span>
             </li>
           );
         })}

@@ -50,7 +50,7 @@ export function LogisticsStep() {
 
           <div className="mt-8 space-y-6">
             <QuotePillGroup
-              label="Destination emirate"
+              label="Final delivery emirate"
               options={EMIRATE_OPTIONS}
               value={form.watch("buyerDestinationEmirate")}
               onChange={(v) => {
@@ -68,16 +68,44 @@ export function LogisticsStep() {
             />
 
             <QuotePillGroup
-              label="Preferred UAE port"
-              ariaLabel="Preferred UAE port (optional)"
+              label="Preferred UAE arrival port (optional)"
               options={PORT_OPTIONS}
               value={form.watch("buyerPreferredPort")}
-              onChange={(v) =>
+              onChange={(v) => {
                 form.setValue("buyerPreferredPort", v as QuoteFormValues["buyerPreferredPort"], {
                   shouldDirty: true,
-                })
-              }
+                });
+                if (v !== "other") form.setValue("buyerPreferredPortOther", undefined);
+                form.clearErrors("buyerPreferredPortOther");
+              }}
             />
+
+            {form.watch("buyerPreferredPort") === "other" && (
+              <div className="max-w-xs">
+                <Label
+                  htmlFor="buyerPreferredPortOther"
+                  className="text-sm font-semibold text-foreground/90"
+                >
+                  Port name
+                </Label>
+                <Input
+                  id="buyerPreferredPortOther"
+                  className="mt-2 h-11 rounded-xl border-white/15 bg-white/5"
+                  placeholder="e.g. Hamriyah Port"
+                  aria-invalid={!!errors.buyerPreferredPortOther}
+                  aria-describedby={
+                    errors.buyerPreferredPortOther ? "buyerPreferredPortOther-error" : undefined
+                  }
+                  {...form.register("buyerPreferredPortOther", {
+                    onChange: () => form.clearErrors("buyerPreferredPortOther"),
+                  })}
+                />
+                <FieldError
+                  id="buyerPreferredPortOther-error"
+                  message={errors.buyerPreferredPortOther?.message}
+                />
+              </div>
+            )}
 
             <div className="max-w-md">
               <Label
@@ -99,15 +127,15 @@ export function LogisticsStep() {
               label="Logistics requirement"
               options={FULFILMENT_OPTIONS}
               value={form.watch("buyerLogisticsRequirement")}
-              onChange={(v) =>
+              onChange={(v) => {
                 form.setValue(
                   "buyerLogisticsRequirement",
                   v as QuoteFormValues["buyerLogisticsRequirement"],
-                  {
-                    shouldDirty: true,
-                  },
-                )
-              }
+                  { shouldValidate: true, shouldDirty: true },
+                );
+                form.clearErrors("buyerLogisticsRequirement");
+              }}
+              error={errors.buyerLogisticsRequirement?.message}
             />
 
             <div>
@@ -193,15 +221,15 @@ export function LogisticsStep() {
               label="Logistics requirement"
               options={FULFILMENT_OPTIONS}
               value={form.watch("buyerLogisticsRequirement")}
-              onChange={(v) =>
+              onChange={(v) => {
                 form.setValue(
                   "buyerLogisticsRequirement",
                   v as QuoteFormValues["buyerLogisticsRequirement"],
-                  {
-                    shouldDirty: true,
-                  },
-                )
-              }
+                  { shouldValidate: true, shouldDirty: true },
+                );
+                form.clearErrors("buyerLogisticsRequirement");
+              }}
+              error={errors.buyerLogisticsRequirement?.message}
             />
 
             <div>
@@ -236,6 +264,7 @@ export function LogisticsStep() {
             options={EMIRATE_OPTIONS}
             value={form.watch("buyerDestinationEmirate")}
             onChange={(v) => {
+              const prev = form.getValues("buyerDestinationEmirate");
               form.setValue(
                 "buyerDestinationEmirate",
                 v as QuoteFormValues["buyerDestinationEmirate"],
@@ -244,33 +273,67 @@ export function LogisticsStep() {
                   shouldDirty: true,
                 },
               );
-              form.clearErrors("buyerDestinationEmirate");
+              // C-02/D-10: an Emirate change invalidates any Area/Maps link entered for the previous one.
+              if (prev && prev !== v) {
+                form.setValue("buyerDestinationArea", undefined);
+                form.setValue("buyerDestinationMapLink", undefined);
+              }
+              form.clearErrors(["buyerDestinationEmirate", "buyerDestinationArea"]);
             }}
             error={errors.buyerDestinationEmirate?.message}
           />
-          <div className="max-w-md">
-            <Label
-              htmlFor="buyerDestinationArea"
-              className="text-sm font-semibold text-foreground/90"
-            >
-              Area
-            </Label>
-            <Input
-              id="buyerDestinationArea"
-              className="mt-2 h-11 rounded-xl border-white/15 bg-white/5"
-              placeholder="e.g. Al Quoz Industrial"
-              aria-invalid={!!errors.buyerDestinationArea}
-              aria-describedby={
-                errors.buyerDestinationArea ? "buyerDestinationArea-error" : undefined
-              }
-              {...form.register("buyerDestinationArea", {
-                onChange: () => form.clearErrors("buyerDestinationArea"),
-              })}
-            />
-            <FieldError
-              id="buyerDestinationArea-error"
-              message={errors.buyerDestinationArea?.message}
-            />
+          <div className="grid gap-6 sm:grid-cols-2">
+            <div>
+              <Label
+                htmlFor="buyerDestinationArea"
+                className="text-sm font-semibold text-foreground/90"
+              >
+                Area
+              </Label>
+              <Input
+                id="buyerDestinationArea"
+                className="mt-2 h-11 rounded-xl border-white/15 bg-white/5"
+                placeholder="e.g. Al Quoz Industrial"
+                aria-invalid={!!errors.buyerDestinationArea}
+                aria-describedby={
+                  errors.buyerDestinationArea ? "buyerDestinationArea-error" : undefined
+                }
+                {...form.register("buyerDestinationArea", {
+                  onChange: () => form.clearErrors("buyerDestinationArea"),
+                })}
+              />
+              <FieldError
+                id="buyerDestinationArea-error"
+                message={errors.buyerDestinationArea?.message}
+              />
+            </div>
+            <div>
+              <Label
+                htmlFor="buyerDestinationMapLink"
+                className="text-sm font-semibold text-foreground/90"
+              >
+                Google Maps link
+              </Label>
+              <Input
+                id="buyerDestinationMapLink"
+                className="mt-2 h-11 rounded-xl border-white/15 bg-white/5"
+                placeholder="Paste a maps link"
+                aria-invalid={!!errors.buyerDestinationMapLink}
+                aria-describedby={
+                  errors.buyerDestinationMapLink ? "buyerDestinationMapLink-error" : undefined
+                }
+                {...form.register("buyerDestinationMapLink", {
+                  onChange: () => form.clearErrors("buyerDestinationMapLink"),
+                })}
+              />
+              <p className="mt-1.5 text-xs text-foreground/50">
+                Optional — paste the shared location link from Google Maps.
+              </p>
+              <FieldError
+                id="buyerDestinationMapLink-error"
+                message={errors.buyerDestinationMapLink?.message}
+              />
+            </div>
           </div>
           <QuotePillGroup
             label="Fulfilment"
@@ -305,11 +368,17 @@ export function LogisticsStep() {
           options={EMIRATE_OPTIONS}
           value={form.watch("sellerEmirate")}
           onChange={(v) => {
+            const prev = form.getValues("sellerEmirate");
             form.setValue("sellerEmirate", v as QuoteFormValues["sellerEmirate"], {
               shouldValidate: true,
               shouldDirty: true,
             });
-            form.clearErrors("sellerEmirate");
+            // C-02: an Emirate change invalidates any Area/Maps link entered for the previous one.
+            if (prev && prev !== v) {
+              form.setValue("sellerArea", undefined);
+              form.setValue("sellerMapLink", undefined);
+            }
+            form.clearErrors(["sellerEmirate", "sellerArea"]);
           }}
           error={errors.sellerEmirate?.message}
         />
@@ -337,11 +406,16 @@ export function LogisticsStep() {
               id="sellerMapLink"
               className="mt-2 h-11 rounded-xl border-white/15 bg-white/5"
               placeholder="Paste a maps link"
-              {...form.register("sellerMapLink")}
+              aria-invalid={!!errors.sellerMapLink}
+              aria-describedby={errors.sellerMapLink ? "sellerMapLink-error" : undefined}
+              {...form.register("sellerMapLink", {
+                onChange: () => form.clearErrors("sellerMapLink"),
+              })}
             />
             <p className="mt-1.5 text-xs text-foreground/50">
               Optional — paste the shared location link from Google Maps.
             </p>
+            <FieldError id="sellerMapLink-error" message={errors.sellerMapLink?.message} />
           </div>
         </div>
 
@@ -354,7 +428,12 @@ export function LogisticsStep() {
               shouldValidate: true,
               shouldDirty: true,
             });
-            form.clearErrors("sellerPickupRequired");
+            // C-09: Yes-only fields can't silently survive a switch to No/Not sure.
+            if (v !== "yes") {
+              form.setValue("sellerPickupDate", undefined);
+              form.setValue("sellerAccessNote", undefined);
+            }
+            form.clearErrors(["sellerPickupRequired", "sellerPickupDate"]);
           }}
           error={errors.sellerPickupRequired?.message}
         />
@@ -373,21 +452,27 @@ export function LogisticsStep() {
                 id="sellerPickupDate"
                 type="date"
                 className="mt-2 h-11 rounded-xl border-white/15 bg-white/5"
-                {...form.register("sellerPickupDate")}
+                aria-invalid={!!errors.sellerPickupDate}
+                aria-describedby={errors.sellerPickupDate ? "sellerPickupDate-error" : undefined}
+                {...form.register("sellerPickupDate", {
+                  onChange: () => form.clearErrors("sellerPickupDate"),
+                })}
               />
+              <p className="mt-1.5 text-xs text-foreground/50">Subject to MSM confirmation.</p>
+              <FieldError id="sellerPickupDate-error" message={errors.sellerPickupDate?.message} />
             </div>
             <div>
               <Label
                 htmlFor="sellerAccessNote"
                 className="text-sm font-semibold text-foreground/90"
               >
-                Access / loading note{" "}
+                Access and loading notes{" "}
                 <span className="font-normal text-foreground/50">(optional)</span>
               </Label>
               <Input
                 id="sellerAccessNote"
                 className="mt-2 h-11 rounded-xl border-white/15 bg-white/5"
-                placeholder="Vehicle access, loading help, floor/site restrictions"
+                placeholder="Gate access, equipment needed, timing or site restrictions"
                 {...form.register("sellerAccessNote")}
               />
             </div>

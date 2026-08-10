@@ -65,34 +65,97 @@ export function MaterialStep() {
       {family && family.subtypes.length > 0 && (
         <div className="mt-8">
           <p className="text-sm font-semibold text-foreground/90">
-            Material type <span className="font-normal text-foreground/50">(optional)</span>
+            Material type <span className="font-normal text-foreground/50">(if known)</span>
           </p>
           <div
-            className="mt-3 flex flex-wrap gap-2"
+            className="mt-3 flex flex-wrap items-center gap-2"
             role="radiogroup"
             aria-label="Material subtype"
           >
-            {family.subtypes.map((s) => (
-              <button
-                key={s.value}
-                type="button"
-                role="radio"
-                aria-checked={subtype === s.value}
-                onClick={() =>
-                  form.setValue("subtype", subtype === s.value ? undefined : s.value, {
-                    shouldDirty: true,
-                  })
-                }
-                className={`font-display rounded-full border px-4 py-2 text-xs font-semibold tracking-[0.04em] transition-colors ${
-                  subtype === s.value
-                    ? "border-copper/70 bg-[oklch(0.583_0.135_45.5/0.16)] text-copper-bright"
-                    : "glass-panel border-white/12 text-foreground/75 hover:border-copper/40"
-                }`}
-              >
-                {s.label}
-              </button>
-            ))}
+            {/* B-01/B-02: known subtypes stay in the primary group; Other/Not sure form a
+                visually separated fallback group at the right, Not sure always last. */}
+            {family.subtypes
+              .filter((s) => s.value !== "other" && s.value !== "not_sure")
+              .map((s) => (
+                <button
+                  key={s.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={subtype === s.value}
+                  onClick={() =>
+                    form.setValue("subtype", subtype === s.value ? undefined : s.value, {
+                      shouldDirty: true,
+                    })
+                  }
+                  className={`font-display rounded-full border px-4 py-2 text-xs font-semibold tracking-[0.04em] transition-colors ${
+                    subtype === s.value
+                      ? "border-copper/70 bg-[oklch(0.583_0.135_45.5/0.16)] text-copper-bright"
+                      : "glass-panel border-white/12 text-foreground/75 hover:border-copper/40"
+                  }`}
+                >
+                  {s.label}
+                </button>
+              ))}
+            <span
+              aria-hidden="true"
+              className="mx-1 hidden h-5 w-px self-center bg-white/15 sm:block"
+            />
+            {family.subtypes
+              .filter((s) => s.value === "other" || s.value === "not_sure")
+              .map((s) => (
+                <button
+                  key={s.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={subtype === s.value}
+                  onClick={() => {
+                    form.setValue("subtype", subtype === s.value ? undefined : s.value, {
+                      shouldDirty: true,
+                    });
+                    form.clearErrors("subtypeOtherText");
+                  }}
+                  className={`font-display rounded-full border px-4 py-2 text-xs font-semibold tracking-[0.04em] transition-colors ${
+                    subtype === s.value
+                      ? "border-copper/70 bg-[oklch(0.583_0.135_45.5/0.16)] text-copper-bright"
+                      : "glass-panel border-white/12 text-foreground/75 hover:border-copper/40"
+                  }`}
+                >
+                  {s.label}
+                </button>
+              ))}
           </div>
+
+          {subtype === "other" && (
+            <div className="mt-4 max-w-md">
+              <Label
+                htmlFor="subtypeOtherText"
+                className="text-sm font-semibold text-foreground/90"
+              >
+                Describe the material type
+              </Label>
+              <Input
+                id="subtypeOtherText"
+                className="mt-2 h-11 rounded-xl border-white/15 bg-white/5"
+                placeholder="e.g. Motor windings, cable offcuts"
+                aria-invalid={!!form.formState.errors.subtypeOtherText}
+                aria-describedby={
+                  form.formState.errors.subtypeOtherText ? "subtypeOtherText-error" : undefined
+                }
+                {...form.register("subtypeOtherText", {
+                  onChange: () => form.clearErrors("subtypeOtherText"),
+                })}
+              />
+              {form.formState.errors.subtypeOtherText && (
+                <p
+                  id="subtypeOtherText-error"
+                  role="alert"
+                  className="mt-1.5 text-[0.8rem] font-medium text-destructive"
+                >
+                  {form.formState.errors.subtypeOtherText.message}
+                </p>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -104,7 +167,7 @@ export function MaterialStep() {
           <Input
             id="materialSpec"
             className="mt-2 h-11 rounded-xl border-white/15 bg-white/5"
-            placeholder="e.g. Grade A, insulated only"
+            placeholder="e.g. alloy/grade, dimensions, coating or purity"
             {...form.register("materialSpec")}
           />
         </div>

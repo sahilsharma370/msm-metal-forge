@@ -66,14 +66,48 @@ export function DetailsStep() {
             label="Unit"
             options={UNIT_OPTIONS}
             value={form.watch("buyerQuantityUnit")}
-            onChange={(v) =>
+            onChange={(v) => {
               form.setValue("buyerQuantityUnit", v as QuoteFormValues["buyerQuantityUnit"], {
                 shouldValidate: true,
-              })
-            }
+              });
+              form.clearErrors("buyerQuantityUnit");
+              if (v !== "other") form.setValue("buyerQuantityUnitOther", undefined);
+            }}
             error={errors.buyerQuantityUnit?.message}
           />
         </div>
+
+        {form.watch("buyerQuantityUnit") === "other" && (
+          <div className="mt-4 max-w-xs">
+            <Label
+              htmlFor="buyerQuantityUnitOther"
+              className="text-sm font-semibold text-foreground/90"
+            >
+              Specify unit
+            </Label>
+            <Input
+              id="buyerQuantityUnitOther"
+              className="mt-2 h-11 rounded-xl border-white/15 bg-white/5"
+              placeholder="e.g. bales, drums, m³"
+              aria-invalid={!!errors.buyerQuantityUnitOther}
+              aria-describedby={
+                errors.buyerQuantityUnitOther ? "buyerQuantityUnitOther-error" : undefined
+              }
+              {...form.register("buyerQuantityUnitOther", {
+                onChange: () => form.clearErrors("buyerQuantityUnitOther"),
+              })}
+            />
+            {errors.buyerQuantityUnitOther && (
+              <p
+                id="buyerQuantityUnitOther-error"
+                role="alert"
+                className="mt-1.5 text-[0.8rem] font-medium text-destructive"
+              >
+                {errors.buyerQuantityUnitOther.message}
+              </p>
+            )}
+          </div>
+        )}
 
         <div className="mt-6">
           <QuotePillGroup
@@ -122,20 +156,38 @@ export function DetailsStep() {
               htmlFor="buyerRequiredByDate"
               className="text-sm font-semibold text-foreground/90"
             >
-              Required-by date <span className="font-normal text-foreground/50">(optional)</span>
+              Needed by <span className="font-normal text-foreground/50">(optional)</span>
             </Label>
             <Input
               id="buyerRequiredByDate"
               type="date"
               className="mt-2 h-11 rounded-xl border-white/15 bg-white/5"
-              {...form.register("buyerRequiredByDate")}
+              aria-invalid={!!errors.buyerRequiredByDate}
+              aria-describedby={
+                errors.buyerRequiredByDate ? "buyerRequiredByDate-error" : undefined
+              }
+              {...form.register("buyerRequiredByDate", {
+                onChange: () => form.clearErrors("buyerRequiredByDate"),
+              })}
             />
+            <p className="mt-1.5 text-xs text-foreground/50">
+              Subject to availability and logistics confirmation.
+            </p>
+            {errors.buyerRequiredByDate && (
+              <p
+                id="buyerRequiredByDate-error"
+                role="alert"
+                className="mt-1.5 text-[0.8rem] font-medium text-destructive"
+              >
+                {errors.buyerRequiredByDate.message}
+              </p>
+            )}
           </div>
         </div>
 
         <div className="mt-6">
           <Label htmlFor="buyerAdditionalSpec" className="text-sm font-semibold text-foreground/90">
-            Additional specification{" "}
+            Additional requirements{" "}
             <span className="font-normal text-foreground/50">
               {form.watch("material") === "other" ? "" : "(optional)"}
             </span>
@@ -143,7 +195,7 @@ export function DetailsStep() {
           <Textarea
             id="buyerAdditionalSpec"
             className="mt-2 min-h-24 rounded-xl border-white/15 bg-white/5"
-            placeholder="Any grade, packaging or sourcing requirement worth mentioning"
+            placeholder="Dimensions, packing, acceptable alternatives or application"
             {...form.register("buyerAdditionalSpec")}
           />
         </div>
@@ -189,14 +241,48 @@ export function DetailsStep() {
           label="Unit"
           options={UNIT_OPTIONS}
           value={form.watch("sellerQuantityUnit")}
-          onChange={(v) =>
+          onChange={(v) => {
             form.setValue("sellerQuantityUnit", v as QuoteFormValues["sellerQuantityUnit"], {
               shouldValidate: true,
-            })
-          }
+            });
+            form.clearErrors("sellerQuantityUnit");
+            if (v !== "other") form.setValue("sellerQuantityUnitOther", undefined);
+          }}
           error={errors.sellerQuantityUnit?.message}
         />
       </div>
+
+      {form.watch("sellerQuantityUnit") === "other" && !form.watch("sellerQuantityUnsure") && (
+        <div className="mt-4 max-w-xs">
+          <Label
+            htmlFor="sellerQuantityUnitOther"
+            className="text-sm font-semibold text-foreground/90"
+          >
+            Specify unit
+          </Label>
+          <Input
+            id="sellerQuantityUnitOther"
+            className="mt-2 h-11 rounded-xl border-white/15 bg-white/5"
+            placeholder="e.g. bales, drums, m³"
+            aria-invalid={!!errors.sellerQuantityUnitOther}
+            aria-describedby={
+              errors.sellerQuantityUnitOther ? "sellerQuantityUnitOther-error" : undefined
+            }
+            {...form.register("sellerQuantityUnitOther", {
+              onChange: () => form.clearErrors("sellerQuantityUnitOther"),
+            })}
+          />
+          {errors.sellerQuantityUnitOther && (
+            <p
+              id="sellerQuantityUnitOther-error"
+              role="alert"
+              className="mt-1.5 text-[0.8rem] font-medium text-destructive"
+            >
+              {errors.sellerQuantityUnitOther.message}
+            </p>
+          )}
+        </div>
+      )}
 
       <label className="mt-4 flex items-center gap-2.5">
         <Checkbox
@@ -209,7 +295,12 @@ export function DetailsStep() {
             if (checked === true) {
               form.setValue("sellerQuantityValue", undefined);
               form.setValue("sellerQuantityUnit", undefined);
-              form.clearErrors(["sellerQuantityValue", "sellerQuantityUnit"]);
+              form.setValue("sellerQuantityUnitOther", undefined);
+              form.clearErrors([
+                "sellerQuantityValue",
+                "sellerQuantityUnit",
+                "sellerQuantityUnitOther",
+              ]);
             }
           }}
         />
