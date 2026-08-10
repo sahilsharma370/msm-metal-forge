@@ -71,6 +71,7 @@
 
 :root {
   --radius: 0.625rem;
+
   /* Brand */
   --navy: oklch(0.245 0.062 265.5);
   --navy-deep: oklch(0.195 0.055 265.5);
@@ -109,8 +110,6 @@
     oklch(0.62 0.13 50) 78%,
     oklch(0.46 0.11 42) 100%
   );
-  --shadow-glass:
-    0 24px 60px -24px oklch(0.12 0.05 265 / 0.75), 0 2px 12px oklch(0.12 0.05 265 / 0.35);
   --chart-1: oklch(0.646 0.222 41.116);
   --chart-2: oklch(0.6 0.118 184.704);
   --chart-3: oklch(0.398 0.07 227.392);
@@ -173,6 +172,68 @@
     -webkit-font-smoothing: antialiased;
   }
 
+  /* Site-wide cursor, fine-pointer (mouse/trackpad) devices only — touch/
+     coarse-pointer behavior is untouched. Pure CSS, no JS. Layers, each
+     higher-specificity than the last so overrides are unambiguous:
+       1. beige arrow everywhere, including .cta-section (CTA has no navy
+          arrow variant — only its clickable elements get a navy cursor).
+       2. hand on clickable elements (beige, navy inside .cta-section)
+       3. arrow again on *disabled* clickable elements (they override their
+          own layer-2 hand rule via :disabled/[aria-disabled], since a
+          disabled control isn't actually clickable) — beige everywhere,
+          including .cta-section. */
+  @media (pointer: fine) {
+    /* 1. Base arrow, every element, including CTA background/text. */
+    html,
+    body,
+    body *,
+    .cta-section,
+    .cta-section * {
+      cursor: url("/cursor-beige-v2.svg") 3 2, default !important;
+    }
+
+    .cta-section .cta-jitter-quote,
+    .cta-section .cta-jitter-quote * {
+      cursor: url("/cursor-hand-navy.svg") 8 2, pointer !important;
+    }
+
+    /* 2. CTA clickable elements get the navy hand. */
+    .cta-section a,
+    .cta-section button,
+    .cta-section [role="button"],
+    .cta-section input[type="button"],
+    .cta-section input[type="submit"],
+    .cta-section summary,
+    .cta-section label[for] {
+      cursor: url("/cursor-hand-navy.svg") 8 2, pointer !important;
+    }
+
+    /* 2b. Hand on clickable elements everywhere else. */
+    a,
+    button,
+    [role="button"],
+    input[type="button"],
+    input[type="submit"],
+    summary,
+    label[for] {
+      cursor: url("/cursor-hand-beige.svg") 8 2, pointer !important;
+    }
+
+    /* 3. Disabled clickable elements fall back to the plain beige arrow. */
+    a[aria-disabled="true"],
+    button:disabled,
+    [role="button"][aria-disabled="true"],
+    input:disabled,
+    summary[aria-disabled="true"],
+    .cta-section a[aria-disabled="true"],
+    .cta-section button:disabled,
+    .cta-section [role="button"][aria-disabled="true"],
+    .cta-section input:disabled,
+    .cta-section summary[aria-disabled="true"] {
+      cursor: url("/cursor-beige-v2.svg") 3 2, default !important;
+    }
+  }
+
   h1,
   h2,
   h3,
@@ -184,18 +245,33 @@
 @utility glass-panel {
   background:
     linear-gradient(
-      180deg,
-      oklch(0.55 0.05 265 / 0.28) 0%,
-      oklch(0.28 0.06 265 / 0.34) 100%
+      165deg,
+      oklch(0.6 0.045 265 / 0.24) 0%,
+      oklch(0.4 0.05 265 / 0.15) 45%,
+      oklch(0.2 0.055 265 / 0.4) 100%
     );
-  backdrop-filter: blur(22px) saturate(180%);
+  backdrop-filter: blur(28px) saturate(190%);
+  -webkit-backdrop-filter: blur(28px) saturate(190%);
   box-shadow:
-    var(--shadow-glass),
-    inset 0 1px 0 oklch(1 0 0 / 0.28),
-    inset 0 -1px 0 oklch(0.583 0.135 45.5 / 0.18);
-  border: 1px solid transparent;
+    inset 0 1px 0 oklch(1 0 0 / 0.3),
+    inset 0 -1px 0 oklch(0.583 0.135 45.5 / 0.16),
+    inset 0 0 0 1px oklch(1 0 0 / 0.05),
+    0 18px 40px -16px oklch(0.1 0.04 265 / 0.55),
+    0 48px 110px -30px oklch(0.08 0.03 265 / 0.85);
+  border: 1px solid oklch(1 0 0 / 0.1);
   background-clip: padding-box;
   position: relative;
+  isolation: isolate;
+
+  &::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: radial-gradient(130% 65% at 50% -12%, oklch(1 0 0 / 0.24), transparent 62%);
+    mix-blend-mode: overlay;
+    pointer-events: none;
+  }
 }
 
 @utility glass-ring {
@@ -240,20 +316,6 @@
 
 @utility diagonal-tag {
   clip-path: polygon(14% 0, 100% 0, 86% 100%, 0 100%);
-}
-
-@keyframes float-scale {
-  0%,
-  100% {
-    transform: translateY(-6px);
-  }
-  50% {
-    transform: translateY(6px);
-  }
-}
-
-@utility animate-float-scale {
-  animation: float-scale 4s ease-in-out infinite;
 }
 
 @keyframes settle-in {
