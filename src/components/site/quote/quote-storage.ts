@@ -128,6 +128,12 @@ export function loadQuoteDraft(): QuoteDraftEnvelope | null {
     }
     return result.data;
   } catch {
+    // Fix 12: malformed JSON (not just a schema/version mismatch) must not linger forever.
+    try {
+      window.sessionStorage.removeItem(DRAFT_KEY);
+    } catch {
+      // Ignore — nothing more we can do if storage itself is unreachable.
+    }
     return null;
   }
 }

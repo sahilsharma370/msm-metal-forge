@@ -30,7 +30,6 @@ export function ContactEvidenceStep({ restoredFilesNotice }: ContactEvidenceStep
   const intent = form.watch("intent");
   const errors = form.formState.errors;
   const isSeller = intent === "sell";
-  const isImportExport = form.watch("buyerTradeRequirement") !== "local";
 
   return (
     <div>
@@ -136,6 +135,9 @@ export function ContactEvidenceStep({ restoredFilesNotice }: ContactEvidenceStep
                     })}
                   />
                   <FieldError id="sellerPhone-error" message={errors.sellerPhone?.message} />
+                  <p className="mt-1.5 text-xs text-foreground/50">
+                    UAE number, or international number with country code.
+                  </p>
                 </div>
                 <div>
                   <Label
@@ -208,6 +210,9 @@ export function ContactEvidenceStep({ restoredFilesNotice }: ContactEvidenceStep
                     })}
                   />
                   <FieldError id="buyerPhone-error" message={errors.buyerPhone?.message} />
+                  <p className="mt-1.5 text-xs text-foreground/50">
+                    UAE number, or international number with country code.
+                  </p>
                 </div>
                 <div>
                   <Label
@@ -215,13 +220,7 @@ export function ContactEvidenceStep({ restoredFilesNotice }: ContactEvidenceStep
                     className="text-sm font-semibold text-foreground/90"
                   >
                     Company{" "}
-                    {isImportExport ? (
-                      ""
-                    ) : (
-                      <span className="font-normal text-foreground/50">
-                        (optional, recommended)
-                      </span>
-                    )}
+                    <span className="font-normal text-foreground/50">(optional, recommended)</span>
                   </Label>
                   <Input
                     id="buyerCompany"

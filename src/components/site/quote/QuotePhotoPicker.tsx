@@ -46,7 +46,6 @@ export function QuotePhotoPicker({
 
   function handleFiles(fileList: FileList | null) {
     if (!fileList || fileList.length === 0) return;
-    setError(undefined);
 
     const incoming = Array.from(fileList);
     const remainingSlots = maxFiles - files.length;
@@ -73,8 +72,9 @@ export function QuotePhotoPicker({
 
     const toAdd = accepted.slice(0, remainingSlots);
     const rejectedForCapacity = accepted.length - toAdd.length;
+    const hasAnyRejection = rejectedType > 0 || rejectedSize > 0 || rejectedForCapacity > 0;
 
-    if (rejectedType > 0 || rejectedSize > 0 || rejectedForCapacity > 0) {
+    if (hasAnyRejection) {
       const parts: string[] = [];
       if (toAdd.length > 0)
         parts.push(`${toAdd.length} of ${incoming.length} selected files were added`);
@@ -90,7 +90,10 @@ export function QuotePhotoPicker({
       if (rejectedForCapacity > 0) {
         parts.push(`${rejectedForCapacity} exceeded the ${maxFiles}-${singularNoun} limit`);
       }
-      setError(toAdd.length > 0 ? `${parts.join("; ")}.` : `${parts.join("; ")}.`);
+      setError(`${parts.join("; ")}.`);
+    } else if (toAdd.length > 0) {
+      // Fix 1: the latest selection/drop was fully valid — clear any stale error from a prior attempt.
+      setError(undefined);
     }
 
     if (toAdd.length > 0) {
@@ -103,6 +106,8 @@ export function QuotePhotoPicker({
     const target = files.find((f) => f.id === id);
     if (target?.previewUrl) URL.revokeObjectURL(target.previewUrl);
     onChange(files.filter((f) => f.id !== id));
+    // A capacity/rejection error can go stale the moment a slot frees up.
+    setError(undefined);
   }
 
   const hasFiles = files.length > 0;

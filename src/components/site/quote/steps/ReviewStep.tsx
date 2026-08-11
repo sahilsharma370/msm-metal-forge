@@ -1,5 +1,5 @@
 import { MessageCircle, Paperclip, Pencil } from "lucide-react";
-import type { QuoteFormValues, QuoteLocalFile } from "../quote-schema";
+import { isValidMapLink, type QuoteFormValues, type QuoteLocalFile } from "../quote-schema";
 import {
   CONDITION_LABELS,
   EMIRATE_LABELS,
@@ -33,6 +33,17 @@ interface ReviewStepProps {
 interface ReviewRow {
   label: string;
   value: string | undefined;
+  /** Present only for a validated Maps link — renders `value` as a clickable link instead of plain text. */
+  href?: string | undefined;
+}
+
+/** Fix 8: only ever a link after validation, and shows compact text rather than the raw URL. */
+function mapLinkRow(label: string, raw: string | undefined): ReviewRow {
+  const trimmed = raw?.trim();
+  if (trimmed && isValidMapLink(trimmed)) {
+    return { label, value: "Open in Google Maps", href: trimmed };
+  }
+  return { label, value: trimmed };
 }
 
 interface ReviewSection {
@@ -96,7 +107,7 @@ function buildSellerSections(v: QuoteFormValues): ReviewSection[] {
               .filter(Boolean)
               .join(", ") || undefined,
         },
-        { label: "Maps link", value: v.sellerMapLink },
+        mapLinkRow("Maps link", v.sellerMapLink),
         {
           label: "Pickup required",
           value: v.sellerPickupRequired ? PICKUP_CHOICE_LABELS[v.sellerPickupRequired] : undefined,
@@ -132,7 +143,7 @@ function buildSellerSections(v: QuoteFormValues): ReviewSection[] {
           label: "Photos",
           value:
             v.sellerPhotos.length > 0
-              ? undefined // shown as thumbnails instead of a text row
+              ? `${v.sellerPhotos.length} photo${v.sellerPhotos.length === 1 ? "" : "s"} attached`
               : "No photos added — recommended for a faster review.",
         },
       ],
@@ -153,7 +164,7 @@ function buyerDestinationRows(v: QuoteFormValues): ReviewRow[] {
             .filter(Boolean)
             .join(", ") || undefined,
       },
-      { label: "Maps link", value: v.buyerDestinationMapLink },
+      mapLinkRow("Maps link", v.buyerDestinationMapLink),
       {
         label: "Fulfilment",
         value: v.buyerFulfilment ? FULFILMENT_LABELS[v.buyerFulfilment] : undefined,
@@ -259,7 +270,7 @@ function buildBuyerSections(v: QuoteFormValues): ReviewSection[] {
           label: "Documents",
           value:
             v.buyerDocuments.length > 0
-              ? undefined
+              ? `${v.buyerDocuments.length} file${v.buyerDocuments.length === 1 ? "" : "s"} attached`
               : "No documents added — recommended for a faster review.",
         },
       ],
@@ -267,27 +278,35 @@ function buildBuyerSections(v: QuoteFormValues): ReviewSection[] {
   ];
 }
 
+/** Fix 7: images stay square thumbnails; PDFs/other non-image files get a compact chip with a safely-rendered (plain JSX text, never HTML) truncated filename. */
 function FileThumbnails({ files }: { files: QuoteLocalFile[] }) {
   if (files.length === 0) return null;
   return (
     <div className="mt-2 flex flex-wrap gap-2 sm:col-span-2">
-      {files.map((f) => (
-        <div
-          key={f.id}
-          className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-lg border border-white/12 bg-white/5"
-          title={f.name}
-        >
-          {f.previewUrl ? (
+      {files.map((f) =>
+        f.previewUrl ? (
+          <div
+            key={f.id}
+            className="h-14 w-14 overflow-hidden rounded-lg border border-white/12 bg-white/5"
+            title={f.name}
+          >
             <img
               src={f.previewUrl}
               alt={`Preview of ${f.name}`}
               className="h-full w-full object-cover"
             />
-          ) : (
-            <Paperclip aria-hidden="true" className="h-4 w-4 text-foreground/50" />
-          )}
-        </div>
-      ))}
+          </div>
+        ) : (
+          <div
+            key={f.id}
+            title={f.name}
+            className="flex h-14 max-w-[140px] items-center gap-1.5 rounded-lg border border-white/12 bg-white/5 px-2.5"
+          >
+            <Paperclip aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-foreground/50" />
+            <span className="truncate text-[0.68rem] text-foreground/70">{f.name}</span>
+          </div>
+        ),
+      )}
     </div>
   );
 }
@@ -341,7 +360,18 @@ export function ReviewStep({ values, onEditStep, onPreviewConfirmation, isDev }:
                   >
                     <dt className="text-foreground/50">{row.label}</dt>
                     <dd className="text-right font-medium text-foreground/90 sm:text-left">
-                      {row.value}
+                      {row.href ? (
+                        <a
+                          href={row.href}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-copper-bright underline-offset-2 hover:text-copper hover:underline"
+                        >
+                          {row.value}
+                        </a>
+                      ) : (
+                        row.value
+                      )}
                     </dd>
                   </div>
                 ))}

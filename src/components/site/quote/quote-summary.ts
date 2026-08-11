@@ -9,9 +9,17 @@ import {
   getSubtypeLabel,
 } from "./quote-options";
 import {
+  buyerDetailsStepSchema,
   isBuyerContactComplete,
+  isBuyerDestinationComplete,
+  isBuyerQuantityComplete,
   isMaterialComplete,
   isSellerContactComplete,
+  isSellerLocationComplete,
+  isSellerMaterialDetailsComplete,
+  isSellerPickupComplete,
+  normalizePhoneNumber,
+  parseDateOnly,
   type QuoteFormValues,
 } from "./quote-schema";
 
@@ -65,49 +73,6 @@ function resolveState(
   return "needs_attention";
 }
 
-function sellerMaterialDetailsComplete(values: QuoteFormValues): boolean {
-  const quantityOk = !!values.sellerQuantityUnsure || sellerQuantityComplete(values);
-  return quantityOk && !!values.sellerCondition;
-}
-
-function sellerQuantityComplete(values: QuoteFormValues): boolean {
-  if (!values.sellerQuantityValue?.trim() || !values.sellerQuantityUnit) return false;
-  if (values.sellerQuantityUnit === "other" && !values.sellerQuantityUnitOther?.trim())
-    return false;
-  return true;
-}
-
-function sellerLocationComplete(values: QuoteFormValues): boolean {
-  return !!values.sellerEmirate && !!values.sellerArea?.trim();
-}
-
-function buyerQuantityComplete(values: QuoteFormValues): boolean {
-  if (!values.buyerQuantityValue?.trim() || !values.buyerQuantityUnit) return false;
-  if (values.buyerQuantityUnit === "other" && !values.buyerQuantityUnitOther?.trim()) return false;
-  return true;
-}
-
-function buyerDestinationComplete(values: QuoteFormValues): boolean {
-  if (values.buyerTradeRequirement === "local") {
-    return (
-      !!values.buyerDestinationEmirate &&
-      !!values.buyerDestinationArea?.trim() &&
-      !!values.buyerFulfilment
-    );
-  }
-  if (values.buyerTradeRequirement === "import") {
-    return !!values.buyerDestinationEmirate && !!values.buyerLogisticsRequirement;
-  }
-  if (values.buyerTradeRequirement === "export") {
-    return (
-      !!values.buyerDestinationCountry?.trim() &&
-      !!values.buyerDestinationCityPort?.trim() &&
-      !!values.buyerLogisticsRequirement
-    );
-  }
-  return false;
-}
-
 function buyerDestinationHasValue(values: QuoteFormValues): boolean {
   if (values.buyerTradeRequirement === "local") {
     return (
@@ -147,16 +112,14 @@ function getSellerReadinessRaw(values: QuoteFormValues): RawReadinessItem[] {
       key: "material",
       label: "Material",
       step: 2,
-      raw: isMaterialComplete(values.material, values.otherMaterialText)
-        ? "complete"
-        : "incomplete",
-      hasValue: !!values.material,
+      raw: isMaterialComplete(values) ? "complete" : "incomplete",
+      hasValue: !!values.material || !!values.subtype,
     },
     {
       key: "materialDetails",
       label: "Material details",
       step: 3,
-      raw: sellerMaterialDetailsComplete(values) ? "complete" : "incomplete",
+      raw: isSellerMaterialDetailsComplete(values) ? "complete" : "incomplete",
       hasValue:
         !!values.sellerQuantityValue?.trim() ||
         !!values.sellerQuantityUnsure ||
@@ -167,15 +130,16 @@ function getSellerReadinessRaw(values: QuoteFormValues): RawReadinessItem[] {
       key: "location",
       label: "Location",
       step: 4,
-      raw: sellerLocationComplete(values) ? "complete" : "incomplete",
-      hasValue: !!values.sellerEmirate || !!values.sellerArea?.trim(),
+      raw: isSellerLocationComplete(values) ? "complete" : "incomplete",
+      hasValue:
+        !!values.sellerEmirate || !!values.sellerArea?.trim() || !!values.sellerMapLink?.trim(),
     },
     {
       key: "pickup",
       label: "Pickup",
       step: 4,
-      raw: values.sellerPickupRequired ? "complete" : "incomplete",
-      hasValue: false,
+      raw: isSellerPickupComplete(values) ? "complete" : "incomplete",
+      hasValue: !!values.sellerPickupRequired,
     },
     {
       key: "contact",
@@ -210,16 +174,14 @@ function getBuyerReadinessRaw(values: QuoteFormValues): RawReadinessItem[] {
       key: "material",
       label: "Material",
       step: 2,
-      raw: isMaterialComplete(values.material, values.otherMaterialText)
-        ? "complete"
-        : "incomplete",
-      hasValue: !!values.material,
+      raw: isMaterialComplete(values) ? "complete" : "incomplete",
+      hasValue: !!values.material || !!values.subtype,
     },
     {
       key: "quantity",
       label: "Quantity",
       step: 3,
-      raw: buyerQuantityComplete(values) ? "complete" : "incomplete",
+      raw: isBuyerQuantityComplete(values) ? "complete" : "incomplete",
       hasValue: !!values.buyerQuantityValue?.trim() || !!values.buyerQuantityUnit,
     },
     {
@@ -233,7 +195,7 @@ function getBuyerReadinessRaw(values: QuoteFormValues): RawReadinessItem[] {
       key: "destination",
       label: "Destination & logistics",
       step: 4,
-      raw: buyerDestinationComplete(values) ? "complete" : "incomplete",
+      raw: isBuyerDestinationComplete(values) ? "complete" : "incomplete",
       hasValue: buyerDestinationHasValue(values),
     },
     {
@@ -284,9 +246,30 @@ export function getReadiness(
   }));
 }
 
-/** Pure business-rule gate for Review/dev-preview — ignores UI timing (required vs needs-attention) entirely. */
+/**
+ * Pure business-rule gate for Review/dev-preview — ignores UI timing (required
+ * vs needs-attention) entirely. Deliberately validates the FULL active step
+ * schemas rather than deriving from `getRawReadiness`'s per-row items: the
+ * Buyer "Quantity" row above intentionally checks quantity/unit only (Fix 2),
+ * so an invalid optional Needed-by date wouldn't surface anywhere unless it's
+ * checked here directly against the full `buyerDetailsStepSchema`.
+ */
 export function isReadyForReview(values: QuoteFormValues): boolean {
-  return getRawReadiness(values).every((item) => item.raw !== "incomplete");
+  if (values.intent !== "sell" && values.intent !== "buy") return false;
+  if (!isMaterialComplete(values)) return false;
+  if (values.intent === "sell") {
+    return (
+      isSellerMaterialDetailsComplete(values) &&
+      isSellerLocationComplete(values) &&
+      isSellerPickupComplete(values) &&
+      isSellerContactComplete(values)
+    );
+  }
+  return (
+    buyerDetailsStepSchema.safeParse(values).success &&
+    isBuyerDestinationComplete(values) &&
+    isBuyerContactComplete(values)
+  );
 }
 
 function materialLine(values: QuoteFormValues): string {
@@ -485,6 +468,9 @@ export function buildWhatsAppMessage(values: QuoteFormValues): string {
     const closing: string[] = [];
     if (values.sellerName?.trim()) closing.push(`- Name: ${values.sellerName.trim()}`);
     if (values.sellerCompany?.trim()) closing.push(`- Company: ${values.sellerCompany.trim()}`);
+    if (values.sellerPhone?.trim())
+      closing.push(`- Phone: ${formatPhoneForDisplay(values.sellerPhone)}`);
+    if (values.sellerEmail?.trim()) closing.push(`- Email: ${values.sellerEmail.trim()}`);
     if (values.sellerPhotos.length > 0) {
       closing.push(`- Photos: ${values.sellerPhotos.length} selected — I will attach them here.`);
     }
@@ -567,27 +553,26 @@ export function buildWhatsAppUrl(phoneNumber: string, message: string): string {
 export function formatPhoneForDisplay(raw: string | undefined): string | undefined {
   const trimmed = raw?.trim();
   if (!trimmed) return undefined;
-  const digits = trimmed.replace(/[^\d+]/g, "");
+  const canonical = normalizePhoneNumber(raw);
+  if (!canonical) return trimmed; // shouldn't reach Review/WhatsApp unvalidated, but never fabricate digits
 
-  const withCountryCode = digits.startsWith("+971")
-    ? digits.slice(4)
-    : digits.startsWith("971")
-      ? digits.slice(3)
-      : digits.startsWith("0")
-        ? digits.slice(1)
-        : undefined;
-
-  if (withCountryCode && /^\d{9}$/.test(withCountryCode)) {
-    return `+971 ${withCountryCode.slice(0, 2)} ${withCountryCode.slice(2, 5)} ${withCountryCode.slice(5)}`;
+  if (canonical.startsWith("+971") && canonical.length === 13) {
+    const national = canonical.slice(4);
+    return `+971 ${national.slice(0, 2)} ${national.slice(2, 5)} ${national.slice(5)}`;
   }
-  return trimmed;
+  return canonical;
 }
 
-/** E-15: renders a stored ISO (`2026-09-24`) or free date string as `24 Sep 2026`; falls back to the raw value if unparsable. */
+/**
+ * E-15: renders a stored ISO (`2026-09-24`) or free date string as `24 Sep 2026`.
+ * Uses `parseDateOnly` (local calendar components, not UTC) so the displayed
+ * day never shifts backward in negative-UTC-offset timezones (Fix 9). Falls
+ * back to the raw value if unparsable.
+ */
 export function formatDateForDisplay(raw: string | undefined): string | undefined {
   const trimmed = raw?.trim();
   if (!trimmed) return undefined;
-  const parsed = new Date(trimmed);
-  if (Number.isNaN(parsed.getTime())) return trimmed;
+  const parsed = parseDateOnly(trimmed);
+  if (!parsed) return trimmed;
   return parsed.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 }

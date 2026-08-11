@@ -108,69 +108,57 @@ export function buildDefaultQuoteValues(context: QuoteInitialContext): QuoteForm
  * place that decides whether a phone/email/contact is valid.
  * ------------------------------------------------------------------------ */
 
-function normalizePhoneDigits(raw: string): string {
-  return raw.replace(/[^\d+]/g, "");
-}
-
 /**
- * UAE numbers are checked against the real national length (+971 + 9 digits);
- * anything else falls back to a permissive-but-bounded international check
- * (8-15 digits) so legitimate overseas buyers are never blocked (E-09).
+ * Single shared phone normalizer for seller and buyer. Allowed input
+ * characters: digits, one optional leading `+`, spaces, hyphens, parentheses
+ * — anything else (letters, a second `+`, a `+` not at the start) fails the
+ * character-set check below and is rejected outright.
+ *
+ * UAE forms (`05XXXXXXXX`, `9715XXXXXXXX`, `+9715XXXXXXXX`) all normalize to
+ * the canonical `+9715XXXXXXXX` (mobile-prefix `5` + exactly 9 national
+ * digits). Anything else must already carry a leading `+` and resolve to
+ * 8-15 digits — a bare unprefixed digit string is never treated as an
+ * international number, only as a possible (and here rejected) UAE local form.
+ *
+ * Returns the canonical `+<digits>` string, or `null` if invalid.
  */
-export function isValidPhoneNumber(raw: string | undefined): boolean {
+export function normalizePhoneNumber(raw: string | undefined): string | null {
   const trimmed = raw?.trim();
-  if (!trimmed) return false;
-  const digits = normalizePhoneDigits(trimmed);
+  if (!trimmed) return null;
+  if (!/^\+?[\d\s\-()]+$/.test(trimmed)) return null;
 
-  const looksUae = digits.startsWith("+971") || digits.startsWith("971") || digits.startsWith("05");
-  if (looksUae) {
-    const national = digits.startsWith("+971")
-      ? digits.slice(4)
-      : digits.startsWith("971")
-        ? digits.slice(3)
-        : digits.slice(1); // local 0-prefixed
-    return /^\d{9}$/.test(national);
+  const hasLeadingPlus = trimmed.startsWith("+");
+  const digits = trimmed.replace(/\D/g, "");
+  if (!digits) return null;
+
+  let uaeNational: string | null = null;
+  if (hasLeadingPlus && digits.startsWith("971")) {
+    uaeNational = digits.slice(3);
+  } else if (!hasLeadingPlus && digits.startsWith("971") && digits.length > 9) {
+    uaeNational = digits.slice(3);
+  } else if (!hasLeadingPlus && digits.startsWith("0")) {
+    uaeNational = digits.slice(1);
   }
 
-  const intl = digits.startsWith("+") ? digits.slice(1) : digits;
-  return /^\d{8,15}$/.test(intl);
+  if (uaeNational !== null) {
+    return /^5\d{8}$/.test(uaeNational) ? `+971${uaeNational}` : null;
+  }
+
+  if (!hasLeadingPlus) return null; // no bare unprefixed digit string is treated as international
+  // E.164-style: total 8-15 digits, and the digits after the (already-stripped) `+`
+  // must not themselves start with 0 (Fix 2 — a leading zero here is never a real
+  // country calling code, e.g. "+0123456789" is not a valid international number).
+  return /^[1-9]\d{7,14}$/.test(digits) ? `+${digits}` : null;
+}
+
+export function isValidPhoneNumber(raw: string | undefined): boolean {
+  return normalizePhoneNumber(raw) !== null;
 }
 
 export function isValidEmailAddress(raw: string | undefined): boolean {
   const trimmed = raw?.trim();
   if (!trimmed) return false;
   return z.string().email().safeParse(trimmed).success;
-}
-
-/** Reused by materialStepSchema and readiness — a selected-but-unspecified "Other" never counts as valid. */
-export function isMaterialComplete(
-  material: QuoteMaterialKey | undefined,
-  otherText: string | undefined,
-): boolean {
-  if (!material) return false;
-  if (material === "other") return !!otherText?.trim();
-  return true;
-}
-
-export function isSellerContactComplete(values: QuoteFormValues): boolean {
-  if (!values.sellerName?.trim()) return false;
-  if (!isValidPhoneNumber(values.sellerPhone)) return false;
-  if (values.sellerEmail?.trim() && !isValidEmailAddress(values.sellerEmail)) return false;
-  if (values.sellerPreferredContact === "email" && !isValidEmailAddress(values.sellerEmail))
-    return false;
-  if (!values.sellerPreferredContact) return false;
-  return true;
-}
-
-export function isBuyerContactComplete(values: QuoteFormValues): boolean {
-  if (!values.buyerContactPerson?.trim()) return false;
-  if (!isValidPhoneNumber(values.buyerPhone)) return false;
-  if (values.buyerEmail?.trim() && !isValidEmailAddress(values.buyerEmail)) return false;
-  if (values.buyerPreferredContact === "email" && !isValidEmailAddress(values.buyerEmail))
-    return false;
-  if (!values.buyerPreferredContact) return false;
-  if (values.buyerTradeRequirement !== "local" && !values.buyerCompany?.trim()) return false;
-  return true;
 }
 
 /* ------------------------------------------------------------------------ */
@@ -192,31 +180,96 @@ const requiredText = (message: string, min = 1) => z.string().trim().min(min, me
 /** Rejects blank/whitespace-only and single-character placeholder text (E-17 / E-18) while allowing short legitimate names. */
 const meaningfulText = (message: string) => z.string().trim().min(2, message);
 
+/**
+ * `<input type="date">` always yields `YYYY-MM-DD`; parsing that as local
+ * calendar components (not via `new Date(str)`, which reads it as UTC
+ * midnight) avoids the previous-day shift in negative-UTC-offset timezones (Fix 9).
+ *
+ * `new Date(year, monthIndex, day)` silently *rolls over* an impossible date
+ * (e.g. Feb 31 becomes Mar 3) instead of failing, so an impossible calendar
+ * date must be caught by round-tripping the constructed date's own
+ * year/month/day back against the input components (Fix 5).
+ */
+export function parseDateOnly(value: string): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim());
+  if (match) {
+    const [, y, m, d] = match;
+    const year = Number(y);
+    const month = Number(m);
+    const day = Number(d);
+    const date = new Date(year, month - 1, day);
+    if (Number.isNaN(date.getTime())) return null;
+    const roundTrips =
+      date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day;
+    return roundTrips ? date : null;
+  }
+  const fallback = new Date(value);
+  return Number.isNaN(fallback.getTime()) ? null : fallback;
+}
+
 function isPastDate(value: string): boolean {
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return true; // unparsable is treated as invalid, not "past"
+  const parsed = parseDateOnly(value);
+  if (!parsed) return true; // unparsable is treated as invalid, not "past"
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   parsed.setHours(0, 0, 0, 0);
   return parsed.getTime() < today.getTime();
 }
 
-/** Blank is valid; anything entered must look like a real link (C-03) — permissive enough for Google's various short/share URL shapes. */
+/** Shared by `optionalFutureDateSchema` and readiness (Fix 3) — blank is valid, otherwise must parse and not be in the past. */
+export function isValidOptionalDate(raw: string | undefined): boolean {
+  const trimmed = raw?.trim();
+  if (!trimmed) return true;
+  return parseDateOnly(trimmed) !== null && !isPastDate(trimmed);
+}
+
+/** Closed allowlist of real Google country-code TLD shapes — deliberately finite, never an open `[a-z.]+` wildcard (Fix 4). */
+const GOOGLE_CCTLDS =
+  "ae|co\\.uk|co\\.in|co\\.jp|co\\.za|com\\.au|com\\.sg|de|fr|it|es|nl|ca|com\\.br|co\\.kr|ru|ch|se|no|dk|fi|pl|pt|gr|ie|be|at|com\\.mx|com\\.tr|co\\.id|com\\.eg|co\\.ke|com\\.sa|qa|com\\.kw|com\\.pk|co\\.th|com\\.vn|com\\.ph|co\\.nz";
+const GOOGLE_COUNTRY_HOST = new RegExp(`^(www\\.)?google\\.(${GOOGLE_CCTLDS})$`);
+const GOOGLE_COUNTRY_MAPS_HOST = new RegExp(`^maps\\.google\\.(${GOOGLE_CCTLDS})$`);
+
+/**
+ * Blank is valid; anything entered must resolve to a genuine Google Maps
+ * link. Every accepted host is checked by *exact* match (or a closed
+ * country-TLD allowlist) rather than a permissive suffix pattern, so a
+ * lookalike like `google.evil.com` or `maps.google.evil.com` — which would
+ * pass a naive `/^google\.[a-z.]+$/`-style check — is rejected outright.
+ */
+export function isValidMapLink(raw: string | undefined): boolean {
+  const trimmed = raw?.trim();
+  if (!trimmed) return true; // blank is valid — this only judges a *present* value
+  if (!/^https?:\/\//i.test(trimmed)) return false;
+  let url: URL;
+  try {
+    url = new URL(trimmed);
+  } catch {
+    return false;
+  }
+  const host = url.hostname.toLowerCase();
+  const path = url.pathname.toLowerCase();
+
+  if (host === "maps.app.goo.gl") return true;
+  if (host === "goo.gl") return path.startsWith("/maps"); // reject goo.gl shortlinks unrelated to Maps
+  if (host === "maps.google.com") return true;
+  if (host === "google.com" || host === "www.google.com") return path.startsWith("/maps");
+  if (GOOGLE_COUNTRY_MAPS_HOST.test(host)) return true;
+  if (GOOGLE_COUNTRY_HOST.test(host)) return path.startsWith("/maps");
+  return false;
+}
+
 const optionalMapLinkSchema = z
   .string()
   .trim()
   .optional()
-  .refine(
-    (val) => !val || /^https?:\/\/\S+\.\S+/i.test(val),
-    "Enter a valid map link or leave this blank.",
-  );
+  .refine((val) => isValidMapLink(val), "Enter a valid Google Maps link or leave this blank.");
 
 /** Optional date field: blank is valid, but an entered date must parse and must not be in the past (C-07 / D-07). */
 const optionalFutureDateSchema = z
   .string()
   .trim()
   .optional()
-  .refine((val) => !val || !Number.isNaN(new Date(val).getTime()), "Enter a valid date.")
+  .refine((val) => !val || parseDateOnly(val) !== null, "Enter a valid date.")
   .refine((val) => !val || !isPastDate(val), "Choose today or a future date.");
 
 export const enquiryTypeStepSchema = z.object({
@@ -290,6 +343,32 @@ export const sellerDetailsStepSchema = z
     }
   });
 
+/** Shared by the full buyer Details step schema AND the narrow quantity-only readiness schema below (Fix 2) — one place decides what "valid quantity" means. */
+function refineBuyerQuantity(
+  val: {
+    buyerQuantityValue: string;
+    buyerQuantityUnit: (typeof QUOTE_UNITS)[number];
+    buyerQuantityUnitOther?: string | undefined;
+  },
+  ctx: z.RefinementCtx,
+) {
+  const numeric = Number(val.buyerQuantityValue.trim());
+  if (!Number.isFinite(numeric) || numeric <= 0) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["buyerQuantityValue"],
+      message: "Enter a quantity greater than zero.",
+    });
+  }
+  if (val.buyerQuantityUnit === "other" && !val.buyerQuantityUnitOther?.trim()) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["buyerQuantityUnitOther"],
+      message: "Specify the unit.",
+    });
+  }
+}
+
 export const buyerDetailsStepSchema = z
   .object({
     buyerQuantityValue: requiredText("Enter the required quantity."),
@@ -301,32 +380,47 @@ export const buyerDetailsStepSchema = z
     buyerRequiredByDate: optionalFutureDateSchema,
     buyerAdditionalSpec: z.string().trim().optional(),
   })
+  .superRefine(refineBuyerQuantity);
+
+/**
+ * Fix 2: the Buyer "Quantity" readiness row must reflect quantity/unit only —
+ * NOT Trade route or Needed-by date, which live in `buyerDetailsStepSchema`
+ * (used for the full Step-3 Continue gate) but have their own readiness rows
+ * (Trade route) or only block Review, not this specific row (Needed-by date).
+ */
+const buyerQuantityOnlySchema = z
+  .object({
+    buyerQuantityValue: requiredText("Enter the required quantity."),
+    buyerQuantityUnit: z.enum(QUOTE_UNITS, { message: "Select a unit." }),
+    buyerQuantityUnitOther: z.string().trim().optional(),
+  })
+  .superRefine(refineBuyerQuantity);
+
+export const sellerLogisticsStepSchema = z
+  .object({
+    sellerEmirate: z.enum(EMIRATES, { message: "Select an emirate." }),
+    sellerArea: meaningfulText("Enter the area."),
+    sellerMapLink: optionalMapLinkSchema,
+    sellerPickupRequired: z.enum(PICKUP_CHOICES, {
+      message: "Let us know if pickup is required.",
+    }),
+    // Validated conditionally below (Fix 6) — a stale/invalid date behind a
+    // hidden "No"/"Not sure" choice must never block this step.
+    sellerPickupDate: z.string().trim().optional(),
+    sellerAccessNote: z.string().trim().optional(),
+  })
   .superRefine((val, ctx) => {
-    const numeric = Number(val.buyerQuantityValue.trim());
-    if (!Number.isFinite(numeric) || numeric <= 0) {
+    if (val.sellerPickupRequired !== "yes" || !val.sellerPickupDate) return;
+    if (parseDateOnly(val.sellerPickupDate) === null) {
+      ctx.addIssue({ code: "custom", path: ["sellerPickupDate"], message: "Enter a valid date." });
+    } else if (isPastDate(val.sellerPickupDate)) {
       ctx.addIssue({
         code: "custom",
-        path: ["buyerQuantityValue"],
-        message: "Enter a quantity greater than zero.",
-      });
-    }
-    if (val.buyerQuantityUnit === "other" && !val.buyerQuantityUnitOther?.trim()) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["buyerQuantityUnitOther"],
-        message: "Specify the unit.",
+        path: ["sellerPickupDate"],
+        message: "Choose today or a future date.",
       });
     }
   });
-
-export const sellerLogisticsStepSchema = z.object({
-  sellerEmirate: z.enum(EMIRATES, { message: "Select an emirate." }),
-  sellerArea: meaningfulText("Enter the area."),
-  sellerMapLink: optionalMapLinkSchema,
-  sellerPickupRequired: z.enum(PICKUP_CHOICES, { message: "Let us know if pickup is required." }),
-  sellerPickupDate: optionalFutureDateSchema,
-  sellerAccessNote: z.string().trim().optional(),
-});
 
 export const buyerLogisticsStepSchema = z
   .object({
@@ -436,6 +530,7 @@ export const sellerContactStepSchema = z
     }
   });
 
+/** Fix 1: Company is optional/recommended on every buyer route (local, import, export) — never required. */
 export const buyerContactStepSchema = z
   .object({
     buyerCompany: z.string().trim().optional(),
@@ -446,16 +541,8 @@ export const buyerContactStepSchema = z
       message: "Select a preferred contact method.",
     }),
     buyerNotes: z.string().trim().optional(),
-    buyerTradeRequirement: z.enum(["local", "import", "export"]).optional(),
   })
   .superRefine((val, ctx) => {
-    if (val.buyerTradeRequirement !== "local" && !val.buyerCompany?.trim()) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["buyerCompany"],
-        message: "Company is required for import/export enquiries.",
-      });
-    }
     if (val.buyerPreferredContact === "email" && !isValidEmailAddress(val.buyerEmail)) {
       ctx.addIssue({
         code: "custom",
@@ -495,4 +582,54 @@ export function getStepSchema(
     default:
       return null;
   }
+}
+
+/* ------------------------------------------------------------------------ *
+ * Fix 3: readiness completeness predicates. Wherever a row maps 1:1 onto a
+ * step schema, completeness is derived by parsing against that EXACT schema
+ * (`safeParse`) instead of a hand-written mirror — this makes drift between
+ * step validation and the readiness rail structurally impossible. Only the
+ * seller Location/Pickup split (two rail rows sharing one schema) still needs
+ * hand-written predicates; those reuse the same shared helpers the schema itself uses.
+ * ------------------------------------------------------------------------ */
+
+export function isMaterialComplete(values: QuoteFormValues): boolean {
+  return materialStepSchema.safeParse(values).success;
+}
+
+export function isSellerMaterialDetailsComplete(values: QuoteFormValues): boolean {
+  return sellerDetailsStepSchema.safeParse(values).success;
+}
+
+export function isBuyerQuantityComplete(values: QuoteFormValues): boolean {
+  return buyerQuantityOnlySchema.safeParse(values).success;
+}
+
+export function isSellerLocationComplete(values: QuoteFormValues): boolean {
+  if (!values.sellerEmirate) return false;
+  if (!values.sellerArea || values.sellerArea.trim().length < 2) return false;
+  if (!isValidMapLink(values.sellerMapLink)) return false;
+  return true;
+}
+
+export function isSellerPickupComplete(values: QuoteFormValues): boolean {
+  if (!values.sellerPickupRequired) return false;
+  // Fix 6: a hidden date behind "No"/"Not sure" must never block Pickup readiness.
+  if (values.sellerPickupRequired === "yes" && !isValidOptionalDate(values.sellerPickupDate)) {
+    return false;
+  }
+  return true;
+}
+
+export function isBuyerDestinationComplete(values: QuoteFormValues): boolean {
+  if (!values.buyerTradeRequirement) return false; // buyerLogisticsStepSchema validates nothing when the route itself is unset
+  return buyerLogisticsStepSchema.safeParse(values).success;
+}
+
+export function isSellerContactComplete(values: QuoteFormValues): boolean {
+  return sellerContactStepSchema.safeParse(values).success;
+}
+
+export function isBuyerContactComplete(values: QuoteFormValues): boolean {
+  return buyerContactStepSchema.safeParse(values).success;
 }

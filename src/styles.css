@@ -434,3 +434,32 @@
   background-color: oklch(0.583 0.135 45.5 / 0.6);
   background-clip: padding-box;
 }
+
+/* Quote Experience autofill styling: Chrome/Safari paint a strong yellow/blue
+   UA background on autofilled inputs that a plain `background-color` cannot
+   override — only the inset box-shadow technique reliably wins. This layers
+   into `--tw-inset-shadow`, one of the variables Tailwind's own composed
+   `box-shadow` property already reads on every quote Input (via `shadow-sm`,
+   applied unconditionally by the shared Input component), instead of setting
+   `box-shadow` directly — so it never clobbers the separate `--tw-ring-shadow`
+   layer the existing focus ring depends on. #141628 is the solid equivalent
+   of this project's `bg-white/5` quote-field background sitting on the
+   `#080A1D` quote column background (unchanged appearance, just made
+   autofill-proof). Scoped to `.quote-scroll`, the existing Quote Experience
+   content wrapper, so no other input on the site is affected. */
+.quote-scroll input:-webkit-autofill,
+.quote-scroll input:-webkit-autofill:hover,
+.quote-scroll input:-webkit-autofill:focus {
+  --tw-inset-shadow: 0 0 0 1000px #141628 inset;
+  -webkit-text-fill-color: var(--foreground);
+  caret-color: var(--foreground);
+  transition:
+    background-color 600000s ease-in-out 0s,
+    color 600000s ease-in-out 0s;
+}
+
+.quote-scroll input:autofill {
+  background-color: #141628;
+  color: var(--foreground);
+  caret-color: var(--foreground);
+}

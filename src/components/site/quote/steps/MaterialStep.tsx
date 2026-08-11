@@ -30,9 +30,10 @@ export function MaterialStep() {
             onSelect={() => {
               form.setValue("material", m.key, { shouldValidate: true, shouldDirty: true });
               form.setValue("subtype", undefined, { shouldDirty: true });
+              form.setValue("subtypeOtherText", undefined, { shouldDirty: true });
               if (m.key !== "other")
                 form.setValue("otherMaterialText", undefined, { shouldDirty: true });
-              form.clearErrors(["material", "otherMaterialText"]);
+              form.clearErrors(["material", "otherMaterialText", "subtypeOtherText"]);
             }}
           />
         ))}
@@ -82,11 +83,15 @@ export function MaterialStep() {
                   type="button"
                   role="radio"
                   aria-checked={subtype === s.value}
-                  onClick={() =>
-                    form.setValue("subtype", subtype === s.value ? undefined : s.value, {
-                      shouldDirty: true,
-                    })
-                  }
+                  onClick={() => {
+                    const next = subtype === s.value ? undefined : s.value;
+                    form.setValue("subtype", next, { shouldDirty: true });
+                    // Fix 6: leaving "Other" behind must not leave its custom text stranded.
+                    if (next !== "other") {
+                      form.setValue("subtypeOtherText", undefined, { shouldDirty: true });
+                      form.clearErrors("subtypeOtherText");
+                    }
+                  }}
                   className={`font-display rounded-full border px-4 py-2 text-xs font-semibold tracking-[0.04em] transition-colors ${
                     subtype === s.value
                       ? "border-copper/70 bg-[oklch(0.583_0.135_45.5/0.16)] text-copper-bright"
@@ -109,9 +114,11 @@ export function MaterialStep() {
                   role="radio"
                   aria-checked={subtype === s.value}
                   onClick={() => {
-                    form.setValue("subtype", subtype === s.value ? undefined : s.value, {
-                      shouldDirty: true,
-                    });
+                    const next = subtype === s.value ? undefined : s.value;
+                    form.setValue("subtype", next, { shouldDirty: true });
+                    if (next !== "other") {
+                      form.setValue("subtypeOtherText", undefined, { shouldDirty: true });
+                    }
                     form.clearErrors("subtypeOtherText");
                   }}
                   className={`font-display rounded-full border px-4 py-2 text-xs font-semibold tracking-[0.04em] transition-colors ${

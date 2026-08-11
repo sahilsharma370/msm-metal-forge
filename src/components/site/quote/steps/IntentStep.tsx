@@ -2,9 +2,82 @@ import { useFormContext } from "react-hook-form";
 import type { QuoteFormValues } from "../quote-schema";
 import { QuoteOptionCard } from "../QuoteOptionCard";
 
+/** Fix 6: fields that only ever apply to the seller branch. */
+const SELLER_ONLY_FIELDS: (keyof QuoteFormValues)[] = [
+  "sellerQuantityValue",
+  "sellerQuantityUnit",
+  "sellerQuantityUnitOther",
+  "sellerQuantityUnsure",
+  "sellerCondition",
+  "sellerDescription",
+  "sellerEmirate",
+  "sellerArea",
+  "sellerMapLink",
+  "sellerPickupRequired",
+  "sellerPickupDate",
+  "sellerAccessNote",
+  "sellerName",
+  "sellerPhone",
+  "sellerCompany",
+  "sellerEmail",
+  "sellerPreferredContact",
+  "sellerNotes",
+];
+
+/** Fields that only ever apply to the buyer branch (`materialSpec` is buyer-only — see MaterialStep). */
+const BUYER_ONLY_FIELDS: (keyof QuoteFormValues)[] = [
+  "buyerQuantityValue",
+  "buyerQuantityUnit",
+  "buyerQuantityUnitOther",
+  "buyerTradeRequirement",
+  "buyerRequiredByDate",
+  "buyerAdditionalSpec",
+  "materialSpec",
+  "buyerDestinationEmirate",
+  "buyerDestinationArea",
+  "buyerDestinationMapLink",
+  "buyerFulfilment",
+  "buyerDestinationCountry",
+  "buyerDestinationCityPort",
+  "buyerPreferredPort",
+  "buyerPreferredPortOther",
+  "buyerOriginCountryPreference",
+  "buyerLogisticsRequirement",
+  "buyerLogisticsNote",
+  "buyerCompany",
+  "buyerContactPerson",
+  "buyerPhone",
+  "buyerEmail",
+  "buyerPreferredContact",
+  "buyerNotes",
+];
+
 export function IntentStep() {
   const form = useFormContext<QuoteFormValues>();
   const intent = form.watch("intent");
+
+  function selectIntent(next: "sell" | "buy") {
+    const previous = form.getValues("intent");
+    form.setValue("intent", next, { shouldValidate: true, shouldDirty: true });
+    form.clearErrors("intent");
+
+    // Only an explicit change to a *different* intent clears the other
+    // branch — merely re-selecting the same card, or navigating Back/Continue
+    // (which never calls this handler at all), must never touch stored values.
+    if (!previous || previous === next) return;
+
+    const staleFileField = next === "sell" ? "buyerDocuments" : "sellerPhotos";
+    for (const f of form.getValues(staleFileField)) {
+      if (f.previewUrl) URL.revokeObjectURL(f.previewUrl);
+    }
+    form.setValue(staleFileField, [], { shouldDirty: true });
+
+    const staleFields = next === "sell" ? BUYER_ONLY_FIELDS : SELLER_ONLY_FIELDS;
+    for (const field of staleFields) {
+      form.setValue(field, undefined, { shouldDirty: true });
+    }
+    form.clearErrors(staleFields);
+  }
 
   return (
     <div>
@@ -23,20 +96,14 @@ export function IntentStep() {
           title="Sell Scrap to MSM"
           description="I have metal scrap or surplus material to sell."
           selected={intent === "sell"}
-          onSelect={() => {
-            form.setValue("intent", "sell", { shouldValidate: true, shouldDirty: true });
-            form.clearErrors("intent");
-          }}
+          onSelect={() => selectIntent("sell")}
         />
         <QuoteOptionCard
           eyebrow="Buy from Us"
           title="Buy Scrap from MSM"
           description="I need metal scrap or bulk material supply."
           selected={intent === "buy"}
-          onSelect={() => {
-            form.setValue("intent", "buy", { shouldValidate: true, shouldDirty: true });
-            form.clearErrors("intent");
-          }}
+          onSelect={() => selectIntent("buy")}
         />
       </div>
 

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { FormProvider, useForm } from "react-hook-form";
+import * as AlertDialogPrimitive from "@radix-ui/react-alert-dialog";
 import { X } from "lucide-react";
 import msmLogo from "@/assets/msm-logo.svg";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
@@ -57,9 +58,12 @@ export function QuoteExperience({ mode, initialContext, onClose }: QuoteExperien
   const [furthestStep, setFurthestStep] = useState(draft?.step ?? 1);
   const [attemptedSteps, setAttemptedSteps] = useState<ReadonlySet<number>>(new Set());
   const [showCloseConfirm, setShowCloseConfirm] = useState(false);
+  const [showStartOverConfirm, setShowStartOverConfirm] = useState(false);
   const [confirmationRef, setConfirmationRef] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const startOverButtonRef = useRef<HTMLButtonElement>(null);
+  const keepEditingButtonRef = useRef<HTMLButtonElement>(null);
 
   const form = useForm<QuoteFormValues>({
     defaultValues: draft
@@ -147,6 +151,7 @@ export function QuoteExperience({ mode, initialContext, onClose }: QuoteExperien
     setAttemptedSteps(new Set());
     setConfirmationRef(null);
     setShowCloseConfirm(false);
+    setShowStartOverConfirm(false);
   }
 
   function requestClose() {
@@ -155,6 +160,15 @@ export function QuoteExperience({ mode, initialContext, onClose }: QuoteExperien
       return;
     }
     setShowCloseConfirm(true);
+  }
+
+  /** Fix 10: Start Over must not immediately destroy progress once something meaningful exists. */
+  function requestStartOver() {
+    if (!hasMeaningfulProgress) {
+      handleStartOver();
+      return;
+    }
+    setShowStartOverConfirm(true);
   }
 
   const continueDisabled = step === 1 && !intent;
@@ -244,6 +258,67 @@ export function QuoteExperience({ mode, initialContext, onClose }: QuoteExperien
           </div>
         )}
 
+        {/*
+          Radix AlertDialog primitives (deliberately not the shared shadcn
+          AlertDialogContent wrapper, which bakes in its own Portal/Overlay/
+          positioning) drive the accessibility contract here — role="alertdialog",
+          a focus trap, Escape isolated to only this layer (verified against
+          the installed DismissableLayer: only the topmost registered layer
+          reacts to Escape, so the outer Quote Experience Dialog is untouched),
+          and auto-wired aria-labelledby/aria-describedby from Title/Description.
+          No Portal is used, so this still renders in place as a plain
+          absolutely-positioned overlay inside the shell — visual output is
+          unchanged from the previous plain <div> version.
+        */}
+        <AlertDialogPrimitive.Root
+          open={showStartOverConfirm}
+          onOpenChange={(open) => {
+            if (!open) {
+              setShowStartOverConfirm(false);
+              startOverButtonRef.current?.focus();
+            }
+          }}
+        >
+          <AlertDialogPrimitive.Content
+            aria-modal="true"
+            onOpenAutoFocus={(event) => {
+              event.preventDefault();
+              keepEditingButtonRef.current?.focus();
+            }}
+            className="absolute inset-0 z-20 flex items-center justify-center rounded-[inherit] bg-navy-deep/92 p-6 backdrop-blur-sm outline-none"
+          >
+            <div className="glass-panel glass-ring w-full max-w-sm rounded-2xl p-6 text-center">
+              <AlertDialogPrimitive.Title className="font-display text-base font-bold text-foreground">
+                Start over?
+              </AlertDialogPrimitive.Title>
+              <AlertDialogPrimitive.Description className="mt-2 text-sm text-foreground/70">
+                This clears everything you've entered and returns to Step 1.
+              </AlertDialogPrimitive.Description>
+              <div className="mt-5 flex flex-col gap-2">
+                <AlertDialogPrimitive.Cancel asChild>
+                  <button
+                    ref={keepEditingButtonRef}
+                    type="button"
+                    className="font-display rounded-full bg-[image:var(--gradient-copper)] px-5 py-2.5 text-xs font-bold tracking-[0.1em] text-[#080A1D] uppercase"
+                  >
+                    Keep editing
+                  </button>
+                </AlertDialogPrimitive.Cancel>
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleStartOver();
+                    startOverButtonRef.current?.focus();
+                  }}
+                  className="text-xs font-semibold text-foreground/45 underline-offset-2 hover:text-destructive hover:underline"
+                >
+                  Discard and start over
+                </button>
+              </div>
+            </div>
+          </AlertDialogPrimitive.Content>
+        </AlertDialogPrimitive.Root>
+
         {/* Desktop left rail */}
         <aside className="hidden h-full w-[232px] shrink-0 flex-col border-r border-white/10 bg-navy-deep/50 px-5 py-6 md:flex">
           <div className="shrink-0">
@@ -273,8 +348,9 @@ export function QuoteExperience({ mode, initialContext, onClose }: QuoteExperien
 
           <div className="shrink-0">
             <button
+              ref={startOverButtonRef}
               type="button"
-              onClick={handleStartOver}
+              onClick={requestStartOver}
               className="rounded text-xs font-semibold text-foreground/60 underline-offset-2 hover:text-foreground/85 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-copper"
             >
               Start over
