@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as QuoteRouteImport } from './routes/quote'
+import { Route as ApiQuoteInitiateRouteImport } from './routes/api/quote/initiate'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -22,31 +23,40 @@ const QuoteRoute = QuoteRouteImport.update({
   path: '/quote',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiQuoteInitiateRoute = ApiQuoteInitiateRouteImport.update({
+  id: '/api/quote/initiate',
+  path: '/api/quote/initiate',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/quote': typeof QuoteRoute
+  '/api/quote/initiate': typeof ApiQuoteInitiateRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/quote': typeof QuoteRoute
+  '/api/quote/initiate': typeof ApiQuoteInitiateRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/quote': typeof QuoteRoute
+  '/api/quote/initiate': typeof ApiQuoteInitiateRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/quote'
+  fullPaths: '/' | '/quote' | '/api/quote/initiate'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/quote'
-  id: '__root__' | '/' | '/quote'
+  to: '/' | '/quote' | '/api/quote/initiate'
+  id: '__root__' | '/' | '/quote' | '/api/quote/initiate'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   QuoteRoute: typeof QuoteRoute
+  ApiQuoteInitiateRoute: typeof ApiQuoteInitiateRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -65,12 +75,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof QuoteRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/quote/initiate': {
+      id: '/api/quote/initiate'
+      path: '/api/quote/initiate'
+      fullPath: '/api/quote/initiate'
+      preLoaderRoute: typeof ApiQuoteInitiateRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   QuoteRoute: QuoteRoute,
+  ApiQuoteInitiateRoute: ApiQuoteInitiateRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
