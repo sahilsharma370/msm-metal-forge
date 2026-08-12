@@ -536,6 +536,7 @@ select throws_ok(
 
 select lives_ok(
   $$ update public.quote_upload_slots set status = 'verified', completed_at = now(),
+       upload_attempt_id = gen_random_uuid(), upload_started_at = now(), upload_object_path = storage_path,
        verified_file_id = (
          select lf.id from public.lead_files lf
          join public.quote_upload_slots qus
@@ -545,7 +546,7 @@ select lives_ok(
        )
      where lead_id = (select id from public.leads where idempotency_key = 'c0000000-0000-0000-0000-000000000003')
        and slot_index = 0 $$,
-  'a fully matching verified_file_id (same lead, kind and storage_path) succeeds — the valid lifecycle transition'
+  'a fully matching verified_file_id (same lead, kind and storage_path), with required upload-attempt metadata (including upload_object_path), succeeds — the valid lifecycle transition'
 );
 -- Not a 23505 unique_violation in practice: since both quote_upload_slots.
 -- storage_path and lead_files.storage_path are independently UNIQUE, a

@@ -24,10 +24,11 @@ select has_function(
   'function public.finalize_quote_upload_v1(uuid, uuid, text, bigint, text) exists'
 );
 select ok(
-  not has_function_privilege('anon', 'public.finalize_quote_upload_v1(uuid, uuid, text, bigint, text)', 'EXECUTE')
+  not has_function_privilege('public', 'public.finalize_quote_upload_v1(uuid, uuid, text, bigint, text)', 'EXECUTE')
+  and not has_function_privilege('anon', 'public.finalize_quote_upload_v1(uuid, uuid, text, bigint, text)', 'EXECUTE')
   and not has_function_privilege('authenticated', 'public.finalize_quote_upload_v1(uuid, uuid, text, bigint, text)', 'EXECUTE')
-  and has_function_privilege('service_role', 'public.finalize_quote_upload_v1(uuid, uuid, text, bigint, text)', 'EXECUTE'),
-  'finalize_quote_upload_v1 is execute-only for service_role'
+  and not has_function_privilege('service_role', 'public.finalize_quote_upload_v1(uuid, uuid, text, bigint, text)', 'EXECUTE'),
+  'finalize_quote_upload_v1 is deprecated and revoked from every role, including service_role, as of CHECKPOINT C2B1 — public.finalize_quote_upload_v2 is now the only finalization RPC service_role may execute'
 );
 select ok(
   (select prosecdef from pg_proc where oid = 'public.finalize_quote_upload_v1(uuid, uuid, text, bigint, text)'::regprocedure) = false,
