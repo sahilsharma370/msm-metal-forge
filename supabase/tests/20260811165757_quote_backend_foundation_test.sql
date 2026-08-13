@@ -649,8 +649,8 @@ select lives_ok(
   'lead_activities insert referencing a valid lead_id succeeds'
 );
 select lives_ok(
-  $$ insert into public.notification_deliveries (lead_id, channel)
-     select id, 'email'
+  $$ insert into public.notification_deliveries (lead_id, event_type, channel)
+     select id, 'submission_completed', 'email'
      from public.leads where idempotency_key = 'a0000000-0000-0000-0000-00000000000f' $$,
   'notification_deliveries insert referencing a valid lead_id succeeds'
 );
