@@ -507,7 +507,152 @@ describe("CHECKPOINT C2C — real local Quote submission + upload pipeline", () 
   });
 
   // -------------------------------------------------------------------------
-  // I — explicit cleanup + verification (afterAll is the unconditional
+  // I — CHECKPOINT C2E: /api/quote/complete through the real handler
+  // -------------------------------------------------------------------------
+
+  it("completes the fully-uploaded lead through the real /api/quote/complete handler", async () => {
+    const { handleQuoteCompleteRequest } = await import("../../src/routes/api/quote/complete");
+
+    const response = await handleQuoteCompleteRequest(
+      new Request("https://example.test/api/quote/complete", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ leadId: leadOneId, idempotencyKey: idempotencyKeyOne }),
+      }),
+    );
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.ok).toBe(true);
+    expect(body.data.leadId).toBe(leadOneId);
+    expect(body.data.reference).toMatch(/^MSM-\d{6}-[0-9A-F]{6}$/);
+    // The lead completes automatically the instant its last (only) slot
+    // verified, via the CHECKPOINT C2D-A trigger — by the time the browser
+    // calls this endpoint, completion has already genuinely happened.
+    // alreadyCompleted:true here is the CORRECT, expected outcome for the
+    // normal happy path, not a failure of this endpoint or a stale result.
+    expect(body.data.alreadyCompleted).toBe(true);
+
+    const lead = await serviceClient
+      .from("leads")
+      .select("file_upload_status, submission_completed_at, status, reference")
+      .eq("id", leadOneId)
+      .single();
+    expect(lead.data?.file_upload_status).toBe("complete");
+    expect(lead.data?.submission_completed_at).not.toBeNull();
+    expect(lead.data?.status).toBe("new");
+    expect(lead.data?.reference).toBe(body.data.reference);
+
+    const activities = await serviceClient.from("lead_activities").select("event_type").eq("lead_id", leadOneId);
+    const eventTypes = (activities.data ?? []).map((a) => a.event_type as string).sort();
+    expect(eventTypes).toEqual(["lead_created", "submission_completed"]);
+
+    const notifications = await serviceClient
+      .from("notification_deliveries")
+      .select("id", { count: "exact", head: true })
+      .eq("lead_id", leadOneId)
+      .eq("event_type", "submission_completed")
+      .eq("channel", "email");
+    expect(notifications.count).toBe(1);
+
+    const slots = await serviceClient.from("quote_upload_slots").select("status").eq("lead_id", leadOneId);
+    expect(slots.data?.every((s) => s.status === "verified")).toBe(true);
+    expect(slots.data?.some((s) => s.status === "uploading")).toBe(false);
+
+    const files = await serviceClient
+      .from("lead_files")
+      .select("id", { count: "exact", head: true })
+      .eq("lead_id", leadOneId);
+    expect(files.count).toBe(1);
+  });
+
+  it("replays the completion request idempotently — same genuine reference, no duplicate activity or notification rows", async () => {
+    const { handleQuoteCompleteRequest } = await import("../../src/routes/api/quote/complete");
+
+    const before = await Promise.all([
+      serviceClient.from("lead_activities").select("id", { count: "exact", head: true }).eq("lead_id", leadOneId),
+      serviceClient
+        .from("notification_deliveries")
+        .select("id", { count: "exact", head: true })
+        .eq("lead_id", leadOneId),
+    ]);
+
+    const response = await handleQuoteCompleteRequest(
+      new Request("https://example.test/api/quote/complete", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ leadId: leadOneId, idempotencyKey: idempotencyKeyOne }),
+      }),
+    );
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.data.alreadyCompleted).toBe(true);
+    expect(body.data.reference).toMatch(/^MSM-\d{6}-[0-9A-F]{6}$/);
+
+    const after = await Promise.all([
+      serviceClient.from("lead_activities").select("id", { count: "exact", head: true }).eq("lead_id", leadOneId),
+      serviceClient
+        .from("notification_deliveries")
+        .select("id", { count: "exact", head: true })
+        .eq("lead_id", leadOneId),
+    ]);
+    expect(after[0].count).toBe(before[0].count);
+    expect(after[1].count).toBe(before[1].count);
+  });
+
+  it("rejects a completion attempt with the wrong idempotency key exactly like a nonexistent lead — no enumeration leak", async () => {
+    const { handleQuoteCompleteRequest } = await import("../../src/routes/api/quote/complete");
+    const response = await handleQuoteCompleteRequest(
+      new Request("https://example.test/api/quote/complete", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ leadId: leadOneId, idempotencyKey: crypto.randomUUID() }),
+      }),
+    );
+    expect(response.status).toBe(404);
+    const body = await response.json();
+    expect(body.error.code).toBe("NOT_FOUND");
+  });
+
+  it("rejects a completion attempt for a lead with unresolved upload slots, leaving it uncompleted", async () => {
+    const { handleQuoteInitiateRequest } = await import("../../src/routes/api/quote/initiate");
+    const { handleQuoteCompleteRequest } = await import("../../src/routes/api/quote/complete");
+
+    const idempotencyKeyThree = crypto.randomUUID();
+    const initiateResponse = await handleQuoteInitiateRequest(
+      new Request("https://example.test/api/quote/initiate", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          idempotencyKey: idempotencyKeyThree,
+          submission: validSellerSubmission(),
+          files: [{ original_filename: "third.jpg", declared_mime_type: "image/jpeg", declared_byte_size: 64 }],
+        }),
+      }),
+    );
+    const initiateBody = await initiateResponse.json();
+    const leadThreeId = initiateBody.data.leadId as string;
+
+    const response = await handleQuoteCompleteRequest(
+      new Request("https://example.test/api/quote/complete", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ leadId: leadThreeId, idempotencyKey: idempotencyKeyThree }),
+      }),
+    );
+    expect(response.status).toBe(409);
+    const body = await response.json();
+    expect(body.error.code).toBe("NOT_READY");
+
+    const lead = await serviceClient
+      .from("leads")
+      .select("submission_completed_at")
+      .eq("id", leadThreeId)
+      .single();
+    expect(lead.data?.submission_completed_at).toBeNull();
+  });
+
+  // -------------------------------------------------------------------------
+  // J — explicit cleanup + verification (afterAll is the unconditional
   // safety net for the failure case; this test performs and verifies the
   // same cleanup on the success path)
   // -------------------------------------------------------------------------
@@ -518,16 +663,18 @@ describe("CHECKPOINT C2C — real local Quote submission + upload pipeline", () 
 
     resetLocalDatabase();
 
-    const [leads, activities, slots, files] = await Promise.all([
+    const [leads, activities, slots, files, notifications] = await Promise.all([
       serviceClient.from("leads").select("id", { count: "exact", head: true }),
       serviceClient.from("lead_activities").select("id", { count: "exact", head: true }),
       serviceClient.from("quote_upload_slots").select("id", { count: "exact", head: true }),
       serviceClient.from("lead_files").select("id", { count: "exact", head: true }),
+      serviceClient.from("notification_deliveries").select("id", { count: "exact", head: true }),
     ]);
     expect(leads.count).toBe(0);
     expect(activities.count).toBe(0);
     expect(slots.count).toBe(0);
     expect(files.count).toBe(0);
+    expect(notifications.count).toBe(0);
 
     const postResetDownload = await serviceClient.storage.from(LEAD_FILES_BUCKET).download(objectPathOne);
     expect(postResetDownload.error).not.toBeNull();

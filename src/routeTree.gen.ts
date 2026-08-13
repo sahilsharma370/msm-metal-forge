@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as QuoteRouteImport } from './routes/quote'
+import { Route as ApiQuoteCompleteRouteImport } from './routes/api/quote/complete'
 import { Route as ApiQuoteInitiateRouteImport } from './routes/api/quote/initiate'
 import { Route as ApiQuoteUploadRouteImport } from './routes/api/quote/upload'
 
@@ -22,6 +23,11 @@ const IndexRoute = IndexRouteImport.update({
 const QuoteRoute = QuoteRouteImport.update({
   id: '/quote',
   path: '/quote',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiQuoteCompleteRoute = ApiQuoteCompleteRouteImport.update({
+  id: '/api/quote/complete',
+  path: '/api/quote/complete',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiQuoteInitiateRoute = ApiQuoteInitiateRouteImport.update({
@@ -38,12 +44,14 @@ const ApiQuoteUploadRoute = ApiQuoteUploadRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/quote': typeof QuoteRoute
+  '/api/quote/complete': typeof ApiQuoteCompleteRoute
   '/api/quote/initiate': typeof ApiQuoteInitiateRoute
   '/api/quote/upload': typeof ApiQuoteUploadRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/quote': typeof QuoteRoute
+  '/api/quote/complete': typeof ApiQuoteCompleteRoute
   '/api/quote/initiate': typeof ApiQuoteInitiateRoute
   '/api/quote/upload': typeof ApiQuoteUploadRoute
 }
@@ -51,20 +59,38 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/quote': typeof QuoteRoute
+  '/api/quote/complete': typeof ApiQuoteCompleteRoute
   '/api/quote/initiate': typeof ApiQuoteInitiateRoute
   '/api/quote/upload': typeof ApiQuoteUploadRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/quote' | '/api/quote/initiate' | '/api/quote/upload'
+  fullPaths:
+    | '/'
+    | '/quote'
+    | '/api/quote/complete'
+    | '/api/quote/initiate'
+    | '/api/quote/upload'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/quote' | '/api/quote/initiate' | '/api/quote/upload'
-  id: '__root__' | '/' | '/quote' | '/api/quote/initiate' | '/api/quote/upload'
+  to:
+    | '/'
+    | '/quote'
+    | '/api/quote/complete'
+    | '/api/quote/initiate'
+    | '/api/quote/upload'
+  id:
+    | '__root__'
+    | '/'
+    | '/quote'
+    | '/api/quote/complete'
+    | '/api/quote/initiate'
+    | '/api/quote/upload'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   QuoteRoute: typeof QuoteRoute
+  ApiQuoteCompleteRoute: typeof ApiQuoteCompleteRoute
   ApiQuoteInitiateRoute: typeof ApiQuoteInitiateRoute
   ApiQuoteUploadRoute: typeof ApiQuoteUploadRoute
 }
@@ -83,6 +109,13 @@ declare module '@tanstack/react-router' {
       path: '/quote'
       fullPath: '/quote'
       preLoaderRoute: typeof QuoteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/quote/complete': {
+      id: '/api/quote/complete'
+      path: '/api/quote/complete'
+      fullPath: '/api/quote/complete'
+      preLoaderRoute: typeof ApiQuoteCompleteRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/quote/initiate': {
@@ -105,6 +138,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   QuoteRoute: QuoteRoute,
+  ApiQuoteCompleteRoute: ApiQuoteCompleteRoute,
   ApiQuoteInitiateRoute: ApiQuoteInitiateRoute,
   ApiQuoteUploadRoute: ApiQuoteUploadRoute,
 }
