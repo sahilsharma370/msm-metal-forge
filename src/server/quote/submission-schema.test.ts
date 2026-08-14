@@ -237,4 +237,74 @@ describe("normalizeSubmission", () => {
     expect(normalized["sellerName"]).toBe("Ahmed Seller");
     expect(Object.keys(normalized)).toContain("source");
   });
+
+  it("leaves every unrelated field exactly as provided — no contract drift beyond the phone fields", () => {
+    const parsed = initiateQuoteRequestSchema.safeParse(validRequestBody());
+    if (!parsed.success) throw new Error("fixture must parse");
+    const normalized = normalizeSubmission(parsed.data.submission as SubmissionShape);
+    expect(normalized["material"]).toBe("copper");
+    expect(normalized["sellerCondition"]).toBe("clean_separated");
+    expect(normalized["sellerQuantityValue"]).toBe("100");
+    expect(normalized["sellerEmirate"]).toBe("dubai");
+    expect(normalized["sellerArea"]).toBe("Al Quoz Industrial 3");
+    expect(normalized["sellerPreferredContact"]).toBe("whatsapp");
+    expect(normalized["source"]).toBe("hero");
+  });
+});
+
+describe("normalizeSubmission — CHECKPOINT C2F-B phone canonicalization", () => {
+  it("canonicalizes a UAE local seller number (050...) to +971...", () => {
+    const parsed = initiateQuoteRequestSchema.safeParse(
+      validRequestBody({ submission: { ...validSeller, sellerPhone: "0501234567" } }),
+    );
+    if (!parsed.success) throw new Error("fixture must parse");
+    const normalized = normalizeSubmission(parsed.data.submission as SubmissionShape);
+    expect(normalized["sellerPhone"]).toBe("+971501234567");
+  });
+
+  it("canonicalizes a UAE local buyer number (050...) to +971...", () => {
+    const parsed = initiateQuoteRequestSchema.safeParse(
+      validRequestBody({ submission: { ...validBuyerLocal, buyerPhone: "0502345678" } }),
+    );
+    if (!parsed.success) throw new Error("fixture must parse");
+    const normalized = normalizeSubmission(parsed.data.submission as SubmissionShape);
+    expect(normalized["buyerPhone"]).toBe("+971502345678");
+  });
+
+  it("leaves an already-canonical international number unchanged", () => {
+    const parsed = initiateQuoteRequestSchema.safeParse(
+      validRequestBody({ submission: { ...validSeller, sellerPhone: "+14155552671" } }),
+    );
+    if (!parsed.success) throw new Error("fixture must parse");
+    const normalized = normalizeSubmission(parsed.data.submission as SubmissionShape);
+    expect(normalized["sellerPhone"]).toBe("+14155552671");
+  });
+
+  it("normalizes spaces/dashes/parentheses to the same canonical form as the plain digit string", () => {
+    const plain = initiateQuoteRequestSchema.safeParse(
+      validRequestBody({ submission: { ...validSeller, sellerPhone: "0501234567" } }),
+    );
+    const formatted = initiateQuoteRequestSchema.safeParse(
+      validRequestBody({ submission: { ...validSeller, sellerPhone: "050-123 (4567)" } }),
+    );
+    if (!plain.success || !formatted.success) throw new Error("fixtures must parse");
+    const normalizedPlain = normalizeSubmission(plain.data.submission as SubmissionShape);
+    const normalizedFormatted = normalizeSubmission(formatted.data.submission as SubmissionShape);
+    expect(normalizedFormatted["sellerPhone"]).toBe(normalizedPlain["sellerPhone"]);
+    expect(normalizedFormatted["sellerPhone"]).toBe("+971501234567");
+  });
+
+  it("does not populate buyerPhone when normalizing a seller submission", () => {
+    const parsed = initiateQuoteRequestSchema.safeParse(validRequestBody({ submission: validSeller }));
+    if (!parsed.success) throw new Error("fixture must parse");
+    const normalized = normalizeSubmission(parsed.data.submission as SubmissionShape);
+    expect(normalized["buyerPhone"]).toBeNull();
+  });
+
+  it("does not populate sellerPhone when normalizing a buyer submission", () => {
+    const parsed = initiateQuoteRequestSchema.safeParse(validRequestBody({ submission: validBuyerLocal }));
+    if (!parsed.success) throw new Error("fixture must parse");
+    const normalized = normalizeSubmission(parsed.data.submission as SubmissionShape);
+    expect(normalized["sellerPhone"]).toBeNull();
+  });
 });

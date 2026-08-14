@@ -229,6 +229,111 @@ describe("handleQuoteInitiateBody — RPC call contract", () => {
   });
 });
 
+describe("handleQuoteInitiateBody — CHECKPOINT C2F-B phone normalization", () => {
+  it("sends the RPC the normalized canonical phone, never the raw customer-typed formatting", async () => {
+    const supabase = fakeSupabase({ data: rpcSuccessPayload, error: null });
+    await handleQuoteInitiateBody(
+      requestBody({ submission: { ...validSeller, sellerPhone: "050-123 (4567)" } }),
+      { supabase },
+    );
+
+    const [, args] = supabase.rpc.mock.calls[0] as [string, RpcCallArgs];
+    const submission = args.p_submission as Record<string, unknown>;
+    expect(submission["sellerPhone"]).toBe("+971501234567");
+  });
+
+  it("produces a stable canonical payload hash for two formatting variants of the same phone number", async () => {
+    const supabase = fakeSupabase({ data: rpcSuccessPayload, error: null });
+    await handleQuoteInitiateBody(
+      requestBody({ submission: { ...validSeller, sellerPhone: "0501234567" } }),
+      { supabase },
+    );
+    await handleQuoteInitiateBody(
+      requestBody({ submission: { ...validSeller, sellerPhone: "050 123 4567" } }),
+      { supabase },
+    );
+
+    const [, firstArgs] = supabase.rpc.mock.calls[0] as [string, RpcCallArgs];
+    const [, secondArgs] = supabase.rpc.mock.calls[1] as [string, RpcCallArgs];
+    expect(firstArgs.p_payload_hash).toBe(secondArgs.p_payload_hash);
+  });
+
+  it("means an idempotent initiation with an equivalently-formatted phone reuses the same canonical payload (no spurious conflict)", async () => {
+    const supabase = fakeSupabase({ data: rpcSuccessPayload, error: null });
+    await handleQuoteInitiateBody(
+      requestBody({ submission: { ...validSeller, sellerPhone: "+971501234567" } }),
+      { supabase },
+    );
+    await handleQuoteInitiateBody(
+      requestBody({ submission: { ...validSeller, sellerPhone: "+971 50 123 4567" } }),
+      { supabase },
+    );
+
+    const [, firstArgs] = supabase.rpc.mock.calls[0] as [string, RpcCallArgs];
+    const [, secondArgs] = supabase.rpc.mock.calls[1] as [string, RpcCallArgs];
+    // Same idempotency_key + same resulting canonical hash is exactly what
+    // create_website_quote_v1 treats as a safe replay, not a conflict.
+    expect(firstArgs.p_idempotency_key).toBe(secondArgs.p_idempotency_key);
+    expect(firstArgs.p_payload_hash).toBe(secondArgs.p_payload_hash);
+  });
+
+  it("produces a different hash for materially different phone numbers", async () => {
+    const supabase = fakeSupabase({ data: rpcSuccessPayload, error: null });
+    await handleQuoteInitiateBody(
+      requestBody({ submission: { ...validSeller, sellerPhone: "0501234567" } }),
+      { supabase },
+    );
+    await handleQuoteInitiateBody(
+      requestBody({ submission: { ...validSeller, sellerPhone: "0509999999" } }),
+      { supabase },
+    );
+
+    const [, firstArgs] = supabase.rpc.mock.calls[0] as [string, RpcCallArgs];
+    const [, secondArgs] = supabase.rpc.mock.calls[1] as [string, RpcCallArgs];
+    expect(firstArgs.p_payload_hash).not.toBe(secondArgs.p_payload_hash);
+  });
+
+  it("rejects invalid phone input before any RPC call", async () => {
+    const supabase = fakeSupabase({ data: rpcSuccessPayload, error: null });
+    const result = await handleQuoteInitiateBody(
+      requestBody({ submission: { ...validSeller, sellerPhone: "notaphone" } }),
+      { supabase },
+    );
+    expect(result.status).toBe(400);
+    expect(supabase.rpc).not.toHaveBeenCalled();
+  });
+
+  it("does not leak a normalized buyerPhone into a seller submission's RPC payload", async () => {
+    const supabase = fakeSupabase({ data: rpcSuccessPayload, error: null });
+    await handleQuoteInitiateBody(requestBody({ submission: validSeller }), { supabase });
+
+    const [, args] = supabase.rpc.mock.calls[0] as [string, RpcCallArgs];
+    const submission = args.p_submission as Record<string, unknown>;
+    expect(submission["buyerPhone"]).toBeNull();
+  });
+
+  it("does not leak a normalized sellerPhone into a buyer submission's RPC payload", async () => {
+    const supabase = fakeSupabase({ data: rpcSuccessPayload, error: null });
+    await handleQuoteInitiateBody(requestBody({ submission: validBuyerLocal }), { supabase });
+
+    const [, args] = supabase.rpc.mock.calls[0] as [string, RpcCallArgs];
+    const submission = args.p_submission as Record<string, unknown>;
+    expect(submission["sellerPhone"]).toBeNull();
+  });
+
+  it("normalizes the buyer phone the RPC receives for a buy-intent submission", async () => {
+    const supabase = fakeSupabase({ data: rpcSuccessPayload, error: null });
+    await handleQuoteInitiateBody(
+      requestBody({ submission: { ...validBuyerLocal, buyerPhone: "0502345678" } }),
+      { supabase },
+    );
+
+    const [, args] = supabase.rpc.mock.calls[0] as [string, RpcCallArgs];
+    const submission = args.p_submission as Record<string, unknown>;
+    expect(submission["buyerPhone"]).toBe("+971502345678");
+  });
+});
+
 describe("handleQuoteInitiateBody — rejections", () => {
   it("rejects malformed JSON with 400", async () => {
     const supabase = fakeSupabase({ data: rpcSuccessPayload, error: null });

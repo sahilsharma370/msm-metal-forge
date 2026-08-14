@@ -8,6 +8,7 @@ import {
   buyerLogisticsStepSchema,
   sellerContactStepSchema,
   buyerContactStepSchema,
+  normalizePhoneNumber,
 } from "@/components/site/quote/quote-schema";
 import {
   QUOTE_UNITS,
@@ -350,12 +351,37 @@ export type InitiateQuoteRequest = z.infer<typeof initiateQuoteRequestSchema>;
  * whether the caller omitted a field or sent it as null, and so the same
  * object can be sent directly as create_website_quote_v1's p_submission
  * (whose own `->>'key'` extraction treats missing and null identically).
+ *
+ * CHECKPOINT C2F-B: sellerPhone/buyerPhone are additionally canonicalized
+ * here via the same normalizePhoneNumber the frontend already validates
+ * against (isValidPhoneNumber, used by phoneSchema in quote-schema.ts, is
+ * itself defined as `normalizePhoneNumber(x) !== null` — the two can never
+ * disagree). This is the ONE place both the payload_hash and
+ * create_website_quote_v1's p_submission are produced from, so
+ * canonicalizing here — rather than in initiate-quote.ts or on the raw
+ * request — makes the canonical phone form part of both automatically, with
+ * no second call site and no second normalization implementation.
+ *
+ * By the time this function runs, checkSubmissionCompleteness has already
+ * required a present sellerPhone/buyerPhone to pass the exact same
+ * phoneSchema check, so normalizePhoneNumber returning null here is not a
+ * real runtime case — but the fallback keeps the original (already-
+ * validated) text rather than silently discarding it, and branch isolation
+ * (enforced upstream by submissionSchema's own superRefine) already
+ * guarantees at most one of sellerPhone/buyerPhone is ever defined, so
+ * normalizing one can never populate or affect the other.
  */
 export function normalizeSubmission(value: SubmissionShape): { [key: string]: CanonicalJsonValue } {
   const normalized: { [key: string]: CanonicalJsonValue } = {};
   for (const key of SUBMISSION_KEYS) {
     const fieldValue = value[key];
     normalized[key] = fieldValue === undefined ? null : fieldValue;
+  }
+  if (typeof value.sellerPhone === "string") {
+    normalized["sellerPhone"] = normalizePhoneNumber(value.sellerPhone) ?? value.sellerPhone;
+  }
+  if (typeof value.buyerPhone === "string") {
+    normalized["buyerPhone"] = normalizePhoneNumber(value.buyerPhone) ?? value.buyerPhone;
   }
   return normalized;
 }
