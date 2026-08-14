@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  claimMatchingFile,
   determineFileRecoveryStatus,
   determineSlotRecoveryStatus,
   doesFileMatchDeclaration,
@@ -199,5 +200,70 @@ describe("seller/buyer file-kind isolation (via selectRelevantLocalFiles)", () =
     const relevant = selectRelevantLocalFiles(form, "buy");
     const status = determineFileRecoveryStatus(oneDeclaration, relevant.length);
     expect(status).toEqual({ kind: "lost", declarations: oneDeclaration });
+  });
+});
+
+describe("claimMatchingFile — CHECKPOINT C2F-D pool-based, non-duplicating slot/file matching", () => {
+  const declarationA: RecoverableFileDeclaration = {
+    originalFilename: "a.jpg",
+    declaredMimeType: "image/jpeg",
+    declaredByteSize: 100,
+  };
+  const declarationB: RecoverableFileDeclaration = {
+    originalFilename: "b.jpg",
+    declaredMimeType: "image/jpeg",
+    declaredByteSize: 200,
+  };
+
+  function file(name: string, type: string, size: number): File {
+    return new File([new Uint8Array(size)], name, { type });
+  }
+
+  it("returns null match and the unchanged pool when nothing matches", () => {
+    const pool = [file("a.jpg", "image/jpeg", 100)];
+    const result = claimMatchingFile(pool, declarationB);
+    expect(result.matched).toBeNull();
+    expect(result.remainingPool).toEqual(pool);
+  });
+
+  it("matches and removes exactly the matched file from the returned pool", () => {
+    const fileA = file("a.jpg", "image/jpeg", 100);
+    const fileB = file("b.jpg", "image/jpeg", 200);
+    const result = claimMatchingFile([fileA, fileB], declarationA);
+    expect(result.matched).toBe(fileA);
+    expect(result.remainingPool).toEqual([fileB]);
+  });
+
+  it("never assigns the same File to two slots sharing an identical declaration: the second claim against the same pool finds nothing left", () => {
+    const duplicateDeclaration: RecoverableFileDeclaration = {
+      originalFilename: "same.jpg",
+      declaredMimeType: "image/jpeg",
+      declaredByteSize: 100,
+    };
+    const onlyOneRealFile = [file("same.jpg", "image/jpeg", 100)];
+
+    const firstClaim = claimMatchingFile(onlyOneRealFile, duplicateDeclaration);
+    expect(firstClaim.matched).not.toBeNull();
+
+    const secondClaim = claimMatchingFile(firstClaim.remainingPool, duplicateDeclaration);
+    expect(secondClaim.matched).toBeNull();
+    expect(secondClaim.remainingPool).toEqual([]);
+  });
+
+  it("resolves two distinct files sharing identical declared metadata to two distinct slots when the pool genuinely has two", () => {
+    const declaration: RecoverableFileDeclaration = {
+      originalFilename: "same.jpg",
+      declaredMimeType: "image/jpeg",
+      declaredByteSize: 100,
+    };
+    const first = file("same.jpg", "image/jpeg", 100);
+    const second = file("same.jpg", "image/jpeg", 100);
+
+    const firstClaim = claimMatchingFile([first, second], declaration);
+    expect(firstClaim.matched).toBe(first);
+
+    const secondClaim = claimMatchingFile(firstClaim.remainingPool, declaration);
+    expect(secondClaim.matched).toBe(second);
+    expect(secondClaim.remainingPool).toEqual([]);
   });
 });

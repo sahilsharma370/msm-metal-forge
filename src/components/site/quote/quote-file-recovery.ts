@@ -139,3 +139,29 @@ export function determineSlotRecoveryStatus(
   // status === "pending"
   return currentFileCount > 0 ? { kind: "present" } : { kind: "needs_reselection", declaration };
 }
+
+/**
+ * CHECKPOINT C2F-D: resolves ONE slot's declaration against a pool of
+ * currently-selected local Files, returning both the match (if any) and the
+ * pool with that one File removed. Multiple declared slots can legitimately
+ * share an identical originalFilename/declaredMimeType/declaredByteSize
+ * (e.g. two visually-different photos that happen to be the same byte size)
+ * — doesFileMatchDeclaration alone cannot tell those apart, so resolving
+ * several slots against the same pool one at a time, always consuming the
+ * matched File before resolving the next slot, is what keeps one File
+ * object from ever being assigned to two different slots. Callers resolving
+ * N slots against one pool must call this once per slot, in a fixed order,
+ * threading `remainingPool` through each call — never re-run it against the
+ * original, unconsumed pool for a later slot.
+ */
+export function claimMatchingFile(
+  pool: readonly File[],
+  declaration: RecoverableFileDeclaration,
+): { readonly matched: File | null; readonly remainingPool: readonly File[] } {
+  const index = pool.findIndex((file) => doesFileMatchDeclaration(file, declaration));
+  if (index === -1) return { matched: null, remainingPool: pool };
+  return {
+    matched: pool[index]!,
+    remainingPool: [...pool.slice(0, index), ...pool.slice(index + 1)],
+  };
+}
