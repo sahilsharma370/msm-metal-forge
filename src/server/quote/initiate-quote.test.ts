@@ -97,6 +97,7 @@ describe("handleQuoteInitiateBody — happy paths", () => {
       slot_id: "22222222-2222-2222-2222-222222222222",
       slot_index: 0,
       kind: "seller_photo",
+      status: "pending",
       storage_path:
         "leads/11111111-1111-1111-1111-111111111111/slot-0-22222222-2222-2222-2222-222222222222",
       expires_at: "2026-08-12T18:00:00+00:00",
@@ -123,12 +124,49 @@ describe("handleQuoteInitiateBody — happy paths", () => {
         slotId: slot.slot_id,
         slotIndex: 0,
         kind: "seller_photo",
+        status: "pending",
         storagePath: slot.storage_path,
         expiresAt: slot.expires_at,
         originalFilename: "photo1.jpg",
         declaredMimeType: "image/jpeg",
         declaredByteSize: 1024,
       });
+    }
+  });
+
+  it("forwards each slot's exact authoritative status value from the RPC, not a guessed or defaulted one", async () => {
+    const verifiedSlot = {
+      slot_id: "33333333-3333-3333-3333-333333333333",
+      slot_index: 0,
+      kind: "seller_photo",
+      status: "verified",
+      storage_path: "leads/11111111-1111-1111-1111-111111111111/slot-0-33333333-3333-3333-3333-333333333333",
+      expires_at: "2026-08-12T18:00:00+00:00",
+      original_filename: "photo1.jpg",
+      declared_mime_type: "image/jpeg",
+      declared_byte_size: 1024,
+    };
+    const uploadingSlot = {
+      slot_id: "44444444-4444-4444-4444-444444444444",
+      slot_index: 1,
+      kind: "seller_photo",
+      status: "uploading",
+      storage_path: "leads/11111111-1111-1111-1111-111111111111/slot-1-44444444-4444-4444-4444-444444444444",
+      expires_at: "2026-08-12T18:00:00+00:00",
+      original_filename: "photo2.jpg",
+      declared_mime_type: "image/jpeg",
+      declared_byte_size: 2048,
+    };
+    const supabase = fakeSupabase({
+      data: { ...rpcSuccessPayload, upload_slots: [verifiedSlot, uploadingSlot] },
+      error: null,
+    });
+    const result = await handleQuoteInitiateBody(requestBody(), { supabase });
+
+    expect(result.status).toBe(200);
+    if (result.body.ok) {
+      expect(result.body.data.uploadSlots[0]?.status).toBe("verified");
+      expect(result.body.data.uploadSlots[1]?.status).toBe("uploading");
     }
   });
 
@@ -481,6 +519,55 @@ describe("handleQuoteInitiateBody — RPC failure mapping", () => {
   it("maps a malformed/unexpected RPC success payload to a generic 500", async () => {
     const supabase = fakeSupabase({ data: { unexpected: "shape" }, error: null });
     const result = await handleQuoteInitiateBody(requestBody(), { supabase });
+    expect(result.status).toBe(500);
+    if (!result.body.ok) {
+      expect(result.body.error.code).toBe("INTERNAL_ERROR");
+    }
+  });
+
+  it("rejects a slot with an unrecognized status value with a generic 500, never forwarding it to the browser", async () => {
+    const badSlot = {
+      slot_id: "55555555-5555-5555-5555-555555555555",
+      slot_index: 0,
+      kind: "seller_photo",
+      status: "not_a_real_status",
+      storage_path: "leads/11111111-1111-1111-1111-111111111111/slot-0-55555555-5555-5555-5555-555555555555",
+      expires_at: "2026-08-12T18:00:00+00:00",
+      original_filename: "photo1.jpg",
+      declared_mime_type: "image/jpeg",
+      declared_byte_size: 1024,
+    };
+    const supabase = fakeSupabase({
+      data: { ...rpcSuccessPayload, upload_slots: [badSlot] },
+      error: null,
+    });
+    const result = await handleQuoteInitiateBody(requestBody(), { supabase });
+
+    expect(result.status).toBe(500);
+    if (!result.body.ok) {
+      expect(result.body.error.code).toBe("INTERNAL_ERROR");
+      expect(JSON.stringify(result.body)).not.toContain("not_a_real_status");
+    }
+  });
+
+  it("rejects a slot with a missing status field with a generic 500", async () => {
+    const { status: _status, ...slotWithoutStatus } = {
+      slot_id: "66666666-6666-6666-6666-666666666666",
+      slot_index: 0,
+      kind: "seller_photo",
+      status: "pending",
+      storage_path: "leads/11111111-1111-1111-1111-111111111111/slot-0-66666666-6666-6666-6666-666666666666",
+      expires_at: "2026-08-12T18:00:00+00:00",
+      original_filename: "photo1.jpg",
+      declared_mime_type: "image/jpeg",
+      declared_byte_size: 1024,
+    };
+    const supabase = fakeSupabase({
+      data: { ...rpcSuccessPayload, upload_slots: [slotWithoutStatus] },
+      error: null,
+    });
+    const result = await handleQuoteInitiateBody(requestBody(), { supabase });
+
     expect(result.status).toBe(500);
     if (!result.body.ok) {
       expect(result.body.error.code).toBe("INTERNAL_ERROR");

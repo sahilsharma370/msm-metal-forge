@@ -69,10 +69,14 @@ export async function readBoundedBody(request: Request, maxBytes: number): Promi
 // Response contract
 // ---------------------------------------------------------------------------
 
+/** CHECKPOINT C2F-C1: exactly quote_upload_slots.status's own five values — see that column's CHECK constraint. */
+export type UploadSlotStatus = "pending" | "uploading" | "verified" | "failed" | "expired";
+
 export interface UploadSlotResponse {
   slotId: string;
   slotIndex: number;
   kind: "seller_photo" | "buyer_document";
+  status: UploadSlotStatus;
   storagePath: string;
   expiresAt: string;
   originalFilename: string;
@@ -162,6 +166,14 @@ const rpcUploadSlotSchema = z.object({
   slot_id: z.string().uuid(),
   slot_index: z.number().int(),
   kind: z.enum(["seller_photo", "buyer_document"]),
+  // CHECKPOINT C2F-C1: a strict enum, not a bare string — a malformed or
+  // unrecognized status value from the RPC (which should be structurally
+  // impossible given quote_upload_slots.status's own CHECK constraint, but
+  // this layer never trusts that blindly, matching every other field here)
+  // fails this whole slot's parse, which fails rpcResultSchema's parse,
+  // which the caller below already maps to a generic 500 — never forwarded
+  // to the browser, and never inferred as any particular status.
+  status: z.enum(["pending", "uploading", "verified", "failed", "expired"]),
   storage_path: z.string(),
   expires_at: z.string(),
   original_filename: z.string(),
@@ -286,6 +298,7 @@ export async function handleQuoteInitiateBody(
           slotId: slot.slot_id,
           slotIndex: slot.slot_index,
           kind: slot.kind,
+          status: slot.status,
           storagePath: slot.storage_path,
           expiresAt: slot.expires_at,
           originalFilename: slot.original_filename,
