@@ -10,7 +10,10 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   resolve: { tsconfigPaths: true },
   test: {
+    // Global default stays "node" for speed — component tests that need a
+    // DOM opt in per-file via a `// @vitest-environment jsdom` docblock
+    // (see QuoteExperience.test.tsx), never by changing this default.
     environment: "node",
-    include: ["src/**/*.test.ts"],
+    include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
   },
 });

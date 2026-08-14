@@ -1,4 +1,4 @@
-import { MessageCircle, Paperclip, Pencil } from "lucide-react";
+import { ArrowRight, Loader2, MessageCircle, Paperclip, Pencil } from "lucide-react";
 import { isValidMapLink, type QuoteFormValues, type QuoteLocalFile } from "../quote-schema";
 import {
   CONDITION_LABELS,
@@ -21,13 +21,17 @@ import {
   formatPhoneForDisplay,
   isReadyForReview,
 } from "../quote-summary";
+import { outcomeBanner, progressPhaseText } from "../quote-submission-copy";
+import type { QuoteSubmissionOutcome, QuoteSubmissionProgressEvent } from "../quote-submission-engine";
 import { cn } from "@/lib/utils";
 
 interface ReviewStepProps {
   values: QuoteFormValues;
   onEditStep: (step: number) => void;
-  onPreviewConfirmation: () => void;
-  isDev: boolean;
+  onSubmit: () => void;
+  isSubmitting: boolean;
+  submissionPhase: QuoteSubmissionProgressEvent | null;
+  submissionOutcome: QuoteSubmissionOutcome | null;
 }
 
 interface ReviewRow {
@@ -311,7 +315,14 @@ function FileThumbnails({ files }: { files: QuoteLocalFile[] }) {
   );
 }
 
-export function ReviewStep({ values, onEditStep, onPreviewConfirmation, isDev }: ReviewStepProps) {
+export function ReviewStep({
+  values,
+  onEditStep,
+  onSubmit,
+  isSubmitting,
+  submissionPhase,
+  submissionOutcome,
+}: ReviewStepProps) {
   const sections =
     values.intent === "buy" ? buildBuyerSections(values) : buildSellerSections(values);
   const ready = isReadyForReview(values);
@@ -319,6 +330,9 @@ export function ReviewStep({ values, onEditStep, onPreviewConfirmation, isDev }:
     QUOTE_WHATSAPP_NUMBER_PROVISIONAL,
     buildWhatsAppMessage(values),
   );
+  const banner = submissionOutcome ? outcomeBanner(submissionOutcome) : null;
+  const statusText = isSubmitting ? progressPhaseText(submissionPhase) : (banner?.message ?? "");
+  const submitDisabled = !ready || isSubmitting;
 
   return (
     <div>
@@ -401,21 +415,43 @@ export function ReviewStep({ values, onEditStep, onPreviewConfirmation, isDev }:
           Continue on WhatsApp
         </a>
 
-        {isDev && (
-          <button
-            type="button"
-            onClick={onPreviewConfirmation}
-            disabled={!ready}
-            aria-disabled={!ready}
+        <button
+          type="button"
+          onClick={onSubmit}
+          disabled={submitDisabled}
+          aria-disabled={submitDisabled}
+          aria-busy={isSubmitting}
+          className={cn(
+            "font-display inline-flex flex-1 items-center justify-center gap-2 rounded-full px-6 py-3 text-xs font-bold tracking-[0.1em] whitespace-nowrap uppercase transition-transform",
+            submitDisabled
+              ? "cursor-not-allowed bg-white/8 text-foreground/35"
+              : "bg-[image:var(--gradient-copper)] text-[#080A1D] shadow-[0_10px_30px_-10px_oklch(0.583_0.135_45.5/0.9)] hover:scale-[1.02]",
+          )}
+        >
+          {isSubmitting ? (
+            <Loader2 aria-hidden="true" className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <ArrowRight aria-hidden="true" className="h-3.5 w-3.5" />
+          )}
+          {isSubmitting ? "Submitting…" : banner?.showRetry ? "Retry Submission" : "Submit Request"}
+        </button>
+      </div>
+
+      {/* Truthful, screen-reader-announced status: progress while submitting, or the
+          last outcome's customer-safe message once settled. Always mounted (never
+          conditionally rendered in/out) so assistive tech reliably picks up updates. */}
+      <div role="status" aria-live="polite" aria-atomic="true" className="mt-3 min-h-[1.25rem]">
+        {statusText && (
+          <p
             className={cn(
-              "font-display inline-flex flex-1 items-center justify-center gap-2 rounded-full px-6 py-3 text-xs font-bold tracking-[0.1em] whitespace-nowrap uppercase transition-colors",
-              ready
-                ? "bg-white/8 text-foreground/70 hover:bg-white/14"
-                : "cursor-not-allowed bg-white/5 text-foreground/30",
+              "rounded-xl border px-4 py-2.5 text-xs leading-relaxed",
+              banner?.tone === "terminal" || banner?.tone === "conflict"
+                ? "border-destructive/30 bg-destructive/10 text-foreground/85"
+                : "border-copper/25 bg-[oklch(0.583_0.135_45.5/0.08)] text-foreground/75",
             )}
           >
-            Preview confirmation (dev only)
-          </button>
+            {statusText}
+          </p>
         )}
       </div>
 

@@ -9,6 +9,8 @@ import { Textarea } from "@/components/ui/textarea";
 
 interface ContactEvidenceStepProps {
   restoredFilesNotice: boolean;
+  /** Filenames the submission engine reported as still unresolved (needs_reselection/content_mismatch) — never includes an already-verified file. */
+  unresolvedFilenames?: readonly string[];
 }
 
 const PREFERRED_CONTACT_OPTIONS = PREFERRED_CONTACTS.map((c) => ({
@@ -25,7 +27,10 @@ function FieldError({ id, message }: { id: string; message: string | undefined }
   );
 }
 
-export function ContactEvidenceStep({ restoredFilesNotice }: ContactEvidenceStepProps) {
+export function ContactEvidenceStep({
+  restoredFilesNotice,
+  unresolvedFilenames = [],
+}: ContactEvidenceStepProps) {
   const form = useFormContext<QuoteFormValues>();
   const intent = form.watch("intent");
   const errors = form.formState.errors;
@@ -40,7 +45,19 @@ export function ContactEvidenceStep({ restoredFilesNotice }: ContactEvidenceStep
         {isSeller ? "Add photos and contact details" : "Add company and contact details"}
       </h2>
 
-      {restoredFilesNotice && (
+      {unresolvedFilenames.length > 0 && (
+        <p
+          role="alert"
+          className="mt-3 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-2.5 text-xs leading-relaxed text-foreground/85"
+        >
+          {isSeller
+            ? `Please add ${unresolvedFilenames.length === 1 ? "this photo" : "these photos"} again before submitting: `
+            : `Please add ${unresolvedFilenames.length === 1 ? "this file" : "these files"} again before submitting: `}
+          <span className="font-semibold">{unresolvedFilenames.join(", ")}</span>
+        </p>
+      )}
+
+      {restoredFilesNotice && unresolvedFilenames.length === 0 && (
         <p className="mt-3 rounded-xl border border-copper/25 bg-[oklch(0.583_0.135_45.5/0.08)] px-4 py-2.5 text-xs leading-relaxed text-foreground/75">
           {isSeller
             ? "We restored your saved answers. Uploaded photos aren't included in saved drafts, so please add them again."
