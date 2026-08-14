@@ -79,7 +79,12 @@ export type CompleteQuoteRequest = z.infer<typeof completeQuoteRequestSchema>;
 // Response contract — browser-safe only
 // ---------------------------------------------------------------------------
 
-export type CompleteErrorCode = "VALIDATION_ERROR" | "NOT_FOUND" | "NOT_READY" | "INTERNAL_ERROR";
+export type CompleteErrorCode =
+  | "VALIDATION_ERROR"
+  | "NOT_FOUND"
+  | "NOT_READY"
+  | "INTERNAL_ERROR"
+  | "RATE_LIMITED";
 
 export interface FieldError {
   path: string;

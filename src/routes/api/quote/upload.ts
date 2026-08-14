@@ -11,10 +11,12 @@ import {
   MAX_UPLOAD_REQUEST_BYTES,
   type UploadQuoteResponseBody,
 } from "@/server/quote/upload-quote";
-
-// TODO(rate-limiting): same intentionally-deferred gap as
-// src/routes/api/quote/initiate.ts — see that file's own TODO. Applies
-// equally here, and even more so given this route accepts file bytes.
+import {
+  RATE_LIMIT_RETRY_AFTER_SECONDS,
+  checkRateLimit,
+  getCloudflareClientIp,
+  getRateLimiterBinding,
+} from "@/server/rate-limit.server";
 
 function jsonResponse(status: number, body: UploadQuoteResponseBody): Response {
   return new Response(JSON.stringify(body), {
@@ -36,6 +38,24 @@ const validationErrorBody = (message: string): UploadQuoteResponseBody => ({
   ok: false,
   error: { code: "VALIDATION_ERROR", message, retryable: false },
 });
+
+function rateLimitedResponse(): Response {
+  const body: UploadQuoteResponseBody = {
+    ok: false,
+    error: {
+      code: "RATE_LIMITED",
+      message: "Too many requests. Please wait a moment and try again.",
+      retryable: true,
+    },
+  };
+  return new Response(JSON.stringify(body), {
+    status: 429,
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      "retry-after": String(RATE_LIMIT_RETRY_AFTER_SECONDS),
+    },
+  });
+}
 
 /**
  * Exact media-type match against "multipart/form-data" — the same
@@ -67,12 +87,21 @@ export async function handleQuoteUploadRequest(request: Request): Promise<Respon
     return jsonResponse(400, validationErrorBody("Content-Type must be multipart/form-data."));
   }
 
-  // Built per-request, inside the handler — never at module scope (see
-  // env.server.ts). Missing/invalid config fails closed with a generic
-  // message; the specific missing variable is never exposed here or
-  // anywhere in the response.
+  // CHECKPOINT C2G: rate-limited before this route ever reads a single byte
+  // of the (potentially large, up to 8 MiB) multipart body — the earliest
+  // point the framework allows, deliberately ahead of readBoundedBytes
+  // below. Same fail-closed-on-missing-binding and Cloudflare-verified-IP-
+  // only posture as initiate.ts — see that file's own comment for the full
+  // reasoning, identical here.
   let supabase: ReturnType<typeof createSupabaseAdminClient>;
   try {
+    const clientIp = getCloudflareClientIp(request);
+    if (!clientIp) return jsonResponse(500, genericServerErrorBody);
+
+    const limiter = getRateLimiterBinding("upload");
+    const { allowed } = await checkRateLimit(limiter, clientIp);
+    if (!allowed) return rateLimitedResponse();
+
     supabase = createSupabaseAdminClient();
   } catch {
     return jsonResponse(500, genericServerErrorBody);

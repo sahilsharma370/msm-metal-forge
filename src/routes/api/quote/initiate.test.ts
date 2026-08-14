@@ -9,7 +9,36 @@ vi.mock("@/server/supabase-admin.server", () => ({
   createSupabaseAdminClient: () => createSupabaseAdminClientMock(),
 }));
 
+// Succeeds by default so every existing test in this file reaches the RPC
+// exactly as before CHECKPOINT C2G — no real network call to Cloudflare
+// Siteverify is ever made from this file.
+const turnstileVerifyMock = vi.fn().mockResolvedValue({ ok: true });
+vi.mock("@/server/turnstile.server", () => ({
+  getTurnstileVerifier: () => ({ verify: turnstileVerifyMock }),
+}));
+
+// Allows by default so every existing test in this file reaches the RPC
+// exactly as before CHECKPOINT C2G. checkRateLimit/getCloudflareClientIp/
+// RATE_LIMIT_RETRY_AFTER_SECONDS are the REAL implementations (spread from
+// importOriginal) — only the live Cloudflare binding itself (which cannot
+// exist in a Node test process) is faked, exactly like the Supabase client.
+// getRateLimiterBindingMock is its own vi.fn() (not a plain closure) so one
+// test can override it with mockImplementationOnce to simulate a missing
+// binding, without needing vi.spyOn/restoreAllMocks — which would also
+// strip the other module-scope mocks' own base implementations.
+const rateLimiterLimitMock = vi.fn().mockResolvedValue({ success: true });
+const getRateLimiterBindingMock = vi.fn(() => ({ limit: rateLimiterLimitMock }));
+vi.mock("@/server/rate-limit.server", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/server/rate-limit.server")>();
+  return {
+    ...actual,
+    getRateLimiterBinding: () => getRateLimiterBindingMock(),
+  };
+});
+
 const { handleQuoteInitiateRequest } = await import("./initiate");
+
+const CF_CONNECTING_IP_HEADERS = { "cf-connecting-ip": "203.0.113.7" };
 
 const validSeller = {
   intent: "sell",
@@ -31,13 +60,16 @@ function jsonRequest(body: unknown, headers: Record<string, string> = {}): Reque
   return new Request("https://example.test/api/quote/initiate", {
     method: "POST",
     body: JSON.stringify(body),
-    headers: { "content-type": "application/json", ...headers },
+    headers: { "content-type": "application/json", ...CF_CONNECTING_IP_HEADERS, ...headers },
   });
 }
 
 afterEach(() => {
   rpcMock.mockReset();
   createSupabaseAdminClientMock.mockClear();
+  turnstileVerifyMock.mockReset().mockResolvedValue({ ok: true });
+  rateLimiterLimitMock.mockReset().mockResolvedValue({ success: true });
+  getRateLimiterBindingMock.mockReset().mockImplementation(() => ({ limit: rateLimiterLimitMock }));
 });
 
 describe("handleQuoteInitiateRequest — content type", () => {
@@ -73,6 +105,7 @@ describe("handleQuoteInitiateRequest — exact Content-Type matching", () => {
     idempotencyKey: "d0000000-0000-0000-0000-000000000001",
     submission: validSeller,
     files: [],
+    turnstileToken: "valid-turnstile-token",
   };
 
   beforeEach(() => {
@@ -152,6 +185,7 @@ describe("handleQuoteInitiateRequest — environment failure fails closed", () =
       idempotencyKey: "d0000000-0000-0000-0000-000000000001",
       submission: validSeller,
       files: [],
+      turnstileToken: "valid-turnstile-token",
     });
     const response = await handleQuoteInitiateRequest(request);
 
@@ -179,6 +213,7 @@ describe("handleQuoteInitiateRequest — end to end with a mocked RPC", () => {
       idempotencyKey: "d0000000-0000-0000-0000-000000000001",
       submission: validSeller,
       files: [],
+      turnstileToken: "valid-turnstile-token",
     });
     const response = await handleQuoteInitiateRequest(request);
 
@@ -195,12 +230,89 @@ describe("handleQuoteInitiateRequest — end to end with a mocked RPC", () => {
         idempotencyKey: "d0000000-0000-0000-0000-000000000001",
         submission: validSeller,
         files: [],
+        turnstileToken: "valid-turnstile-token",
         padding: "x".repeat(200_000),
       }),
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...CF_CONNECTING_IP_HEADERS },
     });
     const response = await handleQuoteInitiateRequest(request);
     expect(response.status).toBe(413);
     expect(rpcMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("handleQuoteInitiateRequest — CHECKPOINT C2G rate limiting", () => {
+  const body = {
+    idempotencyKey: "d0000000-0000-0000-0000-000000000001",
+    submission: validSeller,
+    files: [],
+    turnstileToken: "valid-turnstile-token",
+  };
+
+  it("returns 429 with a stable code, no internals, and a Retry-After header when the limiter reports rejection — before the RPC is ever called", async () => {
+    rateLimiterLimitMock.mockResolvedValue({ success: false });
+    const response = await handleQuoteInitiateRequest(jsonRequest(body));
+
+    expect(response.status).toBe(429);
+    expect(response.headers.get("retry-after")).toBe("60");
+    const responseBody = await response.json();
+    expect(responseBody.ok).toBe(false);
+    expect(responseBody.error.code).toBe("RATE_LIMITED");
+    const serialized = JSON.stringify(responseBody);
+    expect(serialized).not.toMatch(/203\.0\.113\.7|counter|ip address/i);
+    expect(rpcMock).not.toHaveBeenCalled();
+    expect(createSupabaseAdminClientMock).not.toHaveBeenCalled();
+  });
+
+  it("keys the limiter on the Cloudflare-verified client IP, never a client-supplied X-Forwarded-For", async () => {
+    rpcMock.mockResolvedValue({
+      data: {
+        lead_id: "11111111-1111-1111-1111-111111111111",
+        reference: "MSM-260812-ABCDEF",
+        idempotent_replay: false,
+        upload_slots: [],
+      },
+      error: null,
+    });
+    await handleQuoteInitiateRequest(
+      jsonRequest(body, { "x-forwarded-for": "6.6.6.6", "cf-connecting-ip": "203.0.113.7" }),
+    );
+    expect(rateLimiterLimitMock).toHaveBeenCalledWith({ key: "203.0.113.7" });
+  });
+
+  it("fails closed with a generic 500 when the rate-limiter binding is missing — production never runs unprotected", async () => {
+    const { RateLimiterConfigurationError } = await import("@/server/rate-limit.server");
+    getRateLimiterBindingMock.mockImplementationOnce(() => {
+      throw new RateLimiterConfigurationError();
+    });
+
+    const response = await handleQuoteInitiateRequest(jsonRequest(body));
+    expect(response.status).toBe(500);
+    const responseBody = await response.json();
+    expect(responseBody.error.code).toBe("INTERNAL_ERROR");
+    expect(rpcMock).not.toHaveBeenCalled();
+  });
+
+  it("fails closed with a generic 500 when the request has no Cloudflare-verified client IP at all", async () => {
+    const request = jsonRequest(body);
+    request.headers.delete("cf-connecting-ip");
+    const response = await handleQuoteInitiateRequest(request);
+    expect(response.status).toBe(500);
+    expect(rpcMock).not.toHaveBeenCalled();
+  });
+
+  it("allows the request through when the limiter reports success", async () => {
+    rpcMock.mockResolvedValue({
+      data: {
+        lead_id: "11111111-1111-1111-1111-111111111111",
+        reference: "MSM-260812-ABCDEF",
+        idempotent_replay: false,
+        upload_slots: [],
+      },
+      error: null,
+    });
+    const response = await handleQuoteInitiateRequest(jsonRequest(body));
+    expect(response.status).toBe(200);
+    expect(rateLimiterLimitMock).toHaveBeenCalledTimes(1);
   });
 });

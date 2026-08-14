@@ -27,11 +27,54 @@
  *      here — no `--linked`, no `projects list`, no `db push`, no
  *      `migration repair`, no `functions deploy`.
  */
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { execFileSync } from "node:child_process";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 const LEAD_FILES_BUCKET = "lead-files";
+
+// ---------------------------------------------------------------------------
+// CHECKPOINT C2G — this file's whole point is Postgres/Storage correctness
+// through the REAL route handlers, not abuse-protection behavior (that has
+// its own exhaustive, DI-based coverage in initiate.test.ts/upload.test.ts/
+// complete.test.ts). The real handlers unconditionally construct a REAL
+// Cloudflare rate-limiter binding and a REAL Turnstile Siteverify client —
+// neither exists in this plain local Node process (no Cloudflare Worker
+// runtime, and hitting the real https://challenges.cloudflare.com endpoint
+// would violate this checkpoint's own "no remote Cloudflare access" rule).
+// Mocking exactly these two modules to always-allow keeps every other real
+// dependency (Supabase admin client, RPCs, Storage) completely untouched —
+// consistent with this file's own "nothing mocks the route handler" intent,
+// which was always specifically about Supabase, not this unrelated layer.
+// ---------------------------------------------------------------------------
+// Relative specifiers, not the "@/..." alias — this file lives outside
+// src/, and the "@/..." alias does not resolve from here (confirmed: using
+// it left this mock silently unattached, with the REAL rate-limit/turnstile
+// modules still running underneath and failing closed on every request).
+// Vitest resolves vi.mock's target to an absolute module id before
+// intercepting, so this still applies correctly to the same file
+// initiate.ts/upload.ts/complete.ts import via "@/server/...".
+vi.mock("../../src/server/rate-limit.server", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/server/rate-limit.server")>();
+  return {
+    ...actual,
+    getRateLimiterBinding: () => ({ limit: async () => ({ success: true }) }),
+  };
+});
+
+vi.mock("../../src/server/turnstile.server", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/server/turnstile.server")>();
+  return {
+    ...actual,
+    getTurnstileVerifier: () => ({ verify: async () => ({ ok: true }) }),
+  };
+});
+
+// A fixed, documented TEST-NET-3 (RFC 5737) address — never a real client
+// IP — standing in for the Cloudflare-edge-set `CF-Connecting-IP` header
+// every real request would carry. Merged into every Request built below.
+const CF_CONNECTING_IP_HEADER = { "cf-connecting-ip": "203.0.113.10" };
+const INTEGRATION_TURNSTILE_TOKEN = "integration-test-turnstile-token";
 
 // ---------------------------------------------------------------------------
 // Safety gate
@@ -168,7 +211,11 @@ function multipartUploadRequest(slotId: string, idempotencyKey: string, fileByte
   formData.append("slotId", slotId);
   formData.append("idempotencyKey", idempotencyKey);
   formData.append("file", new File([fileBytes as BufferSource], "integration.jpg", { type: "image/jpeg" }));
-  return new Request("https://example.test/api/quote/upload", { method: "POST", body: formData });
+  return new Request("https://example.test/api/quote/upload", {
+    method: "POST",
+    headers: { ...CF_CONNECTING_IP_HEADER },
+    body: formData,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -243,7 +290,7 @@ describe("CHECKPOINT C2C — real local Quote submission + upload pipeline", () 
     idempotencyKeyOne = crypto.randomUUID();
     const request = new Request("https://example.test/api/quote/initiate", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...CF_CONNECTING_IP_HEADER },
       body: JSON.stringify({
         idempotencyKey: idempotencyKeyOne,
         submission: validSellerSubmission(),
@@ -254,6 +301,7 @@ describe("CHECKPOINT C2C — real local Quote submission + upload pipeline", () 
             declared_byte_size: ORIGINAL_FIXTURE.length,
           },
         ],
+        turnstileToken: INTEGRATION_TURNSTILE_TOKEN,
       }),
     });
 
@@ -452,7 +500,7 @@ describe("CHECKPOINT C2C — real local Quote submission + upload pipeline", () 
     const initiateResponse = await handleQuoteInitiateRequest(
       new Request("https://example.test/api/quote/initiate", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...CF_CONNECTING_IP_HEADER },
         body: JSON.stringify({
           idempotencyKey: idempotencyKeyTwo,
           submission: validSellerSubmission(),
@@ -463,6 +511,7 @@ describe("CHECKPOINT C2C — real local Quote submission + upload pipeline", () 
               declared_byte_size: spoofed.length,
             },
           ],
+          turnstileToken: INTEGRATION_TURNSTILE_TOKEN,
         }),
       }),
     );
@@ -516,7 +565,7 @@ describe("CHECKPOINT C2C — real local Quote submission + upload pipeline", () 
     const response = await handleQuoteCompleteRequest(
       new Request("https://example.test/api/quote/complete", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...CF_CONNECTING_IP_HEADER },
         body: JSON.stringify({ leadId: leadOneId, idempotencyKey: idempotencyKeyOne }),
       }),
     );
@@ -579,7 +628,7 @@ describe("CHECKPOINT C2C — real local Quote submission + upload pipeline", () 
     const response = await handleQuoteCompleteRequest(
       new Request("https://example.test/api/quote/complete", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...CF_CONNECTING_IP_HEADER },
         body: JSON.stringify({ leadId: leadOneId, idempotencyKey: idempotencyKeyOne }),
       }),
     );
@@ -604,7 +653,7 @@ describe("CHECKPOINT C2C — real local Quote submission + upload pipeline", () 
     const response = await handleQuoteCompleteRequest(
       new Request("https://example.test/api/quote/complete", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...CF_CONNECTING_IP_HEADER },
         body: JSON.stringify({ leadId: leadOneId, idempotencyKey: crypto.randomUUID() }),
       }),
     );
@@ -621,11 +670,12 @@ describe("CHECKPOINT C2C — real local Quote submission + upload pipeline", () 
     const initiateResponse = await handleQuoteInitiateRequest(
       new Request("https://example.test/api/quote/initiate", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...CF_CONNECTING_IP_HEADER },
         body: JSON.stringify({
           idempotencyKey: idempotencyKeyThree,
           submission: validSellerSubmission(),
           files: [{ original_filename: "third.jpg", declared_mime_type: "image/jpeg", declared_byte_size: 64 }],
+          turnstileToken: INTEGRATION_TURNSTILE_TOKEN,
         }),
       }),
     );
@@ -635,7 +685,7 @@ describe("CHECKPOINT C2C — real local Quote submission + upload pipeline", () 
     const response = await handleQuoteCompleteRequest(
       new Request("https://example.test/api/quote/complete", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...CF_CONNECTING_IP_HEADER },
         body: JSON.stringify({ leadId: leadThreeId, idempotencyKey: idempotencyKeyThree }),
       }),
     );

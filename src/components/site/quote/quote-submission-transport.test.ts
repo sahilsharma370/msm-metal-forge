@@ -31,7 +31,7 @@ describe("createFetchQuoteTransport — initiate", () => {
     );
     const transport = createFetchQuoteTransport({ fetchImpl });
 
-    await transport.initiate({ idempotencyKey: "k1", submission: validSubmission, files: oneFile });
+    await transport.initiate({ idempotencyKey: "k1", submission: validSubmission, files: oneFile, turnstileToken: "test-turnstile-token" });
 
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     const [url, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
@@ -39,7 +39,7 @@ describe("createFetchQuoteTransport — initiate", () => {
     expect(init.method).toBe("POST");
     expect((init.headers as Record<string, string>)["content-type"]).toBe("application/json");
     const parsedBody = JSON.parse(init.body as string);
-    expect(parsedBody).toEqual({ idempotencyKey: "k1", submission: validSubmission, files: oneFile });
+    expect(parsedBody).toEqual({ idempotencyKey: "k1", submission: validSubmission, files: oneFile, turnstileToken: "test-turnstile-token" });
   });
 
   it("returns ok:true with the parsed data on a well-formed success body", async () => {
@@ -62,7 +62,7 @@ describe("createFetchQuoteTransport — initiate", () => {
     );
     const transport = createFetchQuoteTransport({ fetchImpl });
 
-    const result = await transport.initiate({ idempotencyKey: "k1", submission: validSubmission, files: oneFile });
+    const result = await transport.initiate({ idempotencyKey: "k1", submission: validSubmission, files: oneFile, turnstileToken: "test-turnstile-token" });
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.data.leadId).toBe("l1");
@@ -79,7 +79,7 @@ describe("createFetchQuoteTransport — initiate", () => {
     );
     const transport = createFetchQuoteTransport({ fetchImpl });
 
-    const result = await transport.initiate({ idempotencyKey: "k1", submission: validSubmission, files: [] });
+    const result = await transport.initiate({ idempotencyKey: "k1", submission: validSubmission, files: [], turnstileToken: "test-turnstile-token" });
     expect(result.ok).toBe(false);
     if (!result.ok && !result.transportFailure) {
       expect(result.code).toBe("IDEMPOTENCY_CONFLICT");
@@ -93,7 +93,7 @@ describe("createFetchQuoteTransport — initiate", () => {
       .mockResolvedValue(jsonResponse(500, { ok: false, error: { code: "INTERNAL_ERROR", message: "Something went wrong. Please try again." } }));
     const transport = createFetchQuoteTransport({ fetchImpl });
 
-    const result = await transport.initiate({ idempotencyKey: "k1", submission: validSubmission, files: [] });
+    const result = await transport.initiate({ idempotencyKey: "k1", submission: validSubmission, files: [], turnstileToken: "test-turnstile-token" });
     expect(result.ok).toBe(false);
     if (!result.ok && !result.transportFailure) {
       expect(result.retryable).toBe(true);
@@ -104,7 +104,7 @@ describe("createFetchQuoteTransport — initiate", () => {
     const fetchImpl = vi.fn().mockRejectedValue(new TypeError("Failed to fetch"));
     const transport = createFetchQuoteTransport({ fetchImpl });
 
-    const result = await transport.initiate({ idempotencyKey: "k1", submission: validSubmission, files: [] });
+    const result = await transport.initiate({ idempotencyKey: "k1", submission: validSubmission, files: [], turnstileToken: "test-turnstile-token" });
     expect(result.ok).toBe(false);
     expect(!result.ok && result.transportFailure).toBe("network_error");
   });
@@ -115,7 +115,7 @@ describe("createFetchQuoteTransport — initiate", () => {
     );
     const transport = createFetchQuoteTransport({ fetchImpl });
 
-    const result = await transport.initiate({ idempotencyKey: "k1", submission: validSubmission, files: [] });
+    const result = await transport.initiate({ idempotencyKey: "k1", submission: validSubmission, files: [], turnstileToken: "test-turnstile-token" });
     expect(result.ok).toBe(false);
     expect(!result.ok && result.transportFailure).toBe("malformed_response");
   });
@@ -124,7 +124,7 @@ describe("createFetchQuoteTransport — initiate", () => {
     const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(200, { ok: true, data: { unexpected: "shape" } }));
     const transport = createFetchQuoteTransport({ fetchImpl });
 
-    const result = await transport.initiate({ idempotencyKey: "k1", submission: validSubmission, files: [] });
+    const result = await transport.initiate({ idempotencyKey: "k1", submission: validSubmission, files: [], turnstileToken: "test-turnstile-token" });
     expect(result.ok).toBe(false);
     expect(!result.ok && result.transportFailure).toBe("malformed_response");
   });
@@ -136,7 +136,7 @@ describe("createFetchQuoteTransport — initiate", () => {
     controller.abort();
 
     const result = await transport.initiate(
-      { idempotencyKey: "k1", submission: validSubmission, files: [] },
+      { idempotencyKey: "k1", submission: validSubmission, files: [], turnstileToken: "test-turnstile-token" },
       controller.signal,
     );
     expect(result.ok).toBe(false);
@@ -148,7 +148,7 @@ describe("createFetchQuoteTransport — initiate", () => {
     const fetchImpl = vi.fn().mockRejectedValue(new DOMException("The operation was aborted.", "AbortError"));
     const transport = createFetchQuoteTransport({ fetchImpl });
 
-    const result = await transport.initiate({ idempotencyKey: "k1", submission: validSubmission, files: [] });
+    const result = await transport.initiate({ idempotencyKey: "k1", submission: validSubmission, files: [], turnstileToken: "test-turnstile-token" });
     expect(result.ok).toBe(false);
     expect(!result.ok && result.transportFailure).toBe("aborted");
   });

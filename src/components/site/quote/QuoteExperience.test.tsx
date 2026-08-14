@@ -3,6 +3,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom/vitest";
+import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import { QuoteExperience } from "./QuoteExperience";
 import { saveQuoteDraft, loadQuoteDraft, loadSubmissionAttempt } from "./quote-storage";
 import type { QuoteFormValues } from "./quote-schema";
@@ -14,6 +15,38 @@ import type {
   CompleteTransportResult,
   InitiateUploadSlot,
 } from "./quote-submission-transport";
+import type { QuoteTurnstileWidgetHandle, QuoteTurnstileWidgetProps } from "./QuoteTurnstileWidget";
+
+/**
+ * CHECKPOINT C2G — deterministic stand-in for the real, script-loading,
+ * network-backed QuoteTurnstileWidget, injected via QuoteExperience's
+ * `turnstileWidget` test-only prop (mirrors the existing `transport`
+ * injection point). Delivers a token synchronously on mount and again on
+ * every reset() call, so every existing click-driven test keeps working
+ * without racing a real async script load, while still exercising
+ * QuoteExperience's own real token-lifecycle wiring (state, disabling,
+ * clearing, reset-after-every-attempt).
+ */
+const FakeTurnstileWidget = forwardRef<QuoteTurnstileWidgetHandle, QuoteTurnstileWidgetProps>(
+  function FakeTurnstileWidget({ onToken }, ref) {
+    const counter = useRef(0);
+    useImperativeHandle(
+      ref,
+      () => ({
+        reset() {
+          counter.current += 1;
+          onToken(`fake-turnstile-token-${counter.current}`);
+        },
+      }),
+      [onToken],
+    );
+    useEffect(() => {
+      onToken(`fake-turnstile-token-${counter.current}`);
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+    return null;
+  },
+);
 
 // ---------------------------------------------------------------------------
 // jsdom gaps Radix/the picker rely on — standard, minimal polyfills only.
@@ -158,7 +191,7 @@ function renderOnReview(
   saveQuoteDraft(6, values);
   const onClose = vi.fn();
   const utils = render(
-    <QuoteExperience mode="standalone" initialContext={context} onClose={onClose} transport={transport} />,
+    <QuoteExperience mode="standalone" initialContext={context} onClose={onClose} transport={transport} turnstileWidget={FakeTurnstileWidget} />,
   );
   return { ...utils, onClose };
 }
@@ -193,10 +226,10 @@ describe("engine lifetime", () => {
     expect(transport.initiate).toHaveBeenCalledTimes(1);
 
     rerender(
-      <QuoteExperience mode="standalone" initialContext={sellerContext} onClose={vi.fn()} transport={transport} />,
+      <QuoteExperience mode="standalone" initialContext={sellerContext} onClose={vi.fn()} transport={transport} turnstileWidget={FakeTurnstileWidget} />,
     );
     rerender(
-      <QuoteExperience mode="standalone" initialContext={sellerContext} onClose={vi.fn()} transport={transport} />,
+      <QuoteExperience mode="standalone" initialContext={sellerContext} onClose={vi.fn()} transport={transport} turnstileWidget={FakeTurnstileWidget} />,
     );
 
     // Still exactly one in-flight call — rerendering never spun up a second engine/run.
@@ -341,7 +374,7 @@ describe("progress phases", () => {
     const values = validSellerValues();
     saveQuoteDraft(5, values);
     const onClose = vi.fn();
-    render(<QuoteExperience mode="standalone" initialContext={sellerContext} onClose={onClose} transport={transport} />);
+    render(<QuoteExperience mode="standalone" initialContext={sellerContext} onClose={onClose} transport={transport} turnstileWidget={FakeTurnstileWidget} />);
 
     const fileA = new File([new Uint8Array(100)], "a.jpg", { type: "image/jpeg" });
     const fileB = new File([new Uint8Array(100)], "b.jpg", { type: "image/jpeg" });
@@ -380,7 +413,7 @@ describe("submission by scenario", () => {
     const transport = createFakeTransport({ initiate: async () => initiateOk(photoSlots) });
     saveQuoteDraft(5, validSellerValues());
     render(
-      <QuoteExperience mode="standalone" initialContext={sellerContext} onClose={vi.fn()} transport={transport} />,
+      <QuoteExperience mode="standalone" initialContext={sellerContext} onClose={vi.fn()} transport={transport} turnstileWidget={FakeTurnstileWidget} />,
     );
 
     const fileA = new File([new Uint8Array(100)], "a.jpg", { type: "image/jpeg" });
@@ -401,7 +434,7 @@ describe("submission by scenario", () => {
     const transport = createFakeTransport({ initiate: async () => initiateOk(docSlots) });
     saveQuoteDraft(5, validBuyerValues());
     render(
-      <QuoteExperience mode="standalone" initialContext={buyerContext} onClose={vi.fn()} transport={transport} />,
+      <QuoteExperience mode="standalone" initialContext={buyerContext} onClose={vi.fn()} transport={transport} turnstileWidget={FakeTurnstileWidget} />,
     );
 
     const invoice = new File([new Uint8Array(100)], "invoice.pdf", { type: "application/pdf" });
@@ -500,7 +533,7 @@ describe("upload_in_progress", () => {
     });
     saveQuoteDraft(5, validSellerValues());
     render(
-      <QuoteExperience mode="standalone" initialContext={sellerContext} onClose={vi.fn()} transport={transport} />,
+      <QuoteExperience mode="standalone" initialContext={sellerContext} onClose={vi.fn()} transport={transport} turnstileWidget={FakeTurnstileWidget} />,
     );
     const file = new File([new Uint8Array(100)], "file-0.jpg", { type: "image/jpeg" });
     await userEvent.upload(screen.getByLabelText("Add photos", { selector: "input" }), [file]);
@@ -545,7 +578,7 @@ describe("retryable failures preserve the attempt", () => {
     });
     saveQuoteDraft(5, validSellerValues());
     render(
-      <QuoteExperience mode="standalone" initialContext={sellerContext} onClose={vi.fn()} transport={transport} />,
+      <QuoteExperience mode="standalone" initialContext={sellerContext} onClose={vi.fn()} transport={transport} turnstileWidget={FakeTurnstileWidget} />,
     );
     const file = new File([new Uint8Array(100)], "file-0.jpg", { type: "image/jpeg" });
     await userEvent.upload(screen.getByLabelText("Add photos", { selector: "input" }), [file]);
@@ -757,7 +790,7 @@ describe("draft hydration", () => {
   it("hydrates saved values and step on mount", () => {
     saveQuoteDraft(3, validSellerValues({ sellerName: "Restored Name" }));
     render(
-      <QuoteExperience mode="standalone" initialContext={sellerContext} onClose={vi.fn()} transport={createFakeTransport()} />,
+      <QuoteExperience mode="standalone" initialContext={sellerContext} onClose={vi.fn()} transport={createFakeTransport()} turnstileWidget={FakeTurnstileWidget} />,
     );
     expectStepLabel(3);
   });
@@ -766,7 +799,7 @@ describe("draft hydration", () => {
     window.sessionStorage.setItem("msm-quote-draft-v1", "{not valid json");
     expect(() =>
       render(
-        <QuoteExperience mode="standalone" initialContext={sellerContext} onClose={vi.fn()} transport={createFakeTransport()} />,
+        <QuoteExperience mode="standalone" initialContext={sellerContext} onClose={vi.fn()} transport={createFakeTransport()} turnstileWidget={FakeTurnstileWidget} />,
       ),
     ).not.toThrow();
     expectStepLabel(1);
@@ -784,7 +817,7 @@ describe("draft hydration", () => {
     };
     window.sessionStorage.setItem("msm-quote-draft-v1", JSON.stringify(expired));
     render(
-      <QuoteExperience mode="standalone" initialContext={sellerContext} onClose={vi.fn()} transport={createFakeTransport()} />,
+      <QuoteExperience mode="standalone" initialContext={sellerContext} onClose={vi.fn()} transport={createFakeTransport()} turnstileWidget={FakeTurnstileWidget} />,
     );
     expectStepLabel(1);
   });
@@ -799,7 +832,7 @@ describe("no File objects or storagePath persisted", () => {
   it("the persisted draft after typing never contains a storagePath key, and typed answers round-trip as plain data", async () => {
     saveQuoteDraft(5, validSellerValues());
     render(
-      <QuoteExperience mode="standalone" initialContext={sellerContext} onClose={vi.fn()} transport={createFakeTransport()} />,
+      <QuoteExperience mode="standalone" initialContext={sellerContext} onClose={vi.fn()} transport={createFakeTransport()} turnstileWidget={FakeTurnstileWidget} />,
     );
     const file = new File([new Uint8Array(100)], "file-0.jpg", { type: "image/jpeg" });
     await userEvent.upload(screen.getByLabelText("Add photos", { selector: "input" }), [file]);

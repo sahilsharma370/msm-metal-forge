@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ComponentType, RefAttributes } from "react";
 import { FormProvider, useForm } from "react-hook-form";
 import * as AlertDialogPrimitive from "@radix-ui/react-alert-dialog";
 import { X } from "lucide-react";
@@ -27,6 +28,16 @@ import {
   type QuoteSubmissionProgressEvent,
 } from "./quote-submission-engine";
 import { createFetchQuoteTransport, type QuoteTransport } from "./quote-submission-transport";
+import {
+  QuoteTurnstileWidget,
+  type QuoteTurnstileWidgetHandle,
+  type QuoteTurnstileWidgetProps,
+} from "./QuoteTurnstileWidget";
+
+/** Public build-time value — safe to expose in the client bundle by design (see QuoteTurnstileWidget's own doc comment). Empty in an environment without it configured, which fails closed: the widget never renders a usable challenge and Submit stays disabled forever, rather than silently skipping verification. */
+const TURNSTILE_SITE_KEY = (import.meta.env["VITE_TURNSTILE_SITE_KEY"] as string | undefined) ?? "";
+
+type TurnstileWidgetComponent = ComponentType<QuoteTurnstileWidgetProps & RefAttributes<QuoteTurnstileWidgetHandle>>;
 
 interface QuoteExperienceProps {
   mode: "overlay" | "standalone";
@@ -41,6 +52,14 @@ interface QuoteExperienceProps {
    * exercising the real single-flight/outcome-mapping logic in tests too.
    */
   transport?: QuoteTransport;
+  /**
+   * CHECKPOINT C2G — test-only injection point mirroring `transport` above;
+   * production callers never pass this. The real script-loading, network-
+   * backed QuoteTurnstileWidget is used by default. Swapping the whole
+   * component (rather than mocking `window.turnstile`'s async script load)
+   * keeps tests deterministic without racing real timers.
+   */
+  turnstileWidget?: TurnstileWidgetComponent;
 }
 
 /** Compact display-only label for the desktop rail so it never wraps at 232px — the underlying readiness key/data is untouched. */
@@ -77,8 +96,15 @@ interface ConfirmationState {
   readonly reference: string;
 }
 
-export function QuoteExperience({ mode, initialContext, onClose, transport: transportProp }: QuoteExperienceProps) {
+export function QuoteExperience({
+  mode,
+  initialContext,
+  onClose,
+  transport: transportProp,
+  turnstileWidget: TurnstileWidgetProp,
+}: QuoteExperienceProps) {
   const draft = useMemo(() => loadQuoteDraft(), []);
+  const TurnstileWidget = TurnstileWidgetProp ?? QuoteTurnstileWidget;
 
   const [step, setStep] = useState(draft?.step ?? 1);
   const [furthestStep, setFurthestStep] = useState(draft?.step ?? 1);
@@ -90,6 +116,9 @@ export function QuoteExperience({ mode, initialContext, onClose, transport: tran
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submissionPhase, setSubmissionPhase] = useState<QuoteSubmissionProgressEvent | null>(null);
   const [submissionOutcome, setSubmissionOutcome] = useState<QuoteSubmissionOutcome | null>(null);
+  /** CHECKPOINT C2G — a fresh, single-use Turnstile token held only in memory: never written to sessionStorage/localStorage/Supabase, never logged. Cleared the instant a submit attempt consumes it. */
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  const turnstileWidgetRef = useRef<QuoteTurnstileWidgetHandle>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const startOverButtonRef = useRef<HTMLButtonElement>(null);
@@ -194,6 +223,9 @@ export function QuoteExperience({ mode, initialContext, onClose, transport: tran
     setStep((s) => Math.max(s - 1, 1));
   }
 
+  const handleTurnstileToken = useCallback((token: string) => setTurnstileToken(token), []);
+  const handleTurnstileUnusable = useCallback(() => setTurnstileToken(null), []);
+
   function handleEditStep(target: number) {
     if (isSubmitting) return;
     setStep(target);
@@ -221,7 +253,8 @@ export function QuoteExperience({ mode, initialContext, onClose, transport: tran
    * starting a second one.
    */
   async function handleSubmit() {
-    if (isSubmitting) return;
+    if (isSubmitting || !turnstileToken) return;
+    const tokenToUse = turnstileToken;
     setSubmissionOutcome(null);
     setIsSubmitting(true);
     setSubmissionPhase(null);
@@ -231,6 +264,7 @@ export function QuoteExperience({ mode, initialContext, onClose, transport: tran
     const promise = engine.submit({
       values: form.getValues(),
       context: initialContext,
+      turnstileToken: tokenToUse,
       signal: controller.signal,
     });
     submitPromiseRef.current = promise;
@@ -242,6 +276,13 @@ export function QuoteExperience({ mode, initialContext, onClose, transport: tran
       submitPromiseRef.current = null;
       abortControllerRef.current = null;
       setIsSubmitting(false);
+      // CHECKPOINT C2G — the token above was submitted (or the attempt was
+      // aborted before/after it could be); either way it must never be
+      // reused. Clearing it disables Submit again until the widget's reset
+      // delivers a brand-new challenge token, satisfying "fresh token every
+      // retry" without the caller having to remember to ask for one.
+      setTurnstileToken(null);
+      turnstileWidgetRef.current?.reset();
     }
 
     switch (outcome.kind) {
@@ -354,6 +395,15 @@ export function QuoteExperience({ mode, initialContext, onClose, transport: tran
             isSubmitting={isSubmitting}
             submissionPhase={submissionPhase}
             submissionOutcome={submissionOutcome}
+            turnstileReady={!!turnstileToken}
+            turnstileWidget={
+              <TurnstileWidget
+                ref={turnstileWidgetRef}
+                siteKey={TURNSTILE_SITE_KEY}
+                onToken={handleTurnstileToken}
+                onUnusable={handleTurnstileUnusable}
+              />
+            }
           />
         );
     }

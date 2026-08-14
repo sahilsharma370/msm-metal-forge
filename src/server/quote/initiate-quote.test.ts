@@ -7,6 +7,7 @@ import {
 } from "./initiate-quote";
 import { computeQuotePayloadHash } from "./canonicalize";
 import { normalizeSubmission, initiateQuoteRequestSchema } from "./submission-schema";
+import type { TurnstileVerifier, TurnstileVerifyResult } from "../turnstile.server";
 
 const validSeller = {
   intent: "sell",
@@ -49,7 +50,13 @@ interface RpcCallArgs {
 const idempotencyKey = "d0000000-0000-0000-0000-000000000001";
 
 function requestBody(overrides: Record<string, unknown> = {}) {
-  return JSON.stringify({ idempotencyKey, submission: validSeller, files: [], ...overrides });
+  return JSON.stringify({
+    idempotencyKey,
+    submission: validSeller,
+    files: [],
+    turnstileToken: VALID_TURNSTILE_TOKEN,
+    ...overrides,
+  });
 }
 
 const rpcSuccessPayload = {
@@ -67,10 +74,24 @@ function fakeSupabase(response: {
   return { rpc: vi.fn().mockResolvedValue(response) };
 }
 
+const VALID_TURNSTILE_TOKEN = "valid-turnstile-token";
+
+/** A fake Turnstile verifier — succeeds by default (matching a valid token) so every existing test exercises its own scenario without also having to think about verification, exactly like fakeSupabase's own role for the RPC. */
+function fakeTurnstile(
+  result: TurnstileVerifyResult = { ok: true },
+): TurnstileVerifier & { verify: ReturnType<typeof vi.fn> } {
+  return { verify: vi.fn().mockResolvedValue(result) };
+}
+
+/** Bundles the two dependencies handleQuoteInitiateBody needs — every test in this file calls this instead of constructing `{ supabase, turnstile }` by hand. */
+function deps(supabase: QuoteRpcClient, turnstile: TurnstileVerifier = fakeTurnstile()) {
+  return { supabase, turnstile };
+}
+
 describe("handleQuoteInitiateBody — happy paths", () => {
   it("maps a valid seller request to a 200 with the expected shape", async () => {
     const supabase = fakeSupabase({ data: rpcSuccessPayload, error: null });
-    const result = await handleQuoteInitiateBody(requestBody(), { supabase });
+    const result = await handleQuoteInitiateBody(requestBody(), deps(supabase));
 
     expect(result.status).toBe(200);
     expect(result.body).toEqual({
@@ -86,9 +107,7 @@ describe("handleQuoteInitiateBody — happy paths", () => {
 
   it("maps a valid buyer-local request successfully", async () => {
     const supabase = fakeSupabase({ data: rpcSuccessPayload, error: null });
-    const result = await handleQuoteInitiateBody(requestBody({ submission: validBuyerLocal }), {
-      supabase,
-    });
+    const result = await handleQuoteInitiateBody(requestBody({ submission: validBuyerLocal }), deps(supabase));
     expect(result.status).toBe(200);
   });
 
@@ -116,7 +135,7 @@ describe("handleQuoteInitiateBody — happy paths", () => {
         declared_byte_size: 1024,
       },
     ];
-    const result = await handleQuoteInitiateBody(requestBody({ files }), { supabase });
+    const result = await handleQuoteInitiateBody(requestBody({ files }), deps(supabase));
 
     expect(result.status).toBe(200);
     if (result.body.ok) {
@@ -161,7 +180,7 @@ describe("handleQuoteInitiateBody — happy paths", () => {
       data: { ...rpcSuccessPayload, upload_slots: [verifiedSlot, uploadingSlot] },
       error: null,
     });
-    const result = await handleQuoteInitiateBody(requestBody(), { supabase });
+    const result = await handleQuoteInitiateBody(requestBody(), deps(supabase));
 
     expect(result.status).toBe(200);
     if (result.body.ok) {
@@ -175,7 +194,7 @@ describe("handleQuoteInitiateBody — happy paths", () => {
       data: { ...rpcSuccessPayload, idempotent_replay: true },
       error: null,
     });
-    const result = await handleQuoteInitiateBody(requestBody(), { supabase });
+    const result = await handleQuoteInitiateBody(requestBody(), deps(supabase));
     expect(result.status).toBe(200);
     if (result.body.ok) {
       expect(result.body.data.idempotentReplay).toBe(true);
@@ -186,7 +205,7 @@ describe("handleQuoteInitiateBody — happy paths", () => {
 describe("handleQuoteInitiateBody — RPC call contract", () => {
   it("calls create_website_quote_v1 exactly once with the exact expected arguments", async () => {
     const supabase = fakeSupabase({ data: rpcSuccessPayload, error: null });
-    await handleQuoteInitiateBody(requestBody(), { supabase });
+    await handleQuoteInitiateBody(requestBody(), deps(supabase));
 
     expect(supabase.rpc).toHaveBeenCalledTimes(1);
     const [fn, args] = supabase.rpc.mock.calls[0] as [string, RpcCallArgs];
@@ -207,9 +226,10 @@ describe("handleQuoteInitiateBody — RPC call contract", () => {
       idempotencyKey,
       submission: validSeller,
       files: [],
+      turnstileToken: VALID_TURNSTILE_TOKEN,
       payloadHash: "0".repeat(64),
     });
-    const result = await handleQuoteInitiateBody(bodyWithForgedHash, { supabase });
+    const result = await handleQuoteInitiateBody(bodyWithForgedHash, deps(supabase));
     expect(result.status).toBe(400);
     expect(supabase.rpc).not.toHaveBeenCalled();
   });
@@ -220,13 +240,14 @@ describe("handleQuoteInitiateBody — RPC call contract", () => {
       idempotencyKey,
       submission: validSeller,
       files: [],
+      turnstileToken: VALID_TURNSTILE_TOKEN,
     });
     const expectedHash = await computeQuotePayloadHash(
       normalizeSubmission(parsed.submission),
       parsed.files,
     );
 
-    await handleQuoteInitiateBody(requestBody(), { supabase });
+    await handleQuoteInitiateBody(requestBody(), deps(supabase));
 
     const [, args] = supabase.rpc.mock.calls[0] as [string, RpcCallArgs];
     expect(args.p_payload_hash).toBe(expectedHash);
@@ -234,10 +255,10 @@ describe("handleQuoteInitiateBody — RPC call contract", () => {
 
   it("produces a different hash for the same key when a meaningful field changes", async () => {
     const supabase = fakeSupabase({ data: rpcSuccessPayload, error: null });
-    await handleQuoteInitiateBody(requestBody(), { supabase });
+    await handleQuoteInitiateBody(requestBody(), deps(supabase));
     await handleQuoteInitiateBody(
       requestBody({ submission: { ...validSeller, sellerName: "Different Name" } }),
-      { supabase },
+      deps(supabase),
     );
 
     const [, firstArgs] = supabase.rpc.mock.calls[0] as [string, RpcCallArgs];
@@ -258,8 +279,8 @@ describe("handleQuoteInitiateBody — RPC call contract", () => {
       declared_byte_size: 2048,
     };
 
-    await handleQuoteInitiateBody(requestBody({ files: [fileA, fileB] }), { supabase });
-    await handleQuoteInitiateBody(requestBody({ files: [fileB, fileA] }), { supabase });
+    await handleQuoteInitiateBody(requestBody({ files: [fileA, fileB] }), deps(supabase));
+    await handleQuoteInitiateBody(requestBody({ files: [fileB, fileA] }), deps(supabase));
 
     const [, firstArgs] = supabase.rpc.mock.calls[0] as [string, RpcCallArgs];
     const [, secondArgs] = supabase.rpc.mock.calls[1] as [string, RpcCallArgs];
@@ -272,7 +293,7 @@ describe("handleQuoteInitiateBody — CHECKPOINT C2F-B phone normalization", () 
     const supabase = fakeSupabase({ data: rpcSuccessPayload, error: null });
     await handleQuoteInitiateBody(
       requestBody({ submission: { ...validSeller, sellerPhone: "050-123 (4567)" } }),
-      { supabase },
+      deps(supabase),
     );
 
     const [, args] = supabase.rpc.mock.calls[0] as [string, RpcCallArgs];
@@ -284,11 +305,11 @@ describe("handleQuoteInitiateBody — CHECKPOINT C2F-B phone normalization", () 
     const supabase = fakeSupabase({ data: rpcSuccessPayload, error: null });
     await handleQuoteInitiateBody(
       requestBody({ submission: { ...validSeller, sellerPhone: "0501234567" } }),
-      { supabase },
+      deps(supabase),
     );
     await handleQuoteInitiateBody(
       requestBody({ submission: { ...validSeller, sellerPhone: "050 123 4567" } }),
-      { supabase },
+      deps(supabase),
     );
 
     const [, firstArgs] = supabase.rpc.mock.calls[0] as [string, RpcCallArgs];
@@ -300,11 +321,11 @@ describe("handleQuoteInitiateBody — CHECKPOINT C2F-B phone normalization", () 
     const supabase = fakeSupabase({ data: rpcSuccessPayload, error: null });
     await handleQuoteInitiateBody(
       requestBody({ submission: { ...validSeller, sellerPhone: "+971501234567" } }),
-      { supabase },
+      deps(supabase),
     );
     await handleQuoteInitiateBody(
       requestBody({ submission: { ...validSeller, sellerPhone: "+971 50 123 4567" } }),
-      { supabase },
+      deps(supabase),
     );
 
     const [, firstArgs] = supabase.rpc.mock.calls[0] as [string, RpcCallArgs];
@@ -319,11 +340,11 @@ describe("handleQuoteInitiateBody — CHECKPOINT C2F-B phone normalization", () 
     const supabase = fakeSupabase({ data: rpcSuccessPayload, error: null });
     await handleQuoteInitiateBody(
       requestBody({ submission: { ...validSeller, sellerPhone: "0501234567" } }),
-      { supabase },
+      deps(supabase),
     );
     await handleQuoteInitiateBody(
       requestBody({ submission: { ...validSeller, sellerPhone: "0509999999" } }),
-      { supabase },
+      deps(supabase),
     );
 
     const [, firstArgs] = supabase.rpc.mock.calls[0] as [string, RpcCallArgs];
@@ -335,7 +356,7 @@ describe("handleQuoteInitiateBody — CHECKPOINT C2F-B phone normalization", () 
     const supabase = fakeSupabase({ data: rpcSuccessPayload, error: null });
     const result = await handleQuoteInitiateBody(
       requestBody({ submission: { ...validSeller, sellerPhone: "notaphone" } }),
-      { supabase },
+      deps(supabase),
     );
     expect(result.status).toBe(400);
     expect(supabase.rpc).not.toHaveBeenCalled();
@@ -343,7 +364,7 @@ describe("handleQuoteInitiateBody — CHECKPOINT C2F-B phone normalization", () 
 
   it("does not leak a normalized buyerPhone into a seller submission's RPC payload", async () => {
     const supabase = fakeSupabase({ data: rpcSuccessPayload, error: null });
-    await handleQuoteInitiateBody(requestBody({ submission: validSeller }), { supabase });
+    await handleQuoteInitiateBody(requestBody({ submission: validSeller }), deps(supabase));
 
     const [, args] = supabase.rpc.mock.calls[0] as [string, RpcCallArgs];
     const submission = args.p_submission as Record<string, unknown>;
@@ -352,7 +373,7 @@ describe("handleQuoteInitiateBody — CHECKPOINT C2F-B phone normalization", () 
 
   it("does not leak a normalized sellerPhone into a buyer submission's RPC payload", async () => {
     const supabase = fakeSupabase({ data: rpcSuccessPayload, error: null });
-    await handleQuoteInitiateBody(requestBody({ submission: validBuyerLocal }), { supabase });
+    await handleQuoteInitiateBody(requestBody({ submission: validBuyerLocal }), deps(supabase));
 
     const [, args] = supabase.rpc.mock.calls[0] as [string, RpcCallArgs];
     const submission = args.p_submission as Record<string, unknown>;
@@ -363,7 +384,7 @@ describe("handleQuoteInitiateBody — CHECKPOINT C2F-B phone normalization", () 
     const supabase = fakeSupabase({ data: rpcSuccessPayload, error: null });
     await handleQuoteInitiateBody(
       requestBody({ submission: { ...validBuyerLocal, buyerPhone: "0502345678" } }),
-      { supabase },
+      deps(supabase),
     );
 
     const [, args] = supabase.rpc.mock.calls[0] as [string, RpcCallArgs];
@@ -372,35 +393,95 @@ describe("handleQuoteInitiateBody — CHECKPOINT C2F-B phone normalization", () 
   });
 });
 
+describe("handleQuoteInitiateBody — CHECKPOINT C2G Turnstile verification", () => {
+  it("a valid token allows the request through to the RPC", async () => {
+    const supabase = fakeSupabase({ data: rpcSuccessPayload, error: null });
+    const turnstile = fakeTurnstile({ ok: true });
+    const result = await handleQuoteInitiateBody(requestBody(), deps(supabase, turnstile));
+
+    expect(result.status).toBe(200);
+    expect(turnstile.verify).toHaveBeenCalledWith(VALID_TURNSTILE_TOKEN);
+    expect(supabase.rpc).toHaveBeenCalledTimes(1);
+  });
+
+  it("verification runs before the RPC — a failing verifier blocks the call entirely, with 403 VERIFICATION_REQUIRED", async () => {
+    const supabase = fakeSupabase({ data: rpcSuccessPayload, error: null });
+    const turnstile = fakeTurnstile({ ok: false, reason: "invalid_or_expired_token" });
+    const result = await handleQuoteInitiateBody(requestBody(), deps(supabase, turnstile));
+
+    expect(result.status).toBe(403);
+    if (!result.body.ok) {
+      expect(result.body.error.code).toBe("VERIFICATION_REQUIRED");
+    }
+    expect(supabase.rpc).not.toHaveBeenCalled();
+  });
+
+  it("a missing turnstileToken field is rejected by schema validation before the verifier is even called", async () => {
+    const supabase = fakeSupabase({ data: rpcSuccessPayload, error: null });
+    const turnstile = fakeTurnstile({ ok: true });
+    const bodyWithoutToken = JSON.stringify({ idempotencyKey, submission: validSeller, files: [] });
+    const result = await handleQuoteInitiateBody(bodyWithoutToken, deps(supabase, turnstile));
+
+    expect(result.status).toBe(400);
+    expect(turnstile.verify).not.toHaveBeenCalled();
+    expect(supabase.rpc).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "missing_token",
+    "invalid_or_expired_token",
+    "action_mismatch",
+    "hostname_mismatch",
+    "service_unavailable",
+  ] as const)("every failure reason (%s) maps to the same generic response — never a distinguishing detail", async (reason) => {
+    const supabase = fakeSupabase({ data: rpcSuccessPayload, error: null });
+    const turnstile = fakeTurnstile({ ok: false, reason });
+    const result = await handleQuoteInitiateBody(requestBody(), deps(supabase, turnstile));
+
+    expect(result.status).toBe(403);
+    if (!result.body.ok) {
+      expect(result.body.error.code).toBe("VERIFICATION_REQUIRED");
+      const serialized = JSON.stringify(result.body);
+      expect(serialized).not.toContain(reason);
+    }
+  });
+
+  it("never includes the token itself anywhere in the response", async () => {
+    const supabase = fakeSupabase({ data: rpcSuccessPayload, error: null });
+    const turnstile = fakeTurnstile({ ok: false, reason: "invalid_or_expired_token" });
+    const result = await handleQuoteInitiateBody(
+      requestBody({ turnstileToken: "super-secret-looking-token-value" }),
+      deps(supabase, turnstile),
+    );
+    expect(JSON.stringify(result.body)).not.toContain("super-secret-looking-token-value");
+  });
+});
+
 describe("handleQuoteInitiateBody — rejections", () => {
   it("rejects malformed JSON with 400", async () => {
     const supabase = fakeSupabase({ data: rpcSuccessPayload, error: null });
-    const result = await handleQuoteInitiateBody("{not valid json", { supabase });
+    const result = await handleQuoteInitiateBody("{not valid json", deps(supabase));
     expect(result.status).toBe(400);
     expect(supabase.rpc).not.toHaveBeenCalled();
   });
 
   it("rejects an invalid idempotencyKey (not a UUID) with 400", async () => {
     const supabase = fakeSupabase({ data: rpcSuccessPayload, error: null });
-    const result = await handleQuoteInitiateBody(requestBody({ idempotencyKey: "not-a-uuid" }), {
-      supabase,
-    });
+    const result = await handleQuoteInitiateBody(requestBody({ idempotencyKey: "not-a-uuid" }), deps(supabase));
     expect(result.status).toBe(400);
     expect(supabase.rpc).not.toHaveBeenCalled();
   });
 
   it("rejects an unknown top-level key with 400", async () => {
     const supabase = fakeSupabase({ data: rpcSuccessPayload, error: null });
-    const result = await handleQuoteInitiateBody(requestBody({ extra: "field" }), { supabase });
+    const result = await handleQuoteInitiateBody(requestBody({ extra: "field" }), deps(supabase));
     expect(result.status).toBe(400);
     expect(supabase.rpc).not.toHaveBeenCalled();
   });
 
   it("rejects a non-empty honeypot with 400", async () => {
     const supabase = fakeSupabase({ data: rpcSuccessPayload, error: null });
-    const result = await handleQuoteInitiateBody(requestBody({ honeypot: "i-am-a-bot" }), {
-      supabase,
-    });
+    const result = await handleQuoteInitiateBody(requestBody({ honeypot: "i-am-a-bot" }), deps(supabase));
     expect(result.status).toBe(400);
     expect(supabase.rpc).not.toHaveBeenCalled();
   });
@@ -409,7 +490,7 @@ describe("handleQuoteInitiateBody — rejections", () => {
     const supabase = fakeSupabase({ data: rpcSuccessPayload, error: null });
     const result = await handleQuoteInitiateBody(
       requestBody({ submission: { ...validSeller, buyerQuantityValue: "50" } }),
-      { supabase },
+      deps(supabase),
     );
     expect(result.status).toBe(400);
     expect(supabase.rpc).not.toHaveBeenCalled();
@@ -418,9 +499,7 @@ describe("handleQuoteInitiateBody — rejections", () => {
   it("rejects an incomplete submission (missing a required field) with 400 and fieldErrors", async () => {
     const supabase = fakeSupabase({ data: rpcSuccessPayload, error: null });
     const { sellerName: _sellerName, ...incomplete } = validSeller;
-    const result = await handleQuoteInitiateBody(requestBody({ submission: incomplete }), {
-      supabase,
-    });
+    const result = await handleQuoteInitiateBody(requestBody({ submission: incomplete }), deps(supabase));
     expect(result.status).toBe(400);
     if (!result.body.ok) {
       expect(result.body.error.fieldErrors?.length).toBeGreaterThan(0);
@@ -435,7 +514,7 @@ describe("handleQuoteInitiateBody — rejections", () => {
       declared_mime_type: "image/jpeg",
       declared_byte_size: 1024,
     }));
-    const result = await handleQuoteInitiateBody(requestBody({ files }), { supabase });
+    const result = await handleQuoteInitiateBody(requestBody({ files }), deps(supabase));
     expect(result.status).toBe(400);
     expect(supabase.rpc).not.toHaveBeenCalled();
   });
@@ -445,7 +524,7 @@ describe("handleQuoteInitiateBody — rejections", () => {
     const files = [
       { original_filename: "a.gif", declared_mime_type: "image/gif", declared_byte_size: 1024 },
     ];
-    const result = await handleQuoteInitiateBody(requestBody({ files }), { supabase });
+    const result = await handleQuoteInitiateBody(requestBody({ files }), deps(supabase));
     expect(result.status).toBe(400);
     expect(supabase.rpc).not.toHaveBeenCalled();
   });
@@ -459,7 +538,7 @@ describe("handleQuoteInitiateBody — rejections", () => {
         declared_byte_size: 9_000_000,
       },
     ];
-    const result = await handleQuoteInitiateBody(requestBody({ files }), { supabase });
+    const result = await handleQuoteInitiateBody(requestBody({ files }), deps(supabase));
     expect(result.status).toBe(400);
     expect(supabase.rpc).not.toHaveBeenCalled();
   });
@@ -473,7 +552,7 @@ describe("handleQuoteInitiateBody — rejections", () => {
         declared_byte_size: 1024,
       },
     ];
-    const result = await handleQuoteInitiateBody(requestBody({ files }), { supabase });
+    const result = await handleQuoteInitiateBody(requestBody({ files }), deps(supabase));
     expect(result.status).toBe(400);
     expect(supabase.rpc).not.toHaveBeenCalled();
   });
@@ -488,7 +567,7 @@ describe("handleQuoteInitiateBody — RPC failure mapping", () => {
           "create_website_quote_v1: idempotency_key d0000000-... was already used with a different payload_hash",
       },
     });
-    const result = await handleQuoteInitiateBody(requestBody(), { supabase });
+    const result = await handleQuoteInitiateBody(requestBody(), deps(supabase));
 
     expect(result.status).toBe(409);
     if (!result.body.ok) {
@@ -505,7 +584,7 @@ describe("handleQuoteInitiateBody — RPC failure mapping", () => {
           'new row for relation "leads" violates check constraint "leads_website_requiredness"',
       },
     });
-    const result = await handleQuoteInitiateBody(requestBody(), { supabase });
+    const result = await handleQuoteInitiateBody(requestBody(), deps(supabase));
 
     expect(result.status).toBe(500);
     if (!result.body.ok) {
@@ -518,7 +597,7 @@ describe("handleQuoteInitiateBody — RPC failure mapping", () => {
 
   it("maps a malformed/unexpected RPC success payload to a generic 500", async () => {
     const supabase = fakeSupabase({ data: { unexpected: "shape" }, error: null });
-    const result = await handleQuoteInitiateBody(requestBody(), { supabase });
+    const result = await handleQuoteInitiateBody(requestBody(), deps(supabase));
     expect(result.status).toBe(500);
     if (!result.body.ok) {
       expect(result.body.error.code).toBe("INTERNAL_ERROR");
@@ -541,7 +620,7 @@ describe("handleQuoteInitiateBody — RPC failure mapping", () => {
       data: { ...rpcSuccessPayload, upload_slots: [badSlot] },
       error: null,
     });
-    const result = await handleQuoteInitiateBody(requestBody(), { supabase });
+    const result = await handleQuoteInitiateBody(requestBody(), deps(supabase));
 
     expect(result.status).toBe(500);
     if (!result.body.ok) {
@@ -566,7 +645,7 @@ describe("handleQuoteInitiateBody — RPC failure mapping", () => {
       data: { ...rpcSuccessPayload, upload_slots: [slotWithoutStatus] },
       error: null,
     });
-    const result = await handleQuoteInitiateBody(requestBody(), { supabase });
+    const result = await handleQuoteInitiateBody(requestBody(), deps(supabase));
 
     expect(result.status).toBe(500);
     if (!result.body.ok) {
@@ -576,7 +655,7 @@ describe("handleQuoteInitiateBody — RPC failure mapping", () => {
 
   it("never includes the computed payload hash anywhere in an error response", async () => {
     const supabase = fakeSupabase({ data: null, error: { message: "some db failure" } });
-    const result = await handleQuoteInitiateBody(requestBody(), { supabase });
+    const result = await handleQuoteInitiateBody(requestBody(), deps(supabase));
     const [, args] = supabase.rpc.mock.calls[0] as [string, { p_payload_hash: string }];
     expect(JSON.stringify(result.body)).not.toContain(args.p_payload_hash);
   });

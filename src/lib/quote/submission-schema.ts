@@ -348,12 +348,21 @@ export function checkFilesAgainstIntent(
  * value is an empty string. The current frontend never sends this key at
  * all (so it is simply absent, which `.optional()` accepts); a bot that
  * blindly fills every field it can see gets rejected here.
+ *
+ * CHECKPOINT C2G: `turnstileToken` is a sibling top-level field, deliberately
+ * OUTSIDE `submission` — normalizeSubmission/computeQuotePayloadHash only
+ * ever read `submission`+`files`, so a fresh token minted for every retry
+ * never changes the payload hash or the idempotency key it drives. Required
+ * (never optional) — every initiate request must carry one; the server
+ * verifies it via Cloudflare Siteverify before any RPC call (see
+ * src/server/quote/initiate-quote.ts).
  */
 export const initiateQuoteRequestSchema = z
   .object({
     idempotencyKey: z.string().uuid(),
     submission: submissionSchema,
     files: fileDeclarationsSchema.default([]),
+    turnstileToken: z.string().min(1, "Verification is required."),
     honeypot: z.string().max(0, "Request rejected.").optional(),
   })
   .strict();

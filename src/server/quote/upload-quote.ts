@@ -291,7 +291,8 @@ export type UploadErrorCode =
   | "ALREADY_VERIFIED_MISMATCH"
   | "STORAGE_ERROR"
   | "FINALIZE_FAILED"
-  | "INTERNAL_ERROR";
+  | "INTERNAL_ERROR"
+  | "RATE_LIMITED";
 
 export interface UploadQuoteSuccessBody {
   ok: true;

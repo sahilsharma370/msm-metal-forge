@@ -110,6 +110,18 @@ export function outcomeBanner(outcome: QuoteSubmissionOutcome): SubmissionBanner
           "This enquiry couldn't be completed with the files provided. Please contact us on WhatsApp, or start over to submit it as a new enquiry.",
         showRetry: false,
       };
+    case "human_verification_required":
+      return {
+        tone: "retryable",
+        message: "Please complete the verification check and try again.",
+        showRetry: true,
+      };
+    case "rate_limited":
+      return {
+        tone: "retryable",
+        message: "Too many attempts — please wait a moment and try again.",
+        showRetry: true,
+      };
   }
 }
 

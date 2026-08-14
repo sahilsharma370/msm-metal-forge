@@ -1,0 +1,78 @@
+{
+  // CHECKPOINT C2G — checked-in Cloudflare Workers runtime configuration.
+  //
+  // This file is read by Nitro's `cloudflare-module` preset (readWranglerConfig
+  // in nitro/dist/_presets.mjs) during `npm run build` and merged via
+  // `defu(overrides, ctxConfig, userConfig, defaults)` — every field below
+  // wins over Nitro's own defaults EXCEPT `main`, `assets` and
+  // `pages_build_output_dir`, which Nitro always computes itself from the
+  // actual build output and will silently override regardless of what's
+  // written here. The values below are therefore the real, effective
+  // production configuration for everything except those three fields.
+  //
+  // Local-only: this file is never used to run `wrangler deploy`, `wrangler
+  // login`, or to create/modify any remote Cloudflare resource from this
+  // repository. See docs/cloudflare-setup.md for the manual dashboard/CLI
+  // steps still required before a real deployment.
+
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "msm-metal-forge",
+
+  // Ignored/overridden by Nitro at build time — kept only so this file is
+  // independently valid if ever pointed at by `wrangler` directly.
+  "main": "./.output/server/index.mjs",
+
+  // Pinned to a specific, well-past date rather than "today" so behavior
+  // never silently shifts on a future Workers runtime release. Safe to bump
+  // forward deliberately later; must never be left to float.
+  "compatibility_date": "2024-09-23",
+
+  // Required for src/server/env.server.ts, rate-limit.server.ts and
+  // turnstile.server.ts, all of which read secrets/bindings via
+  // `process.env["..."]` — that relies on unenv's Node.js `process.env`
+  // polyfill, which is only active under this flag. Nitro's own
+  // `cloudflare.nodeCompat` option (on by default) would add this
+  // automatically, but it's made explicit here per this checkpoint's own
+  // "configure required compatibility behavior explicitly" requirement.
+  "compatibility_flags": ["nodejs_compat"],
+
+  // CHECKPOINT C2G — Cloudflare Workers Rate Limiting bindings (native
+  // Workers Free-tier feature; no paid add-on, no external service, no
+  // process-memory/browser counters — see src/server/rate-limit.server.ts).
+  // `namespace_id` is an arbitrary, developer-chosen unique string per the
+  // Rate Limiting binding's own contract — unlike KV/D1/R2 IDs, it is never
+  // provisioned via the Cloudflare dashboard, so no manual step is needed
+  // for these three specifically. `period` accepts only 10 or 60 (seconds)
+  // per Wrangler's own config schema; 60 is used throughout to match
+  // RATE_LIMIT_RETRY_AFTER_SECONDS in rate-limit.server.ts.
+  //
+  // Limit rationale (all easily adjustable — see rate-limit.server.ts's own
+  // doc comments for the full reasoning):
+  //   - initiate (5/60s):  the cheapest-per-call route but the one that
+  //     creates a Supabase lead row and burns a Turnstile Siteverify call;
+  //     kept tightest since one legitimate customer submits at most a
+  //     handful of times per minute even across retries.
+  //   - upload (30/60s):   must comfortably fit one legitimate session
+  //     uploading up to 5 files with normal retry slack, without opening the
+  //     door to using this route to brute-force or flood Storage.
+  //   - complete (10/60s): called once per genuine submission (plus rare
+  //     idempotent retries after a lost response), so a small allowance
+  //     covers real retry behavior while still bounding abuse.
+  "ratelimits": [
+    {
+      "name": "RATE_LIMITER_INITIATE",
+      "namespace_id": "10001",
+      "simple": { "limit": 5, "period": 60 }
+    },
+    {
+      "name": "RATE_LIMITER_UPLOAD",
+      "namespace_id": "10002",
+      "simple": { "limit": 30, "period": 60 }
+    },
+    {
+      "name": "RATE_LIMITER_COMPLETE",
+      "namespace_id": "10003",
+      "simple": { "limit": 10, "period": 60 }
+    }
+  ]
+}

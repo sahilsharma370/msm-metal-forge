@@ -187,7 +187,7 @@ describe("submit — valid seller, zero files", () => {
     });
     const engine = createQuoteSubmissionEngine({ transport });
 
-    const outcome = await engine.submit({ values: baseSellerValues(), context: sellerContext });
+    const outcome = await engine.submit({ values: baseSellerValues(), context: sellerContext, turnstileToken: "test-turnstile-token" });
 
     expect(outcome.kind).toBe("success");
     expect(transport.upload).not.toHaveBeenCalled();
@@ -209,7 +209,7 @@ describe("submit — valid seller, multiple photos", () => {
 
     const outcome = await engine.submit({
       values: baseSellerValues({ sellerPhotos: photos }),
-      context: sellerContext,
+      context: sellerContext, turnstileToken: "test-turnstile-token",
     });
 
     expect(outcome.kind).toBe("success");
@@ -233,7 +233,7 @@ describe("submit — valid buyer, multiple documents", () => {
 
     const outcome = await engine.submit({
       values: baseBuyerValues({ buyerDocuments: docs }),
-      context: buyerContext,
+      context: buyerContext, turnstileToken: "test-turnstile-token",
     });
 
     expect(outcome.kind).toBe("success");
@@ -257,7 +257,7 @@ describe("submit — fresh attempt", () => {
     });
     const engine = createQuoteSubmissionEngine({ transport });
 
-    await engine.submit({ values: baseSellerValues(), context: sellerContext });
+    await engine.submit({ values: baseSellerValues(), context: sellerContext, turnstileToken: "test-turnstile-token" });
 
     expect(attemptDuringInitiate).toBe("pre_initiate");
   });
@@ -281,9 +281,9 @@ describe("submit — initiate replay", () => {
     });
 
     const values = baseSellerValues();
-    const first = await createQuoteSubmissionEngine({ transport }).submit({ values, context: sellerContext });
+    const first = await createQuoteSubmissionEngine({ transport }).submit({ values, context: sellerContext, turnstileToken: "test-turnstile-token" });
     expect(first.kind).toBe("needs_reselection");
-    const second = await createQuoteSubmissionEngine({ transport }).submit({ values, context: sellerContext });
+    const second = await createQuoteSubmissionEngine({ transport }).submit({ values, context: sellerContext, turnstileToken: "test-turnstile-token" });
     expect(second.kind).toBe("needs_reselection");
 
     expect(keysUsed).toHaveLength(2);
@@ -303,7 +303,7 @@ describe("submit — verified slots are skipped", () => {
     const transport = createFakeTransport({ initiate: async () => initiateOk(slots) });
     const engine = createQuoteSubmissionEngine({ transport });
 
-    const outcome = await engine.submit({ values: baseSellerValues({ sellerPhotos: [photo] }), context: sellerContext });
+    const outcome = await engine.submit({ values: baseSellerValues({ sellerPhotos: [photo] }), context: sellerContext, turnstileToken: "test-turnstile-token" });
 
     expect(outcome.kind).toBe("success");
     expect(transport.upload).not.toHaveBeenCalled();
@@ -318,7 +318,7 @@ describe("submit — pending slot with a matching File is uploaded", () => {
     const transport = createFakeTransport({ initiate: async () => initiateOk(slots) });
     const engine = createQuoteSubmissionEngine({ transport });
 
-    const outcome = await engine.submit({ values: baseSellerValues({ sellerPhotos: [photo] }), context: sellerContext });
+    const outcome = await engine.submit({ values: baseSellerValues({ sellerPhotos: [photo] }), context: sellerContext, turnstileToken: "test-turnstile-token" });
 
     expect(outcome.kind).toBe("success");
     expect(transport.upload).toHaveBeenCalledTimes(1);
@@ -335,7 +335,7 @@ describe("submit — pending slot missing its File", () => {
     const transport = createFakeTransport({ initiate: async () => initiateOk(slots) });
     const engine = createQuoteSubmissionEngine({ transport });
 
-    const outcome = await engine.submit({ values: baseSellerValues({ sellerPhotos: [] }), context: sellerContext });
+    const outcome = await engine.submit({ values: baseSellerValues({ sellerPhotos: [] }), context: sellerContext, turnstileToken: "test-turnstile-token" });
 
     expect(outcome.kind).toBe("needs_reselection");
     if (outcome.kind === "needs_reselection") {
@@ -361,7 +361,7 @@ describe("submit — mixed verified/pending slots", () => {
 
     const outcome = await engine.submit({
       values: baseSellerValues({ sellerPhotos: [photoB] }),
-      context: sellerContext,
+      context: sellerContext, turnstileToken: "test-turnstile-token",
     });
 
     expect(outcome.kind).toBe("success");
@@ -379,7 +379,7 @@ describe("submit — uploading slot handling", () => {
     const transport = createFakeTransport({ initiate: async () => initiateOk(slots) });
     const engine = createQuoteSubmissionEngine({ transport });
 
-    const outcome = await engine.submit({ values: baseSellerValues({ sellerPhotos: [photo] }), context: sellerContext });
+    const outcome = await engine.submit({ values: baseSellerValues({ sellerPhotos: [photo] }), context: sellerContext, turnstileToken: "test-turnstile-token" });
 
     expect(transport.upload).toHaveBeenCalledTimes(1);
     expect(outcome.kind).toBe("success");
@@ -391,7 +391,7 @@ describe("submit — uploading slot handling", () => {
     const transport = createFakeTransport({ initiate: async () => initiateOk(slots) });
     const engine = createQuoteSubmissionEngine({ transport });
 
-    const outcome = await engine.submit({ values: baseSellerValues({ sellerPhotos: [] }), context: sellerContext });
+    const outcome = await engine.submit({ values: baseSellerValues({ sellerPhotos: [] }), context: sellerContext, turnstileToken: "test-turnstile-token" });
 
     expect(outcome.kind).toBe("needs_reselection");
     expect(transport.upload).not.toHaveBeenCalled();
@@ -407,7 +407,7 @@ describe("submit — uploading slot handling", () => {
     });
     const engine = createQuoteSubmissionEngine({ transport });
 
-    const outcome = await engine.submit({ values: baseSellerValues({ sellerPhotos: [photo] }), context: sellerContext });
+    const outcome = await engine.submit({ values: baseSellerValues({ sellerPhotos: [photo] }), context: sellerContext, turnstileToken: "test-turnstile-token" });
 
     expect(outcome.kind).toBe("upload_in_progress");
     expect(transport.complete).not.toHaveBeenCalled();
@@ -421,7 +421,7 @@ describe("submit — failed/expired slots return restart_required without creati
     const transport = createFakeTransport({ initiate: async () => initiateOk(slots) });
     const engine = createQuoteSubmissionEngine({ transport });
 
-    const outcome = await engine.submit({ values: baseSellerValues(), context: sellerContext });
+    const outcome = await engine.submit({ values: baseSellerValues(), context: sellerContext, turnstileToken: "test-turnstile-token" });
 
     expect(outcome.kind).toBe("restart_required");
     if (outcome.kind === "restart_required") {
@@ -444,7 +444,7 @@ describe("submit — failed/expired slots return restart_required without creati
     });
     const engine = createQuoteSubmissionEngine({ transport });
 
-    const outcome = await engine.submit({ values: baseSellerValues({ sellerPhotos: [photo] }), context: sellerContext });
+    const outcome = await engine.submit({ values: baseSellerValues({ sellerPhotos: [photo] }), context: sellerContext, turnstileToken: "test-turnstile-token" });
     expect(outcome.kind).toBe("restart_required");
   });
 });
@@ -468,7 +468,7 @@ describe("submit — correct file-to-slot matching", () => {
 
     const outcome = await engine.submit({
       values: baseSellerValues({ sellerPhotos: [fileA, fileB] }),
-      context: sellerContext,
+      context: sellerContext, turnstileToken: "test-turnstile-token",
     });
 
     expect(outcome.kind).toBe("success");
@@ -489,7 +489,7 @@ describe("submit — seller/buyer isolation", () => {
 
     const outcome = await engine.submit({
       values: baseSellerValues({ sellerPhotos: [sellerPhoto], buyerDocuments: [buyerDoc] }),
-      context: sellerContext,
+      context: sellerContext, turnstileToken: "test-turnstile-token",
     });
 
     expect(outcome.kind).toBe("success");
@@ -510,7 +510,7 @@ describe("submit — initiate network failure", () => {
     });
     const engine = createQuoteSubmissionEngine({ transport });
 
-    const outcome = await engine.submit({ values: baseSellerValues(), context: sellerContext });
+    const outcome = await engine.submit({ values: baseSellerValues(), context: sellerContext, turnstileToken: "test-turnstile-token" });
 
     expect(outcome).toEqual({ kind: "network_error", retryable: true });
     expect(loadSubmissionAttempt().kind).toBe("pre_initiate");
@@ -525,9 +525,90 @@ describe("submit — malformed initiate response", () => {
     });
     const engine = createQuoteSubmissionEngine({ transport });
 
-    const outcome = await engine.submit({ values: baseSellerValues(), context: sellerContext });
+    const outcome = await engine.submit({ values: baseSellerValues(), context: sellerContext, turnstileToken: "test-turnstile-token" });
 
     expect(outcome.kind).toBe("network_error");
+  });
+});
+
+describe("submit — CHECKPOINT C2G Turnstile verification and rate limiting", () => {
+  it("forwards the exact turnstileToken given to submit() to transport.initiate", async () => {
+    freshStorage();
+    const transport = createFakeTransport();
+    const engine = createQuoteSubmissionEngine({ transport });
+
+    await engine.submit({ values: baseSellerValues(), context: sellerContext, turnstileToken: "a-specific-token" });
+
+    expect(transport.initiate).toHaveBeenCalledWith(
+      expect.objectContaining({ turnstileToken: "a-specific-token" }),
+      undefined,
+    );
+  });
+
+  it("maps initiate's VERIFICATION_REQUIRED to a dedicated human_verification_required outcome, never a generic server_error", async () => {
+    freshStorage();
+    const transport = createFakeTransport({
+      initiate: async () => ({
+        ok: false,
+        status: 403,
+        code: "VERIFICATION_REQUIRED",
+        message: "Verification failed.",
+        retryable: true,
+      }),
+    });
+    const engine = createQuoteSubmissionEngine({ transport });
+
+    const outcome = await engine.submit({ values: baseSellerValues(), context: sellerContext, turnstileToken: "stale-token" });
+
+    expect(outcome).toEqual({ kind: "human_verification_required" });
+  });
+
+  it("maps initiate's RATE_LIMITED to a dedicated, always-retryable rate_limited outcome", async () => {
+    freshStorage();
+    const transport = createFakeTransport({
+      initiate: async () => ({
+        ok: false,
+        status: 429,
+        code: "RATE_LIMITED",
+        message: "Too many requests.",
+        retryable: true,
+      }),
+    });
+    const engine = createQuoteSubmissionEngine({ transport });
+
+    const outcome = await engine.submit({ values: baseSellerValues(), context: sellerContext, turnstileToken: "test-turnstile-token" });
+
+    expect(outcome).toEqual({ kind: "rate_limited", retryable: true });
+  });
+
+  it("maps upload's RATE_LIMITED to rate_limited without ever calling complete", async () => {
+    freshStorage();
+    const transport = createFakeTransport({
+      initiate: async () => initiateOk([slot({ slotIndex: 0, slotId: "s0" })]),
+      upload: async () => ({ ok: false, status: 429, code: "RATE_LIMITED", message: "Too many requests.", retryable: true }),
+    });
+    const engine = createQuoteSubmissionEngine({ transport });
+
+    const outcome = await engine.submit({
+      values: baseSellerValues({ sellerPhotos: [localFile("file-0.jpg", "image/jpeg", 100)] }),
+      context: sellerContext,
+      turnstileToken: "test-turnstile-token",
+    });
+
+    expect(outcome).toEqual({ kind: "rate_limited", retryable: true });
+    expect(transport.complete).not.toHaveBeenCalled();
+  });
+
+  it("maps complete's RATE_LIMITED to rate_limited", async () => {
+    freshStorage();
+    const transport = createFakeTransport({
+      complete: async () => ({ ok: false, status: 429, code: "RATE_LIMITED", message: "Too many requests.", retryable: true }),
+    });
+    const engine = createQuoteSubmissionEngine({ transport });
+
+    const outcome = await engine.submit({ values: baseSellerValues(), context: sellerContext, turnstileToken: "test-turnstile-token" });
+
+    expect(outcome).toEqual({ kind: "rate_limited", retryable: true });
   });
 });
 
@@ -551,7 +632,7 @@ describe("submit — upload failure midway", () => {
 
     const outcome = await engine.submit({
       values: baseSellerValues({ sellerPhotos: [photoA, photoB] }),
-      context: sellerContext,
+      context: sellerContext, turnstileToken: "test-turnstile-token",
     });
 
     expect(outcome.kind).toBe("upload_failed");
@@ -574,7 +655,7 @@ describe("submit — completion failure", () => {
     });
     const engine = createQuoteSubmissionEngine({ transport });
 
-    const outcome = await engine.submit({ values: baseSellerValues(), context: sellerContext });
+    const outcome = await engine.submit({ values: baseSellerValues(), context: sellerContext, turnstileToken: "test-turnstile-token" });
 
     expect(outcome.kind).toBe("not_ready");
     expect(loadSubmissionAttempt().kind).toBe("initiated"); // preserved, not cleared
@@ -587,7 +668,7 @@ describe("submit — completion failure", () => {
     });
     const engine = createQuoteSubmissionEngine({ transport });
 
-    const outcome = await engine.submit({ values: baseSellerValues(), context: sellerContext });
+    const outcome = await engine.submit({ values: baseSellerValues(), context: sellerContext, turnstileToken: "test-turnstile-token" });
 
     expect(outcome.kind).toBe("server_error");
   });
@@ -609,14 +690,14 @@ describe("submit — lost initiate response then resume", () => {
     const flakyTransport = createFakeTransport({
       initiate: async () => ({ ok: false, transportFailure: "network_error" }) satisfies InitiateTransportResult,
     });
-    const firstOutcome = await createQuoteSubmissionEngine({ transport: flakyTransport }).submit({ values, context: sellerContext });
+    const firstOutcome = await createQuoteSubmissionEngine({ transport: flakyTransport }).submit({ values, context: sellerContext, turnstileToken: "test-turnstile-token" });
     expect(firstOutcome.kind).toBe("network_error");
     expect(loadSubmissionAttempt().kind).toBe("pre_initiate");
 
     // Resume: a fresh submit() call reuses the same idempotency key and this
     // time the (real, replaying) initiate call succeeds.
     const workingTransport = createFakeTransport({ initiate: async () => initiateOk(slots, { idempotentReplay: true }) });
-    const secondOutcome = await createQuoteSubmissionEngine({ transport: workingTransport }).submit({ values, context: sellerContext });
+    const secondOutcome = await createQuoteSubmissionEngine({ transport: workingTransport }).submit({ values, context: sellerContext, turnstileToken: "test-turnstile-token" });
 
     expect(secondOutcome.kind).toBe("success");
     const [firstArgs] = flakyTransport.initiate.mock.calls[0] as unknown as [{ idempotencyKey: string }];
@@ -633,12 +714,12 @@ describe("submit — lost completion response then resume", () => {
     const firstTransport = createFakeTransport({
       complete: async () => ({ ok: false, transportFailure: "network_error" }) satisfies CompleteTransportResult,
     });
-    const firstOutcome = await createQuoteSubmissionEngine({ transport: firstTransport }).submit({ values, context: sellerContext });
+    const firstOutcome = await createQuoteSubmissionEngine({ transport: firstTransport }).submit({ values, context: sellerContext, turnstileToken: "test-turnstile-token" });
     expect(firstOutcome.kind).toBe("network_error");
     expect(loadSubmissionAttempt().kind).toBe("initiated"); // preserved — nothing was cleared
 
     const secondTransport = createFakeTransport({ complete: async () => completeOk({ alreadyCompleted: true }) });
-    const secondOutcome = await createQuoteSubmissionEngine({ transport: secondTransport }).submit({ values, context: sellerContext });
+    const secondOutcome = await createQuoteSubmissionEngine({ transport: secondTransport }).submit({ values, context: sellerContext, turnstileToken: "test-turnstile-token" });
 
     expect(secondOutcome.kind).toBe("success");
     if (secondOutcome.kind === "success") {
@@ -663,9 +744,9 @@ describe("submit — duplicate-click/single-flight behavior", () => {
     const engine = createQuoteSubmissionEngine({ transport });
 
     const values = baseSellerValues();
-    const first = engine.submit({ values, context: sellerContext });
+    const first = engine.submit({ values, context: sellerContext, turnstileToken: "test-turnstile-token" });
     expect(engine.isSubmitting).toBe(true);
-    const second = engine.submit({ values, context: sellerContext });
+    const second = engine.submit({ values, context: sellerContext, turnstileToken: "test-turnstile-token" });
 
     resolveInitiate(initiateOk([]));
     const [firstResult, secondResult] = await Promise.all([first, second]);
@@ -681,8 +762,8 @@ describe("submit — duplicate-click/single-flight behavior", () => {
     const engine = createQuoteSubmissionEngine({ transport });
     const values = baseSellerValues();
 
-    await engine.submit({ values, context: sellerContext });
-    await engine.submit({ values, context: sellerContext });
+    await engine.submit({ values, context: sellerContext, turnstileToken: "test-turnstile-token" });
+    await engine.submit({ values, context: sellerContext, turnstileToken: "test-turnstile-token" });
 
     expect(transport.initiate).toHaveBeenCalledTimes(2);
   });
@@ -696,7 +777,7 @@ describe("submit — abort", () => {
     const controller = new AbortController();
     controller.abort();
 
-    const outcome = await engine.submit({ values: baseSellerValues(), context: sellerContext, signal: controller.signal });
+    const outcome = await engine.submit({ values: baseSellerValues(), context: sellerContext, turnstileToken: "test-turnstile-token", signal: controller.signal });
 
     expect(outcome).toEqual({ kind: "aborted" });
     expect(transport.initiate).not.toHaveBeenCalled();
@@ -709,7 +790,7 @@ describe("submit — abort", () => {
     });
     const engine = createQuoteSubmissionEngine({ transport });
 
-    const outcome = await engine.submit({ values: baseSellerValues(), context: sellerContext });
+    const outcome = await engine.submit({ values: baseSellerValues(), context: sellerContext, turnstileToken: "test-turnstile-token" });
     expect(outcome).toEqual({ kind: "aborted" });
   });
 
@@ -723,7 +804,7 @@ describe("submit — abort", () => {
     });
     const engine = createQuoteSubmissionEngine({ transport });
 
-    const outcome = await engine.submit({ values: baseSellerValues({ sellerPhotos: [photo] }), context: sellerContext });
+    const outcome = await engine.submit({ values: baseSellerValues({ sellerPhotos: [photo] }), context: sellerContext, turnstileToken: "test-turnstile-token" });
 
     expect(outcome).toEqual({ kind: "aborted" });
     expect(transport.complete).not.toHaveBeenCalled();
@@ -736,7 +817,7 @@ describe("submit — abort", () => {
     });
     const engine = createQuoteSubmissionEngine({ transport });
 
-    const outcome = await engine.submit({ values: baseSellerValues(), context: sellerContext });
+    const outcome = await engine.submit({ values: baseSellerValues(), context: sellerContext, turnstileToken: "test-turnstile-token" });
     expect(outcome).toEqual({ kind: "aborted" });
   });
 });
@@ -757,7 +838,7 @@ describe("submit — no premature genuine success", () => {
     });
     const engine = createQuoteSubmissionEngine({ transport });
 
-    const outcome = await engine.submit({ values: baseSellerValues({ sellerPhotos: [photo] }), context: sellerContext });
+    const outcome = await engine.submit({ values: baseSellerValues({ sellerPhotos: [photo] }), context: sellerContext, turnstileToken: "test-turnstile-token" });
 
     expect(outcome.kind).not.toBe("success");
     expect(transport.upload).toHaveBeenCalledTimes(1); // upload did happen
@@ -775,7 +856,7 @@ describe("submit — attempt persistence/clearing rules", () => {
     const transport = createFakeTransport();
     const engine = createQuoteSubmissionEngine({ transport });
 
-    const outcome = await engine.submit({ values: baseSellerValues(), context: sellerContext });
+    const outcome = await engine.submit({ values: baseSellerValues(), context: sellerContext, turnstileToken: "test-turnstile-token" });
 
     expect(outcome.kind).toBe("success");
     expect(loadSubmissionAttempt()).toEqual({ kind: "none" });
@@ -788,7 +869,7 @@ describe("submit — attempt persistence/clearing rules", () => {
     });
     const engine = createQuoteSubmissionEngine({ transport });
 
-    await engine.submit({ values: baseSellerValues(), context: sellerContext });
+    await engine.submit({ values: baseSellerValues(), context: sellerContext, turnstileToken: "test-turnstile-token" });
 
     expect(loadSubmissionAttempt().kind).toBe("pre_initiate");
   });
@@ -800,7 +881,7 @@ describe("submit — attempt persistence/clearing rules", () => {
     });
     const engine = createQuoteSubmissionEngine({ transport });
 
-    const outcome = await engine.submit({ values: baseSellerValues(), context: sellerContext });
+    const outcome = await engine.submit({ values: baseSellerValues(), context: sellerContext, turnstileToken: "test-turnstile-token" });
 
     expect(outcome.kind).toBe("idempotency_conflict");
     expect(loadSubmissionAttempt()).toEqual({ kind: "none" });
@@ -812,7 +893,7 @@ describe("submit — attempt persistence/clearing rules", () => {
     const transport = createFakeTransport({ initiate: async () => initiateOk(slots) });
     const engine = createQuoteSubmissionEngine({ transport });
 
-    await engine.submit({ values: baseSellerValues(), context: sellerContext });
+    await engine.submit({ values: baseSellerValues(), context: sellerContext, turnstileToken: "test-turnstile-token" });
 
     expect(loadSubmissionAttempt().kind).toBe("initiated");
   });
@@ -835,7 +916,7 @@ describe("submit — no storagePath persisted", () => {
       retryable: true,
     } satisfies CompleteTransportResult);
 
-    await engine.submit({ values: baseSellerValues({ sellerPhotos: [photo] }), context: sellerContext });
+    await engine.submit({ values: baseSellerValues({ sellerPhotos: [photo] }), context: sellerContext, turnstileToken: "test-turnstile-token" });
 
     const raw = window.sessionStorage.getItem("msm-quote-draft-v1") ?? "";
     expect(raw).not.toContain("storagePath");
@@ -859,7 +940,7 @@ describe("submit — no raw error/PII leakage", () => {
     });
     await createQuoteSubmissionEngine({ transport }).submit({
       values: baseSellerValues({ sellerName: "Ahmed Seller", sellerPhone: "0501234567" }),
-      context: sellerContext,
+      context: sellerContext, turnstileToken: "test-turnstile-token",
     });
 
     expect(logSpy).not.toHaveBeenCalled();
@@ -877,7 +958,7 @@ describe("submit — no raw error/PII leakage", () => {
     });
     const outcome: QuoteSubmissionOutcome = await createQuoteSubmissionEngine({ transport }).submit({
       values: baseSellerValues({ sellerName: "Ahmed Seller", sellerPhone: "0501234567" }),
-      context: sellerContext,
+      context: sellerContext, turnstileToken: "test-turnstile-token",
     });
 
     const serialized = JSON.stringify(outcome);
@@ -895,7 +976,7 @@ describe("submit — no raw error/PII leakage", () => {
     // engine correctly surfaces as a separate server_rejected outcome).
     const outcome = await createQuoteSubmissionEngine({ transport }).submit({
       values: baseSellerValues({ intent: undefined, sellerName: "Ahmed Seller", sellerPhone: "0501234567" }),
-      context: sellerContext,
+      context: sellerContext, turnstileToken: "test-turnstile-token",
     });
 
     expect(outcome.kind).toBe("validation_error");

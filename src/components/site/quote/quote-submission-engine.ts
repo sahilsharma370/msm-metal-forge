@@ -117,6 +117,15 @@ export type QuoteSubmissionOutcome =
   | { readonly kind: "server_rejected"; readonly issues: readonly { readonly path: string; readonly message: string }[] }
   | { readonly kind: "network_error"; readonly retryable: true }
   | { readonly kind: "server_error"; readonly retryable: boolean }
+  | {
+      /** CHECKPOINT C2G — the Turnstile token was missing/invalid/expired/duplicate or failed Siteverify. A brand-new challenge token is required before retrying; the caller's answers and in-flight attempt are otherwise untouched. */
+      readonly kind: "human_verification_required";
+    }
+  | {
+      /** CHECKPOINT C2G — a Cloudflare Worker rate-limit binding rejected this request. Always safe to retry after waiting; never treated as failure and never clears the persisted attempt. */
+      readonly kind: "rate_limited";
+      readonly retryable: true;
+    }
   | { readonly kind: "aborted" };
 
 // ---------------------------------------------------------------------------
@@ -149,6 +158,8 @@ export interface QuoteSubmissionEngineDeps {
 export interface SubmitQuoteInput {
   readonly values: QuoteFormValues;
   readonly context: QuoteInitialContext;
+  /** CHECKPOINT C2G — a fresh Cloudflare Turnstile token obtained by the caller immediately before this submit() call; never persisted, never logged, forwarded only to transport.initiate(). */
+  readonly turnstileToken: string;
   readonly signal?: AbortSignal;
 }
 
@@ -238,13 +249,19 @@ async function submitInternal(
   // ---- 5. Call initiate exactly per its current contract. ----------------
   onProgress({ phase: "initiating" });
   const initiateResult = await transport.initiate(
-    { idempotencyKey, submission: identity.submission, files: identity.files },
+    { idempotencyKey, submission: identity.submission, files: identity.files, turnstileToken: input.turnstileToken },
     signal,
   );
 
   if (!initiateResult.ok) {
     if (initiateResult.transportFailure === "aborted") return { kind: "aborted" };
     if (initiateResult.transportFailure) return { kind: "network_error", retryable: true };
+    if (initiateResult.code === "VERIFICATION_REQUIRED") {
+      return { kind: "human_verification_required" };
+    }
+    if (initiateResult.code === "RATE_LIMITED") {
+      return { kind: "rate_limited", retryable: true };
+    }
     if (initiateResult.code === "IDEMPOTENCY_CONFLICT") {
       // The locally-resolved key was already used server-side with a
       // different payload — the stale local record can no longer be
@@ -350,6 +367,8 @@ async function submitInternal(
           return { kind: "restart_required", leadId, reference, slotIndex: slot.slotIndex, slotId: slot.slotId };
         case "ALREADY_VERIFIED_MISMATCH":
           return { kind: "content_mismatch", leadId, reference, slotIndex: slot.slotIndex, slotId: slot.slotId };
+        case "RATE_LIMITED":
+          return { kind: "rate_limited", retryable: true };
         default:
           return {
             kind: "upload_failed",
@@ -381,6 +400,9 @@ async function submitInternal(
     if (completeResult.transportFailure) return { kind: "network_error", retryable: true };
     if (completeResult.code === "NOT_READY") {
       return { kind: "not_ready", leadId, reference };
+    }
+    if (completeResult.code === "RATE_LIMITED") {
+      return { kind: "rate_limited", retryable: true };
     }
     return { kind: "server_error", retryable: completeResult.retryable };
   }

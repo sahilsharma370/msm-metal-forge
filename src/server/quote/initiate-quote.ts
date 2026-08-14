@@ -7,6 +7,7 @@ import {
   normalizeSubmission,
 } from "./submission-schema";
 import { computeQuotePayloadHash } from "./canonicalize";
+import type { TurnstileVerifier } from "../turnstile.server";
 
 /**
  * 64 KB — the same bound is_safe_json_object already enforces on
@@ -94,7 +95,12 @@ export interface InitiateQuoteSuccessBody {
   };
 }
 
-export type ErrorCode = "VALIDATION_ERROR" | "IDEMPOTENCY_CONFLICT" | "INTERNAL_ERROR";
+export type ErrorCode =
+  | "VALIDATION_ERROR"
+  | "IDEMPOTENCY_CONFLICT"
+  | "INTERNAL_ERROR"
+  | "VERIFICATION_REQUIRED"
+  | "RATE_LIMITED";
 
 export interface FieldError {
   path: string;
@@ -148,6 +154,30 @@ function idempotencyConflict(): InitiateQuoteResult {
       error: {
         code: "IDEMPOTENCY_CONFLICT",
         message: "This request was already submitted with different details.",
+      },
+    },
+  };
+}
+
+/**
+ * CHECKPOINT C2G: one generic response for every Turnstile failure reason
+ * (missing/invalid/expired/duplicate token, action mismatch, hostname
+ * mismatch, or Siteverify itself being unavailable) — the specific reason
+ * is server-side diagnostic detail only, never surfaced to the customer,
+ * matching "never show raw Siteverify error codes". 403, not 400: this is
+ * a genuine validation failure of the SUBMITTED DATA (VALIDATION_ERROR
+ * stays reserved for that); a missing/failed human-verification token is a
+ * distinct failure the client maps to its own dedicated outcome so it can
+ * fetch a fresh challenge rather than treat it like a form field error.
+ */
+function verificationRequiredResult(): InitiateQuoteResult {
+  return {
+    status: 403,
+    body: {
+      ok: false,
+      error: {
+        code: "VERIFICATION_REQUIRED",
+        message: "We couldn't verify this request. Please complete the verification and try again.",
       },
     },
   };
@@ -216,6 +246,8 @@ const IDEMPOTENCY_CONFLICT_MESSAGE_FRAGMENT = "was already used with a different
 
 export interface HandleQuoteInitiateDeps {
   supabase: QuoteRpcClient;
+  /** CHECKPOINT C2G — verified before any RPC call; see turnstile.server.ts for the real implementation and its own reasoning. */
+  turnstile: TurnstileVerifier;
 }
 
 /**
@@ -244,10 +276,23 @@ export async function handleQuoteInitiateBody(
       zodIssuesToFieldErrors(topLevel.error.issues),
     );
   }
-  const { idempotencyKey, submission, files } = topLevel.data;
+  const { idempotencyKey, submission, files, turnstileToken } = topLevel.data;
   // honeypot is already constrained to "" | undefined by the schema —
   // reaching here with any non-empty value is impossible, so there is
   // nothing further to check. The schema rejection above IS the honeypot.
+
+  // CHECKPOINT C2G: verified before any other work below — completeness
+  // checks, hashing and the RPC call all cost real work (the RPC is a real
+  // database mutation), and a request that fails human verification never
+  // needs any of it. The specific TurnstileFailureReason (missing/invalid/
+  // expired/duplicate token, action mismatch, hostname mismatch, or
+  // Siteverify itself being down) is deliberately not distinguished here —
+  // every one of them is a stop, and none is ever exposed to the caller
+  // beyond the one generic message in verificationRequiredResult().
+  const turnstileResult = await deps.turnstile.verify(turnstileToken);
+  if (!turnstileResult.ok) {
+    return verificationRequiredResult();
+  }
 
   const completenessIssues = checkSubmissionCompleteness(submission);
   const fileIntentIssues = checkFilesAgainstIntent(submission.intent, files);

@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { ArrowRight, Loader2, MessageCircle, Paperclip, Pencil } from "lucide-react";
 import { isValidMapLink, type QuoteFormValues, type QuoteLocalFile } from "../quote-schema";
 import {
@@ -32,6 +33,10 @@ interface ReviewStepProps {
   isSubmitting: boolean;
   submissionPhase: QuoteSubmissionProgressEvent | null;
   submissionOutcome: QuoteSubmissionOutcome | null;
+  /** CHECKPOINT C2G — whether a fresh, as-yet-unconsumed Turnstile token is currently held; Submit stays disabled until this is true. */
+  turnstileReady: boolean;
+  /** CHECKPOINT C2G — the rendered Turnstile widget itself, owned and wired by QuoteExperience so this component stays widget-implementation-agnostic. */
+  turnstileWidget: ReactNode;
 }
 
 interface ReviewRow {
@@ -322,6 +327,8 @@ export function ReviewStep({
   isSubmitting,
   submissionPhase,
   submissionOutcome,
+  turnstileReady,
+  turnstileWidget,
 }: ReviewStepProps) {
   const sections =
     values.intent === "buy" ? buildBuyerSections(values) : buildSellerSections(values);
@@ -332,7 +339,7 @@ export function ReviewStep({
   );
   const banner = submissionOutcome ? outcomeBanner(submissionOutcome) : null;
   const statusText = isSubmitting ? progressPhaseText(submissionPhase) : (banner?.message ?? "");
-  const submitDisabled = !ready || isSubmitting;
+  const submitDisabled = !ready || isSubmitting || !turnstileReady;
 
   return (
     <div>
@@ -404,7 +411,9 @@ export function ReviewStep({
         weight or quantity, condition and logistics.
       </p>
 
-      <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+      <div className="mt-6">{turnstileWidget}</div>
+
+      <div className="mt-4 flex flex-col gap-3 sm:flex-row">
         <a
           href={whatsappUrl}
           target="_blank"

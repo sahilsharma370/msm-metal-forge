@@ -8,14 +8,13 @@ import {
   MAX_BODY_BYTES,
   type InitiateQuoteResponseBody,
 } from "@/server/quote/initiate-quote";
-
-// TODO(rate-limiting): C1 intentionally ships with no request-rate limiting
-// — see the CHECKPOINT audit's blocker list. Before this route is exposed
-// to real traffic, add a Cloudflare-native rule for POST /api/quote/initiate
-// (a Cloudflare Rate Limiting Rule or WAF custom rule configured in the
-// dashboard / a checked-in wrangler.jsonc, keyed on the client IP), not a
-// KV- or Durable-Object-backed limiter — those are explicitly out of scope
-// for this checkpoint.
+import { getTurnstileVerifier } from "@/server/turnstile.server";
+import {
+  RATE_LIMIT_RETRY_AFTER_SECONDS,
+  checkRateLimit,
+  getCloudflareClientIp,
+  getRateLimiterBinding,
+} from "@/server/rate-limit.server";
 
 function jsonResponse(status: number, body: InitiateQuoteResponseBody): Response {
   return new Response(JSON.stringify(body), {
@@ -28,6 +27,20 @@ const genericServerErrorBody: InitiateQuoteResponseBody = {
   ok: false,
   error: { code: "INTERNAL_ERROR", message: "Something went wrong. Please try again." },
 };
+
+function rateLimitedResponse(): Response {
+  const body: InitiateQuoteResponseBody = {
+    ok: false,
+    error: { code: "RATE_LIMITED", message: "Too many requests. Please wait a moment and try again." },
+  };
+  return new Response(JSON.stringify(body), {
+    status: 429,
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      "retry-after": String(RATE_LIMIT_RETRY_AFTER_SECONDS),
+    },
+  });
+}
 
 /**
  * Exact media-type match, not a substring check — `.includes("application/json")`
@@ -57,13 +70,25 @@ export async function handleQuoteInitiateRequest(request: Request): Promise<Resp
     });
   }
 
-  // Built per-request, inside the handler — never at module scope (see
-  // env.server.ts). Missing/invalid config fails closed with a generic
-  // message; the specific missing variable is never exposed here or
-  // anywhere in the response.
+  // CHECKPOINT C2G: rate-limited before any Supabase/database work — a
+  // missing binding fails closed (500, via the same try/catch as the
+  // Supabase client below), never silently skipping the check. The
+  // Cloudflare-verified client IP (never X-Forwarded-For) is the only
+  // identity this is keyed on; a request Cloudflare's edge did not attach
+  // one to cannot be identified and is rejected the same way a missing
+  // binding is.
   let supabase: ReturnType<typeof toQuoteRpcClient>;
+  let turnstile: ReturnType<typeof getTurnstileVerifier>;
   try {
+    const clientIp = getCloudflareClientIp(request);
+    if (!clientIp) return jsonResponse(500, genericServerErrorBody);
+
+    const limiter = getRateLimiterBinding("initiate");
+    const { allowed } = await checkRateLimit(limiter, clientIp);
+    if (!allowed) return rateLimitedResponse();
+
     supabase = toQuoteRpcClient(createSupabaseAdminClient());
+    turnstile = getTurnstileVerifier();
   } catch {
     return jsonResponse(500, genericServerErrorBody);
   }
@@ -84,7 +109,7 @@ export async function handleQuoteInitiateRequest(request: Request): Promise<Resp
     });
   }
 
-  const result = await handleQuoteInitiateBody(rawBody, { supabase });
+  const result = await handleQuoteInitiateBody(rawBody, { supabase, turnstile });
   return jsonResponse(result.status, result.body);
 }
 

@@ -134,6 +134,20 @@ describe("outcomeBanner — exhaustive per-kind mapping", () => {
     expect(banner?.message).not.toMatch(/automatically|new lead/i);
   });
 
+  it("marks human_verification_required retryable, with copy that doesn't leak Siteverify internals", () => {
+    const banner = outcomeBanner({ kind: "human_verification_required" });
+    expect(banner?.tone).toBe("retryable");
+    expect(banner?.showRetry).toBe(true);
+    expect(banner?.message.toLowerCase()).not.toMatch(/turnstile|siteverify|token|cloudflare/);
+  });
+
+  it("marks rate_limited retryable, with copy that never mentions an IP or internal counter", () => {
+    const banner = outcomeBanner({ kind: "rate_limited", retryable: true });
+    expect(banner?.tone).toBe("retryable");
+    expect(banner?.showRetry).toBe(true);
+    expect(banner?.message.toLowerCase()).not.toMatch(/ip|counter|limiter|binding/);
+  });
+
   it("every kind of QuoteSubmissionOutcome is handled (exhaustive switch — compile-time guaranteed, this just documents the set)", () => {
     const kinds: QuoteSubmissionOutcome["kind"][] = [
       "success",
@@ -148,9 +162,11 @@ describe("outcomeBanner — exhaustive per-kind mapping", () => {
       "server_rejected",
       "network_error",
       "server_error",
+      "human_verification_required",
+      "rate_limited",
       "aborted",
     ];
-    expect(kinds).toHaveLength(13);
+    expect(kinds).toHaveLength(15);
   });
 });
 

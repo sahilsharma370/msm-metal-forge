@@ -124,7 +124,12 @@ export interface InitiateSuccessData {
 }
 
 /** Mirrors src/server/quote/initiate-quote.ts's ErrorCode exactly. */
-export type InitiateErrorCode = "VALIDATION_ERROR" | "IDEMPOTENCY_CONFLICT" | "INTERNAL_ERROR";
+export type InitiateErrorCode =
+  | "VALIDATION_ERROR"
+  | "IDEMPOTENCY_CONFLICT"
+  | "INTERNAL_ERROR"
+  | "VERIFICATION_REQUIRED"
+  | "RATE_LIMITED";
 
 export type InitiateTransportResult = TransportResult<InitiateSuccessData, InitiateErrorCode>;
 
@@ -132,6 +137,8 @@ export interface InitiateTransportRequest {
   readonly idempotencyKey: string;
   readonly submission: SubmissionShape;
   readonly files: readonly CanonicalFileDeclaration[];
+  /** CHECKPOINT C2G — a fresh Cloudflare Turnstile token, ephemeral: never persisted, never logged, sent only in this one request. */
+  readonly turnstileToken: string;
 }
 
 const uploadSlotResponseSchema = z.object({
@@ -159,7 +166,13 @@ const initiateSuccessBodySchema = z.object({
 const initiateErrorBodySchema = z.object({
   ok: z.literal(false),
   error: z.object({
-    code: z.enum(["VALIDATION_ERROR", "IDEMPOTENCY_CONFLICT", "INTERNAL_ERROR"]),
+    code: z.enum([
+      "VALIDATION_ERROR",
+      "IDEMPOTENCY_CONFLICT",
+      "INTERNAL_ERROR",
+      "VERIFICATION_REQUIRED",
+      "RATE_LIMITED",
+    ]),
     message: z.string(),
     fieldErrors: z.array(z.object({ path: z.string(), message: z.string() })).optional(),
   }),
@@ -169,12 +182,17 @@ const initiateErrorBodySchema = z.object({
  * initiate's own error body carries no `retryable` flag (see
  * InitiateQuoteErrorBody) — this transport derives it once, here, from the
  * error code alone, so every caller shares one answer instead of each
- * re-deriving its own: a genuine transient server fault is safe to retry
- * unmodified; a validation failure or an idempotency-key/hash conflict is
- * not (retrying the exact same request would just repeat the same outcome).
+ * re-deriving its own. INTERNAL_ERROR (a transient server fault) and
+ * RATE_LIMITED (the customer just needs to wait) are safe to retry
+ * unmodified. VERIFICATION_REQUIRED is also retryable in the sense that
+ * trying again — with a fresh token — can succeed, but the engine maps it
+ * to its own dedicated outcome (never a generic "retry the same request")
+ * so the caller knows a NEW Turnstile challenge is needed first. A
+ * validation failure or an idempotency-key/hash conflict is not retryable
+ * (retrying the exact same request would just repeat the same outcome).
  */
 function initiateErrorRetryable(code: InitiateErrorCode): boolean {
-  return code === "INTERNAL_ERROR";
+  return code === "INTERNAL_ERROR" || code === "RATE_LIMITED" || code === "VERIFICATION_REQUIRED";
 }
 
 async function postJson(
@@ -209,7 +227,8 @@ export type UploadErrorCode =
   | "ALREADY_VERIFIED_MISMATCH"
   | "STORAGE_ERROR"
   | "FINALIZE_FAILED"
-  | "INTERNAL_ERROR";
+  | "INTERNAL_ERROR"
+  | "RATE_LIMITED";
 
 export interface UploadSuccessData {
   readonly success: true;
@@ -250,6 +269,7 @@ const uploadErrorBodySchema = z.object({
       "STORAGE_ERROR",
       "FINALIZE_FAILED",
       "INTERNAL_ERROR",
+      "RATE_LIMITED",
     ]),
     message: z.string(),
     retryable: z.boolean(),
@@ -261,7 +281,7 @@ const uploadErrorBodySchema = z.object({
 // ---------------------------------------------------------------------------
 
 /** Mirrors src/server/quote/complete-quote.ts's CompleteErrorCode exactly. */
-export type CompleteErrorCode = "VALIDATION_ERROR" | "NOT_FOUND" | "NOT_READY" | "INTERNAL_ERROR";
+export type CompleteErrorCode = "VALIDATION_ERROR" | "NOT_FOUND" | "NOT_READY" | "INTERNAL_ERROR" | "RATE_LIMITED";
 
 export interface CompleteSuccessData {
   readonly leadId: string;
@@ -290,7 +310,7 @@ const completeSuccessBodySchema = z.object({
 const completeErrorBodySchema = z.object({
   ok: z.literal(false),
   error: z.object({
-    code: z.enum(["VALIDATION_ERROR", "NOT_FOUND", "NOT_READY", "INTERNAL_ERROR"]),
+    code: z.enum(["VALIDATION_ERROR", "NOT_FOUND", "NOT_READY", "INTERNAL_ERROR", "RATE_LIMITED"]),
     message: z.string(),
     retryable: z.boolean(),
   }),
@@ -331,6 +351,7 @@ export function createFetchQuoteTransport(options: CreateFetchQuoteTransportOpti
           idempotencyKey: request.idempotencyKey,
           submission: request.submission,
           files: request.files,
+          turnstileToken: request.turnstileToken,
         },
         signal,
         fetchImpl,

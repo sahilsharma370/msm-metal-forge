@@ -39,12 +39,18 @@ const validBuyerLocal = {
 };
 
 function validRequestBody(
-  overrides: Partial<{ idempotencyKey: string; submission: object; files: object[] }> = {},
+  overrides: Partial<{
+    idempotencyKey: string;
+    submission: object;
+    files: object[];
+    turnstileToken: string;
+  }> = {},
 ) {
   return {
     idempotencyKey: "d0000000-0000-0000-0000-000000000001",
     submission: validSeller,
     files: [],
+    turnstileToken: "valid-turnstile-token",
     ...overrides,
   };
 }
@@ -53,6 +59,17 @@ describe("initiateQuoteRequestSchema — shape and unknown keys", () => {
   it("accepts a valid minimal request body", () => {
     const result = initiateQuoteRequestSchema.safeParse(validRequestBody());
     expect(result.success).toBe(true);
+  });
+
+  it("rejects a missing turnstileToken — CHECKPOINT C2G requires it on every initiate request", () => {
+    const { turnstileToken: _turnstileToken, ...withoutToken } = validRequestBody();
+    expect(initiateQuoteRequestSchema.safeParse(withoutToken).success).toBe(false);
+  });
+
+  it("rejects an empty-string turnstileToken", () => {
+    expect(
+      initiateQuoteRequestSchema.safeParse(validRequestBody({ turnstileToken: "" })).success,
+    ).toBe(false);
   });
 
   it("rejects a non-UUID idempotencyKey", () => {
