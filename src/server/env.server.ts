@@ -35,3 +35,51 @@ export function getServerEnv(): ServerEnv {
 
   return { supabaseUrl, supabaseSecretKey };
 }
+
+/**
+ * CHECKPOINT C2H-B1 — owner-notification email configuration. Deliberately
+ * a separate function from getServerEnv(), never folded into ServerEnv:
+ * email config is dispatcher-scoped only (read exclusively from inside
+ * dispatch-notification.server.ts's own production factory), so a missing
+ * RESEND_API_KEY/OWNER_NOTIFICATION_EMAIL/EMAIL_FROM can never break
+ * anything that doesn't itself try to dispatch an email — not application
+ * startup, not the build, not unit tests, and never the customer-facing
+ * Quote completion path (see dispatch-notification.server.ts's own doc
+ * comment for how a missing-configuration failure here becomes a sanitized
+ * dead-lettered delivery instead of ever touching the completed lead row).
+ */
+export interface EmailConfig {
+  readonly resendApiKey: string;
+  readonly ownerNotificationEmail: string;
+  readonly emailFrom: string;
+  readonly emailReplyTo?: string;
+  readonly ownerDashboardUrl?: string;
+}
+
+/** Deliberately carries no detail about which variable is missing — mirrors ServerConfigurationError above. */
+export class EmailConfigurationError extends Error {
+  constructor() {
+    super("Server configuration error.");
+    this.name = "EmailConfigurationError";
+  }
+}
+
+export function getEmailConfig(): EmailConfig {
+  const resendApiKey = process.env["RESEND_API_KEY"];
+  const ownerNotificationEmail = process.env["OWNER_NOTIFICATION_EMAIL"];
+  const emailFrom = process.env["EMAIL_FROM"];
+  const emailReplyTo = process.env["EMAIL_REPLY_TO"];
+  const ownerDashboardUrl = process.env["OWNER_DASHBOARD_URL"];
+
+  if (!resendApiKey || !ownerNotificationEmail || !emailFrom) {
+    throw new EmailConfigurationError();
+  }
+
+  return {
+    resendApiKey,
+    ownerNotificationEmail,
+    emailFrom,
+    ...(emailReplyTo ? { emailReplyTo } : {}),
+    ...(ownerDashboardUrl ? { ownerDashboardUrl } : {}),
+  };
+}
