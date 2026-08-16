@@ -45,10 +45,12 @@ happened. There is no bulk requeue RPC in this checkpoint.
 - A scheduled/Cron handler that calls `dispatchOwnerNotification({})`
   (fallback mode) on an interval, so a lost/never-sent Queue message still
   gets picked up.
-- The exact Resend 409 idempotency-conflict body shape
-  (`resend-email-provider.server.ts`'s own doc comment flags this as
-  unverified against a real response — no network access was available
-  while building this checkpoint).
+- The Resend 409 idempotency-conflict body shape is verified against
+  Resend's official documented error contract (see
+  `resend-email-provider.server.ts`'s own doc comment): the `name` field
+  is the discriminator — `name = "concurrent_idempotent_requests"` is
+  retryable, `name = "invalid_idempotent_request"` is permanent/non-
+  retryable.
 - Verifying the sending domain in Resend and confirming `EMAIL_FROM`'s
   domain matches it (unverified domains are typically rejected by Resend
   with a permanent error this adapter already classifies as non-retryable).

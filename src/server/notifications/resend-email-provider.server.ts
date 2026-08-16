@@ -15,19 +15,23 @@
  * RESEND_API_KEY is configured anywhere in this repo, and every test here
  * injects a fake `fetchImpl` — see resend-email-provider.test.ts).
  *
- * Resend 409 classification (flagged for verification before C2H-B2's real
- * integration): Resend's documented idempotency contract distinguishes a
- * "concurrent identical request already in flight" (safe to retry) from
- * "the same Idempotency-Key was reused with a different request body"
- * (never safe to retry — retrying would either replay the wrong content or
- * loop forever against the same conflict). This adapter classifies a 409
- * as retryable ONLY when the response body's own `name` field identifies
- * the concurrent-request case; every other 409 (including a body this
+ * Resend 409 classification (verified against Resend's official documented
+ * error contract: https://resend.com/docs/api-reference/errors and
+ * https://resend.com/docs/dashboard/emails/idempotency-keys — not a
+ * guess): Resend error responses use the `name` field as the
+ * discriminator. HTTP 409 with `name = "concurrent_idempotent_requests"`
+ * means another request with the same idempotency key is still
+ * processing and is retryable. HTTP 409 with
+ * `name = "invalid_idempotent_request"` means the same idempotency key
+ * was reused with a different request payload and is permanent/non-
+ * retryable (retrying would either replay the wrong content or loop
+ * forever against the same conflict). This adapter classifies a 409 as
+ * retryable ONLY when the response body's own `name` field is exactly
+ * `concurrent_idempotent_requests`; every other 409 (including
+ * `invalid_idempotent_request`, any other/unknown `name`, or a body this
  * adapter cannot parse) is treated as the permanent conflicting-payload
- * case, since defaulting an ambiguous 409 to "keep retrying forever" is the
- * unsafe direction. This exact body shape has not been verified against a
- * real Resend response in this checkpoint (no network access) — recorded
- * here as a named risk for C2H-B2 rather than asserted as verified fact.
+ * case, since defaulting an ambiguous 409 to "keep retrying forever" is
+ * the unsafe direction.
  */
 import { z } from "zod";
 import type { EmailProvider, EmailSendErrorCode, EmailSendInput, EmailSendResult } from "./notification-email-types";
