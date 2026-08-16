@@ -49,18 +49,28 @@ export class RateLimiterConfigurationError extends Error {
 }
 
 /**
- * The three route-class binding names — declared once here so the route
+ * The route-class binding names — declared once here so the route
  * handlers, the checked-in wrangler.jsonc, and .env.example documentation
  * all reference the exact same literal strings. Each route gets its own
  * binding (not one shared binding with a route-prefixed key) because
  * Cloudflare's Rate Limiting binding fixes its limit/period at the binding
- * level, not per call — three genuinely different ceilings require three
- * genuinely different bindings.
+ * level, not per call — genuinely different ceilings require genuinely
+ * different bindings.
  */
 export const RATE_LIMITER_BINDING_NAMES = {
   initiate: "RATE_LIMITER_INITIATE",
   upload: "RATE_LIMITER_UPLOAD",
   complete: "RATE_LIMITER_COMPLETE",
+  // CHECKPOINT C2I-A — owner passwordless login. Two distinct bindings
+  // (not one shared "owner login" binding) for the same reason
+  // initiate/upload/complete are separate: requesting a code and
+  // submitting a code are genuinely different abuse shapes (the request
+  // side bounds how many OTP emails one IP can trigger; the verify side
+  // bounds how many six-digit guesses one IP can attempt against an
+  // outstanding code) and Cloudflare's binding fixes its limit at the
+  // binding level, not per call.
+  ownerLoginRequestCode: "RATE_LIMITER_OWNER_LOGIN_REQUEST_CODE",
+  ownerLoginVerifyCode: "RATE_LIMITER_OWNER_LOGIN_VERIFY_CODE",
 } as const;
 
 export type RateLimitRouteClass = keyof typeof RATE_LIMITER_BINDING_NAMES;
@@ -80,6 +90,17 @@ export type RateLimitRouteClass = keyof typeof RATE_LIMITER_BINDING_NAMES;
  *   the zero-file/last-slot-verifies paths complete server-side already);
  *   10 covers reconciliation retries without meaningfully constraining any
  *   real customer.
+ * - ownerLoginRequestCode 5/60s: one genuine sign-in needs at most a
+ *   handful of requests (first attempt + a resend or two) — 5 bounds a
+ *   script from cheaply triggering unbounded OTP emails toward any address
+ *   per IP per minute, matching initiate's own tightness for the same
+ *   "cheap for an attacker, rare for a real user" reasoning.
+ * - ownerLoginVerifyCode 8/60s: a genuine sign-in enters one code, maybe
+ *   retyped once or twice on a typo — 8 covers that comfortably while
+ *   keeping a six-digit-code brute force (1,000,000 possibilities)
+ *   completely impractical per IP per minute, on top of Supabase Auth's
+ *   own independent token_verifications limit (see supabase/config.toml)
+ *   as a second, independent layer.
  */
 export const RATE_LIMIT_RETRY_AFTER_SECONDS = 60;
 

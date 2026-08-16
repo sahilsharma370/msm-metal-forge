@@ -58,6 +58,11 @@
   //   - complete (10/60s): called once per genuine submission (plus rare
   //     idempotent retries after a lost response), so a small allowance
   //     covers real retry behavior while still bounding abuse.
+  //   - CHECKPOINT C2I-A ownerLoginRequestCode (5/60s) / ownerLoginVerifyCode
+  //     (8/60s): owner passwordless-login rate limits — see
+  //     src/server/rate-limit.server.ts's own doc comment for the full
+  //     rationale. Two separate bindings because requesting a code and
+  //     submitting a code are different abuse shapes.
   "ratelimits": [
     {
       "name": "RATE_LIMITER_INITIATE",
@@ -73,6 +78,16 @@
       "name": "RATE_LIMITER_COMPLETE",
       "namespace_id": "10003",
       "simple": { "limit": 10, "period": 60 }
+    },
+    {
+      "name": "RATE_LIMITER_OWNER_LOGIN_REQUEST_CODE",
+      "namespace_id": "10004",
+      "simple": { "limit": 5, "period": 60 }
+    },
+    {
+      "name": "RATE_LIMITER_OWNER_LOGIN_VERIFY_CODE",
+      "namespace_id": "10005",
+      "simple": { "limit": 8, "period": 60 }
     }
   ],
 

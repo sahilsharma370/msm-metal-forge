@@ -11,9 +11,14 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as QuoteRouteImport } from './routes/quote'
+import { Route as OwnerIndexRouteImport } from './routes/owner/index'
+import { Route as OwnerLoginRouteImport } from './routes/owner/login'
+import { Route as ApiOwnerSessionRouteImport } from './routes/api/owner/session'
 import { Route as ApiQuoteCompleteRouteImport } from './routes/api/quote/complete'
 import { Route as ApiQuoteInitiateRouteImport } from './routes/api/quote/initiate'
 import { Route as ApiQuoteUploadRouteImport } from './routes/api/quote/upload'
+import { Route as ApiOwnerLoginRequestCodeRouteImport } from './routes/api/owner/login/request-code'
+import { Route as ApiOwnerLoginVerifyCodeRouteImport } from './routes/api/owner/login/verify-code'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -23,6 +28,21 @@ const IndexRoute = IndexRouteImport.update({
 const QuoteRoute = QuoteRouteImport.update({
   id: '/quote',
   path: '/quote',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OwnerIndexRoute = OwnerIndexRouteImport.update({
+  id: '/owner/',
+  path: '/owner/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OwnerLoginRoute = OwnerLoginRouteImport.update({
+  id: '/owner/login',
+  path: '/owner/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiOwnerSessionRoute = ApiOwnerSessionRouteImport.update({
+  id: '/api/owner/session',
+  path: '/api/owner/session',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiQuoteCompleteRoute = ApiQuoteCompleteRouteImport.update({
@@ -40,59 +60,105 @@ const ApiQuoteUploadRoute = ApiQuoteUploadRouteImport.update({
   path: '/api/quote/upload',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiOwnerLoginRequestCodeRoute =
+  ApiOwnerLoginRequestCodeRouteImport.update({
+    id: '/api/owner/login/request-code',
+    path: '/api/owner/login/request-code',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiOwnerLoginVerifyCodeRoute = ApiOwnerLoginVerifyCodeRouteImport.update({
+  id: '/api/owner/login/verify-code',
+  path: '/api/owner/login/verify-code',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/quote': typeof QuoteRoute
+  '/owner/login': typeof OwnerLoginRoute
+  '/owner/': typeof OwnerIndexRoute
+  '/api/owner/session': typeof ApiOwnerSessionRoute
   '/api/quote/complete': typeof ApiQuoteCompleteRoute
   '/api/quote/initiate': typeof ApiQuoteInitiateRoute
   '/api/quote/upload': typeof ApiQuoteUploadRoute
+  '/api/owner/login/request-code': typeof ApiOwnerLoginRequestCodeRoute
+  '/api/owner/login/verify-code': typeof ApiOwnerLoginVerifyCodeRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/quote': typeof QuoteRoute
+  '/owner/login': typeof OwnerLoginRoute
+  '/owner': typeof OwnerIndexRoute
+  '/api/owner/session': typeof ApiOwnerSessionRoute
   '/api/quote/complete': typeof ApiQuoteCompleteRoute
   '/api/quote/initiate': typeof ApiQuoteInitiateRoute
   '/api/quote/upload': typeof ApiQuoteUploadRoute
+  '/api/owner/login/request-code': typeof ApiOwnerLoginRequestCodeRoute
+  '/api/owner/login/verify-code': typeof ApiOwnerLoginVerifyCodeRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/quote': typeof QuoteRoute
+  '/owner/login': typeof OwnerLoginRoute
+  '/owner/': typeof OwnerIndexRoute
+  '/api/owner/session': typeof ApiOwnerSessionRoute
   '/api/quote/complete': typeof ApiQuoteCompleteRoute
   '/api/quote/initiate': typeof ApiQuoteInitiateRoute
   '/api/quote/upload': typeof ApiQuoteUploadRoute
+  '/api/owner/login/request-code': typeof ApiOwnerLoginRequestCodeRoute
+  '/api/owner/login/verify-code': typeof ApiOwnerLoginVerifyCodeRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
     | '/quote'
+    | '/owner/login'
+    | '/owner/'
+    | '/api/owner/session'
     | '/api/quote/complete'
     | '/api/quote/initiate'
     | '/api/quote/upload'
+    | '/api/owner/login/request-code'
+    | '/api/owner/login/verify-code'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/quote'
+    | '/owner/login'
+    | '/owner'
+    | '/api/owner/session'
     | '/api/quote/complete'
     | '/api/quote/initiate'
     | '/api/quote/upload'
+    | '/api/owner/login/request-code'
+    | '/api/owner/login/verify-code'
   id:
     | '__root__'
     | '/'
     | '/quote'
+    | '/owner/login'
+    | '/owner/'
+    | '/api/owner/session'
     | '/api/quote/complete'
     | '/api/quote/initiate'
     | '/api/quote/upload'
+    | '/api/owner/login/request-code'
+    | '/api/owner/login/verify-code'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   QuoteRoute: typeof QuoteRoute
+  OwnerLoginRoute: typeof OwnerLoginRoute
+  OwnerIndexRoute: typeof OwnerIndexRoute
+  ApiOwnerSessionRoute: typeof ApiOwnerSessionRoute
   ApiQuoteCompleteRoute: typeof ApiQuoteCompleteRoute
   ApiQuoteInitiateRoute: typeof ApiQuoteInitiateRoute
   ApiQuoteUploadRoute: typeof ApiQuoteUploadRoute
+  ApiOwnerLoginRequestCodeRoute: typeof ApiOwnerLoginRequestCodeRoute
+  ApiOwnerLoginVerifyCodeRoute: typeof ApiOwnerLoginVerifyCodeRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -109,6 +175,27 @@ declare module '@tanstack/react-router' {
       path: '/quote'
       fullPath: '/quote'
       preLoaderRoute: typeof QuoteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/owner/': {
+      id: '/owner/'
+      path: '/owner'
+      fullPath: '/owner/'
+      preLoaderRoute: typeof OwnerIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/owner/login': {
+      id: '/owner/login'
+      path: '/owner/login'
+      fullPath: '/owner/login'
+      preLoaderRoute: typeof OwnerLoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/owner/session': {
+      id: '/api/owner/session'
+      path: '/api/owner/session'
+      fullPath: '/api/owner/session'
+      preLoaderRoute: typeof ApiOwnerSessionRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/quote/complete': {
@@ -132,15 +219,34 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiQuoteUploadRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/owner/login/request-code': {
+      id: '/api/owner/login/request-code'
+      path: '/api/owner/login/request-code'
+      fullPath: '/api/owner/login/request-code'
+      preLoaderRoute: typeof ApiOwnerLoginRequestCodeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/owner/login/verify-code': {
+      id: '/api/owner/login/verify-code'
+      path: '/api/owner/login/verify-code'
+      fullPath: '/api/owner/login/verify-code'
+      preLoaderRoute: typeof ApiOwnerLoginVerifyCodeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   QuoteRoute: QuoteRoute,
+  OwnerLoginRoute: OwnerLoginRoute,
+  OwnerIndexRoute: OwnerIndexRoute,
+  ApiOwnerSessionRoute: ApiOwnerSessionRoute,
   ApiQuoteCompleteRoute: ApiQuoteCompleteRoute,
   ApiQuoteInitiateRoute: ApiQuoteInitiateRoute,
   ApiQuoteUploadRoute: ApiQuoteUploadRoute,
+  ApiOwnerLoginRequestCodeRoute: ApiOwnerLoginRequestCodeRoute,
+  ApiOwnerLoginVerifyCodeRoute: ApiOwnerLoginVerifyCodeRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
