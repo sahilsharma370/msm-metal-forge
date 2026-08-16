@@ -26,6 +26,23 @@ vi.mock("@/server/rate-limit.server", async (importOriginal) => {
   };
 });
 
+// CHECKPOINT C2H-B2 — isolated vi.fn()s (not vi.spyOn + restoreAllMocks),
+// matching this file's own established pattern for getRateLimiterBindingMock
+// above: avoids any risk of one mock's teardown clobbering another's base
+// implementation. Defaults to a present binding + successful publish so
+// every pre-existing test in this file is unaffected unless it explicitly
+// overrides one of these.
+const getOwnerNotificationQueueBindingMock = vi.fn(() => ({ send: vi.fn().mockResolvedValue(undefined) }));
+const publishOwnerNotificationWakeupMock = vi.fn().mockResolvedValue({ published: true });
+vi.mock("@/server/notifications/queue-producer.server", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/server/notifications/queue-producer.server")>();
+  return {
+    ...actual,
+    getOwnerNotificationQueueBinding: () => getOwnerNotificationQueueBindingMock(),
+    publishOwnerNotificationWakeup: (binding: unknown) => publishOwnerNotificationWakeupMock(binding),
+  };
+});
+
 const { handleQuoteCompleteRequest } = await import("./complete");
 
 const CF_CONNECTING_IP_HEADERS = { "cf-connecting-ip": "203.0.113.7" };
@@ -54,6 +71,8 @@ afterEach(() => {
   createSupabaseAdminClientMock.mockClear();
   rateLimiterLimitMock.mockReset().mockResolvedValue({ success: true });
   getRateLimiterBindingMock.mockReset().mockImplementation(() => ({ limit: rateLimiterLimitMock }));
+  getOwnerNotificationQueueBindingMock.mockReset().mockImplementation(() => ({ send: vi.fn().mockResolvedValue(undefined) }));
+  publishOwnerNotificationWakeupMock.mockReset().mockResolvedValue({ published: true });
 });
 
 describe("handleQuoteCompleteRequest — method", () => {
@@ -257,5 +276,67 @@ describe("handleQuoteCompleteRequest — CHECKPOINT C2G rate limiting", () => {
     expect(RATE_LIMITER_BINDING_NAMES.complete).toBe("RATE_LIMITER_COMPLETE");
     expect(RATE_LIMITER_BINDING_NAMES.complete).not.toBe(RATE_LIMITER_BINDING_NAMES.initiate);
     expect(RATE_LIMITER_BINDING_NAMES.complete).not.toBe(RATE_LIMITER_BINDING_NAMES.upload);
+  });
+});
+
+describe("handleQuoteCompleteRequest — CHECKPOINT C2H-B2 Queue wake-up", () => {
+  it("attempts a Queue wake-up publish after a successful fresh completion", async () => {
+    rpcMock.mockResolvedValue({ data: rpcSuccessPayload, error: null });
+    const response = await handleQuoteCompleteRequest(jsonRequest({ leadId: LEAD_ID, idempotencyKey: IDEMPOTENCY_KEY }));
+    expect(response.status).toBe(200);
+    expect(publishOwnerNotificationWakeupMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("attempts a Queue wake-up publish after a successful idempotent replay (already_completed:true) too — a duplicate wake-up is harmless", async () => {
+    rpcMock.mockResolvedValue({ data: { ...rpcSuccessPayload, already_completed: true }, error: null });
+    const response = await handleQuoteCompleteRequest(jsonRequest({ leadId: LEAD_ID, idempotencyKey: IDEMPOTENCY_KEY }));
+    expect(response.status).toBe(200);
+    expect(publishOwnerNotificationWakeupMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("Queue publish failure cannot change the successful HTTP response", async () => {
+    rpcMock.mockResolvedValue({ data: rpcSuccessPayload, error: null });
+    publishOwnerNotificationWakeupMock.mockResolvedValue({ published: false });
+    const response = await handleQuoteCompleteRequest(jsonRequest({ leadId: LEAD_ID, idempotencyKey: IDEMPOTENCY_KEY }));
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.ok).toBe(true);
+    expect(body.data.reference).toBe(REFERENCE);
+  });
+
+  it("does not publish a wake-up for a NOT_READY (unsuccessful) completion attempt", async () => {
+    rpcMock.mockResolvedValue({
+      data: null,
+      error: { message: "complete_website_quote_v1: lead 11111111-1111-1111-1111-111111111111 is not yet ready to complete (NOT_READY)" },
+    });
+    const response = await handleQuoteCompleteRequest(jsonRequest({ leadId: LEAD_ID, idempotencyKey: IDEMPOTENCY_KEY }));
+    expect(response.status).toBe(409);
+    expect(publishOwnerNotificationWakeupMock).not.toHaveBeenCalled();
+  });
+
+  it("does not publish a wake-up for a NOT_FOUND completion attempt", async () => {
+    rpcMock.mockResolvedValue({
+      data: null,
+      error: { message: "complete_website_quote_v1: lead not found for the supplied idempotency key" },
+    });
+    const response = await handleQuoteCompleteRequest(jsonRequest({ leadId: LEAD_ID, idempotencyKey: IDEMPOTENCY_KEY }));
+    expect(response.status).toBe(404);
+    expect(publishOwnerNotificationWakeupMock).not.toHaveBeenCalled();
+  });
+
+  it("does not publish a wake-up when validation/rate-limiting rejects the request before the RPC is ever called", async () => {
+    rateLimiterLimitMock.mockResolvedValue({ success: false });
+    const response = await handleQuoteCompleteRequest(jsonRequest({ leadId: LEAD_ID, idempotencyKey: IDEMPOTENCY_KEY }));
+    expect(response.status).toBe(429);
+    expect(publishOwnerNotificationWakeupMock).not.toHaveBeenCalled();
+  });
+
+  it("the browser response body never contains Queue/provider internals, even when the publish is attempted", async () => {
+    rpcMock.mockResolvedValue({ data: rpcSuccessPayload, error: null });
+    const response = await handleQuoteCompleteRequest(jsonRequest({ leadId: LEAD_ID, idempotencyKey: IDEMPOTENCY_KEY }));
+    const body = await response.json();
+    const serialized = JSON.stringify(body);
+    expect(serialized).not.toMatch(/queue|published|binding|wakeup/i);
+    expect(Object.keys(body)).toEqual(["ok", "data"]);
   });
 });

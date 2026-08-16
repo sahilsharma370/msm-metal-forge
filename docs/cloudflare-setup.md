@@ -11,13 +11,21 @@ were performed while producing this checkpoint — all work was local-only.
 ## 1. What's already checked in
 
 - `wrangler.jsonc` (project root) — pinned `compatibility_date`,
-  `compatibility_flags: ["nodejs_compat"]`, and the three Rate Limiting
+  `compatibility_flags: ["nodejs_compat"]`, the three Rate Limiting
   bindings (`RATE_LIMITER_INITIATE`, `RATE_LIMITER_UPLOAD`,
-  `RATE_LIMITER_COMPLETE`). Picked up automatically by Nitro's
-  `cloudflare-module` preset at build time — see the comment block at the
-  top of that file for exactly how it's merged.
+  `RATE_LIMITER_COMPLETE`), the `OWNER_NOTIFICATION_QUEUE` producer/
+  consumer (CHECKPOINT C2H-B2), and an every-minute Cron trigger. Picked
+  up automatically by Nitro's `cloudflare-module` preset at build time —
+  see the comment block at the top of that file for exactly how it's
+  merged.
 - `.env.example` — documents every required variable name (server secrets
   and the one public build-time key). No real values.
+- `src/server/notifications/` — the owner-notification email brain
+  (CHECKPOINT C2H-B1) and its Cloudflare Queue/Cron wiring (CHECKPOINT
+  C2H-B2): rendering, the Resend adapter, the dispatcher, the Queue
+  producer/consumer, and the Cron sweep. Fully unit + local-integration
+  tested; never wired to a real Resend call or a real Cloudflare Queue
+  from this repository.
 
 ## 2. Bindings that need NO manual dashboard step
 
@@ -53,7 +61,17 @@ plan.
    Vite, not read at request time — see `.env.example`'s own comment for
    why this one is safe to be public and why no other `VITE_`-prefixed
    variable should be added without the same confirmation).
-4. **Deploy** with `wrangler deploy` (or the project's normal CI/CD path).
+4. **Create the Queue** (CHECKPOINT C2H-B2, not done by this repository):
+   `wrangler queues create msm-owner-notifications`. Unlike the Rate
+   Limiting bindings, a Cloudflare Queue genuinely is a dashboard/CLI-
+   provisioned resource — `wrangler.jsonc`'s `queues` block only declares
+   the binding/consumer config, it does not create the Queue itself.
+5. **Set the owner-email variables**: `RESEND_API_KEY`,
+   `OWNER_NOTIFICATION_EMAIL`, `EMAIL_FROM`, optionally `EMAIL_REPLY_TO`
+   and `OWNER_DASHBOARD_URL` — see `docs/owner-email-setup.md` for the
+   full checklist (verified sending domain, manual
+   `requeue_notification_delivery_v1` recovery, etc.).
+6. **Deploy** with `wrangler deploy` (or the project's normal CI/CD path).
    Not run from this repository as part of this checkpoint.
 
 ## 4. Verifying it worked (post-deploy, not part of this checkpoint)

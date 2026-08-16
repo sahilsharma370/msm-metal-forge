@@ -14,6 +14,7 @@ import {
   getCloudflareClientIp,
   getRateLimiterBinding,
 } from "@/server/rate-limit.server";
+import { getOwnerNotificationQueueBinding, publishOwnerNotificationWakeup } from "@/server/notifications/queue-producer.server";
 
 function jsonResponse(status: number, body: CompleteQuoteResponseBody): Response {
   return new Response(JSON.stringify(body), {
@@ -110,6 +111,19 @@ export async function handleQuoteCompleteRequest(request: Request): Promise<Resp
   }
 
   const result = await handleCompleteQuoteBody(rawBody, { rpc: toCompleteQuoteRpcClient(supabase) });
+
+  // CHECKPOINT C2H-B2: best-effort wake-up only — never allowed to alter
+  // this already-decided response. Fires for every successful completion,
+  // including an idempotent replay (already_completed:true) — a duplicate
+  // wake-up is harmless (see queue-producer.server.ts's own doc comment:
+  // the durable database claim and email idempotency key are what actually
+  // prevent a duplicate send, not this publish). An unsuccessful/incomplete
+  // completion (any non-2xx result) never publishes — there is nothing to
+  // notify the owner about yet.
+  if (result.body.ok) {
+    await publishOwnerNotificationWakeup(getOwnerNotificationQueueBinding());
+  }
+
   return jsonResponse(result.status, result.body);
 }
 

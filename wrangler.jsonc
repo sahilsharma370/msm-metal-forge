@@ -74,5 +74,63 @@
       "namespace_id": "10003",
       "simple": { "limit": 10, "period": 60 }
     }
-  ]
+  ],
+
+  // CHECKPOINT C2H-B2 — Cloudflare Queue wake-up + scheduled reconciliation.
+  // The Queue is a wake-up accelerator only, never the source of truth —
+  // public.notification_deliveries (Postgres) remains authoritative even if
+  // every message below is lost, duplicated, delayed, or discarded; see
+  // src/server/notifications/queue-producer.server.ts,
+  // queue-consumer.server.ts and cron-sweep.server.ts for the full
+  // reasoning. Not created remotely by this checkpoint — see
+  // docs/cloudflare-setup.md for the manual `wrangler queues create
+  // msm-owner-notifications` step still required before a real deployment.
+  "queues": {
+    "producers": [
+      {
+        // Binding name read via process.env["OWNER_NOTIFICATION_QUEUE"] in
+        // queue-producer.server.ts, the exact same per-request-binding
+        // mechanism already used for the Rate Limiting bindings above.
+        "binding": "OWNER_NOTIFICATION_QUEUE",
+        "queue": "msm-owner-notifications"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "msm-owner-notifications",
+        // This Queue carries exactly one minimal wake-up message per
+        // completed enquiry (see queue-producer.server.ts) — there is
+        // never a real batch to accumulate, and an owner notification
+        // should start promptly, not sit waiting to be joined by messages
+        // that will never arrive. max_batch_size=1 with a short
+        // max_batch_timeout delivers each wake-up to the consumer
+        // immediately, one at a time; the consumer implementation itself
+        // (handleOwnerNotificationQueueBatch) remains fully batch-capable
+        // and is tested against multi-message batches regardless — this is
+        // a deployment-tuning choice, not a code constraint. max_retries=3
+        // is a transport-level retry ceiling only: Postgres
+        // (attempt_count/status on notification_deliveries) remains the
+        // sole business retry/dead-letter authority — see
+        // queue-consumer.server.ts's own comment on never using
+        // Cloudflare's retry count as the business attempt counter — and
+        // Cron (cron-sweep.server.ts, every minute) remains the recovery
+        // mechanism for anything a Queue message ever fails to redeliver.
+        // max_concurrency=1 is ample for this volume and keeps reasoning
+        // about the underlying FOR UPDATE SKIP LOCKED database claim
+        // simple (it stays correct under higher concurrency too, but there
+        // is no need for it here).
+        "max_batch_size": 1,
+        "max_batch_timeout": 5,
+        "max_retries": 3,
+        "max_concurrency": 1
+      }
+    ]
+  },
+
+  // Every minute — recovers a missed/discarded Queue wake-up, a due
+  // retry_wait row, or a processing row whose lease expired (a crashed
+  // worker). See src/server/notifications/cron-sweep.server.ts.
+  "triggers": {
+    "crons": ["* * * * *"]
+  }
 }
