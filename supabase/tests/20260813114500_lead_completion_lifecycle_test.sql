@@ -130,19 +130,19 @@ select throws_ok(
 );
 select lives_ok(
   $$ insert into public.notification_deliveries (lead_id, event_type, channel, status)
-     select id, 'submission_completed', 'email', 'queued' from public.leads where idempotency_key = 'a1000000-0000-0000-0000-000000000003' $$,
+     select id, 'submission_completed', 'email', 'pending' from public.leads where idempotency_key = 'a1000000-0000-0000-0000-000000000003' $$,
   'the currently-allowed event_type (submission_completed) inserts successfully'
 );
 select throws_ok(
   $$ insert into public.notification_deliveries (lead_id, event_type, channel, status)
-     select id, 'submission_completed', 'email', 'queued' from public.leads where idempotency_key = 'a1000000-0000-0000-0000-000000000003' $$,
+     select id, 'submission_completed', 'email', 'pending' from public.leads where idempotency_key = 'a1000000-0000-0000-0000-000000000003' $$,
   '23505',
   NULL,
   'a second (lead_id, event_type, channel) triple identical to an existing row is rejected'
 );
 select lives_ok(
   $$ insert into public.notification_deliveries (lead_id, event_type, channel, status)
-     select id, 'submission_completed', 'whatsapp', 'queued' from public.leads where idempotency_key = 'a1000000-0000-0000-0000-000000000003' $$,
+     select id, 'submission_completed', 'whatsapp', 'pending' from public.leads where idempotency_key = 'a1000000-0000-0000-0000-000000000003' $$,
   'the same lead and event_type on a DIFFERENT channel is not blocked — the key is not overly broad'
 );
 
@@ -413,9 +413,9 @@ select is(
 select is(
   (select count(*)::int from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id
     where l.idempotency_key = 'a1000000-0000-0000-0000-000000000020'
-      and nd.event_type = 'submission_completed' and nd.channel = 'email' and nd.status = 'queued'),
+      and nd.event_type = 'submission_completed' and nd.channel = 'email' and nd.status = 'pending'),
   1,
-  'exactly one queued submission_completed/email notification row exists'
+  'exactly one pending submission_completed/email notification row exists'
 );
 
 -- ---------------------------------------------------------------------------
