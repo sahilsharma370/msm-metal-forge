@@ -18,6 +18,7 @@ import {
   OWNER_LEAD_STATUS_VALUES,
   OWNER_LEAD_CAPTURE_CHANNEL_VALUES,
   OWNER_LEAD_MATERIAL_VALUES,
+  type OwnerLeadCaptureChannel,
 } from "@/lib/owner/owner-leads-contract";
 import { deriveNotificationSummaryStatus } from "@/server/owner-leads/owner-leads.server";
 import {
@@ -183,7 +184,7 @@ export interface OwnerLeadDetailServiceDeps {
   queryLeadById(leadId: string): Promise<LeadDetailRow | null>;
   queryLeadFiles(leadId: string): Promise<readonly LeadFileRow[]>;
   queryLeadActivities(leadId: string): Promise<readonly LeadActivityRow[]>;
-  /** Null when no delivery row exists yet for this lead — mapped to "attention", never a healthy default (see deriveNotificationSummaryStatus's own comment in owner-leads.server.ts). */
+  /** Null when no delivery row exists yet for this lead — mapped to "attention" for a website lead (never a healthy default) or "not_required" for a non-website one (see deriveNotificationSummaryStatus's own comment in owner-leads.server.ts). */
   queryNotificationDelivery(leadId: string): Promise<NotificationDeliveryRow | null>;
 }
 
@@ -349,9 +350,9 @@ function mapLeadActivityRow(row: LeadActivityRow): OwnerLeadDetailActivity {
   };
 }
 
-function mapNotification(row: NotificationDeliveryRow | null): OwnerLeadDetailNotification {
+function mapNotification(row: NotificationDeliveryRow | null, captureChannel: OwnerLeadCaptureChannel): OwnerLeadDetailNotification {
   return {
-    status: deriveNotificationSummaryStatus(row?.status),
+    status: deriveNotificationSummaryStatus(row?.status, captureChannel),
     attemptCount: row?.attempt_count ?? 0,
     manualRequeueCount: row?.manual_requeue_count ?? 0,
     lastErrorCode: row?.last_error_code ?? null,
@@ -398,6 +399,6 @@ export async function getOwnerLeadDetail(leadId: string, deps: OwnerLeadDetailSe
     lead: mapLeadDetailRow(row),
     files: files.map(mapLeadFileRow),
     activities: activities.map(mapLeadActivityRow),
-    notification: mapNotification(notificationRow),
+    notification: mapNotification(notificationRow, row.capture_channel),
   };
 }

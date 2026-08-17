@@ -11,6 +11,7 @@ import {
   type LeadRow,
   type OwnerLeadsServiceDeps,
 } from "./owner-leads.server";
+import type { OwnerLeadCaptureChannel } from "@/lib/owner/owner-leads-contract";
 
 function params(entries: Record<string, string>): URLSearchParams {
   return new URLSearchParams(entries);
@@ -223,18 +224,27 @@ describe("cursor encode/decode", () => {
 });
 
 describe("deriveNotificationSummaryStatus", () => {
-  it("maps sent -> sent", () => {
-    expect(deriveNotificationSummaryStatus("sent")).toBe("sent");
+  it("maps sent -> sent, regardless of channel", () => {
+    expect(deriveNotificationSummaryStatus("sent", "website")).toBe("sent");
+    expect(deriveNotificationSummaryStatus("sent", "phone")).toBe("sent");
   });
-  it.each(["pending", "processing", "retry_wait"])("maps %s -> pending", (status) => {
-    expect(deriveNotificationSummaryStatus(status)).toBe("pending");
+  it.each(["pending", "processing", "retry_wait"])("maps %s -> pending, regardless of channel", (status) => {
+    expect(deriveNotificationSummaryStatus(status, "website")).toBe("pending");
+    expect(deriveNotificationSummaryStatus(status, "walk_in")).toBe("pending");
   });
-  it("maps dead_letter -> attention", () => {
-    expect(deriveNotificationSummaryStatus("dead_letter")).toBe("attention");
+  it("maps dead_letter -> attention, regardless of channel", () => {
+    expect(deriveNotificationSummaryStatus("dead_letter", "website")).toBe("attention");
+    expect(deriveNotificationSummaryStatus("dead_letter", "whatsapp")).toBe("attention");
   });
-  it("maps a missing row (undefined) -> attention, never a healthy default", () => {
-    expect(deriveNotificationSummaryStatus(undefined)).toBe("attention");
+  it("maps a missing row on a WEBSITE lead -> attention, never a healthy default", () => {
+    expect(deriveNotificationSummaryStatus(undefined, "website")).toBe("attention");
   });
+  it.each(["phone", "whatsapp", "walk_in", "owner_manual"])(
+    "maps a missing row on a %s (non-website) lead -> not_required, an honest neutral state, never attention",
+    (channel) => {
+      expect(deriveNotificationSummaryStatus(undefined, channel as OwnerLeadCaptureChannel)).toBe("not_required");
+    },
+  );
 });
 
 function fakeLeadRow(overrides: Partial<LeadRow> = {}): LeadRow {
@@ -365,6 +375,20 @@ describe("listOwnerLeads — notification status merge", () => {
     const deps = fakeDeps(rows);
     await listOwnerLeads({ limit: 20 }, deps);
     expect(deps.queryNotificationStatuses).toHaveBeenCalledWith(["11111111-1111-1111-1111-111111111111"]);
+  });
+
+  it("a completed Quick Add (non-website) lead missing its notification row shows not_required, never attention", async () => {
+    const rows = [fakeLeadRow({ id: "11111111-1111-1111-1111-111111111111", capture_channel: "phone" })];
+    const deps = fakeDeps(rows); // no notification row for this lead
+    const result = await listOwnerLeads({ limit: 20 }, deps);
+    expect(result.leads[0]?.notificationStatus).toBe("not_required");
+  });
+
+  it("a completed website lead missing its notification row still shows attention (a genuine anomaly)", async () => {
+    const rows = [fakeLeadRow({ id: "11111111-1111-1111-1111-111111111111", capture_channel: "website" })];
+    const deps = fakeDeps(rows); // no notification row for this lead
+    const result = await listOwnerLeads({ limit: 20 }, deps);
+    expect(result.leads[0]?.notificationStatus).toBe("attention");
   });
 });
 

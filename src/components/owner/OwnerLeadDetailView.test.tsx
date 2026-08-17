@@ -209,6 +209,21 @@ describe("OwnerLeadDetailView — notification states", () => {
     expect(screen.getByText("PROVIDER_TIMEOUT")).toBeInTheDocument();
     expect(screen.getByText("3")).toBeInTheDocument();
   });
+
+  it("a Quick Add (non-website) lead with no notification row shows the honest neutral 'Notification not required' state, never 'Attention required'", () => {
+    const data = sellData({ captureChannel: "phone" });
+    render(
+      <OwnerLeadDetailView
+        leadId="lead-3"
+        data={{ ...data, notification: { status: "not_required", attemptCount: 0, manualRequeueCount: 0, lastErrorCode: null, lastErrorAt: null, sentAt: null } }}
+        deps={fakeDeps}
+        onUnauthorized={vi.fn()}
+        onMutated={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("Notification not required")).toBeInTheDocument();
+    expect(screen.queryByText("Attention required")).not.toBeInTheDocument();
+  });
 });
 
 describe("OwnerLeadDetailView — Call and WhatsApp links", () => {

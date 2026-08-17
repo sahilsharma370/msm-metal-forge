@@ -33,6 +33,7 @@ import {
   OWNER_LEAD_LIST_QUERY_PARAMS,
   type OwnerLeadListItem,
   type OwnerNotificationSummaryStatus,
+  type OwnerLeadCaptureChannel,
 } from "@/lib/owner/owner-leads-contract";
 
 // ---------------------------------------------------------------------------
@@ -410,15 +411,23 @@ export function createProductionOwnerLeadsServiceDeps(): OwnerLeadsServiceDeps {
 /**
  * sent -> "sent". pending/processing/retry_wait -> "pending" (still in
  * flight, nothing wrong yet). dead_letter -> "attention" (permanently
- * failed, needs a human). A completed lead with NO matching
- * notification_deliveries row also maps to "attention", never "sent" or
- * omitted — complete_lead_if_ready is expected to create that row
- * atomically in the same transaction that completes the lead, so a
- * missing row for an already-completed lead is itself an anomaly worth
- * surfacing, not a healthy default.
+ * failed, needs a human). A missing row's meaning depends on channel:
+ * complete_lead_if_ready — the only code path that ever queues a
+ * notification_deliveries row — is expected to create one atomically for
+ * every WEBSITE lead it completes, so a missing row on a completed website
+ * lead is a genuine anomaly and still maps to "attention". A non-website
+ * (owner Quick Add) lead never goes through complete_lead_if_ready at all
+ * (see create_owner_quick_add_lead_v1's own header comment) and so never
+ * has a notification_deliveries row by design — a missing row there is
+ * expected, honest, and maps to the neutral "not_required", never the
+ * alarming "attention" a Quick Add lead would otherwise show for a
+ * notification that was never supposed to exist.
  */
-export function deriveNotificationSummaryStatus(rawStatus: string | undefined): OwnerNotificationSummaryStatus {
-  if (rawStatus === undefined) return "attention";
+export function deriveNotificationSummaryStatus(
+  rawStatus: string | undefined,
+  captureChannel: OwnerLeadCaptureChannel,
+): OwnerNotificationSummaryStatus {
+  if (rawStatus === undefined) return captureChannel === "website" ? "attention" : "not_required";
   if (rawStatus === "sent") return "sent";
   if (rawStatus === "dead_letter") return "attention";
   return "pending";
@@ -478,7 +487,7 @@ export async function listOwnerLeads(
   const notificationStatuses = await deps.queryNotificationStatuses(rows.map((row) => row.id));
 
   const leads = rows.map((row) =>
-    mapLeadRow(row, deriveNotificationSummaryStatus(notificationStatuses.get(row.id))),
+    mapLeadRow(row, deriveNotificationSummaryStatus(notificationStatuses.get(row.id), row.capture_channel)),
   );
 
   const lastRow = rows[rows.length - 1];

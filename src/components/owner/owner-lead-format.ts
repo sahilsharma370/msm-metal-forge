@@ -59,6 +59,7 @@ export const OWNER_NOTIFICATION_STATUS_LABELS: Record<OwnerNotificationSummarySt
   sent: "Sent",
   pending: "Pending",
   attention: "Attention required",
+  not_required: "Notification not required",
 };
 
 export const OWNER_LEAD_FILE_UPLOAD_STATUS_LABELS: Record<OwnerLeadFileUploadStatus, string> = {

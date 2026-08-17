@@ -24,7 +24,19 @@ vi.mock("@/server/owner-leads/owner-leads.server", async (importOriginal) => {
   };
 });
 
-const { handleOwnerLeadListRequest } = await import("./leads");
+const createOwnerQuickAddLeadMock = vi.fn();
+const createProductionOwnerLeadQuickAddServiceDepsMock = vi.fn(() => ({ rpc: { rpc: vi.fn() } }));
+
+vi.mock("@/server/owner-leads/owner-lead-quick-add.server", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/server/owner-leads/owner-lead-quick-add.server")>();
+  return {
+    ...actual,
+    createProductionOwnerLeadQuickAddServiceDeps: () => createProductionOwnerLeadQuickAddServiceDepsMock(),
+    createOwnerQuickAddLead: (input: unknown, deps: unknown) => createOwnerQuickAddLeadMock(input, deps),
+  };
+});
+
+const { handleOwnerLeadListRequest, handleOwnerLeadQuickAddCreateRequest } = await import("./leads");
 
 const AUTHORIZED_SESSION = { ok: true as const, owner: { userId: "owner-1", role: "owner" as const } };
 
@@ -60,7 +72,26 @@ afterEach(() => {
   getOwnerSessionVerifierDepsMock.mockClear();
   listOwnerLeadsMock.mockReset();
   createProductionOwnerLeadsServiceDepsMock.mockClear();
+  createOwnerQuickAddLeadMock.mockReset();
+  createProductionOwnerLeadQuickAddServiceDepsMock.mockClear();
 });
+
+function quickAddRequest(body: unknown): Request {
+  return new Request("https://example.test/api/owner/leads", {
+    method: "POST",
+    headers: { authorization: "Bearer aaaa.bbbb.cccc", "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+const VALID_QUICK_ADD_BODY = {
+  requestId: "44444444-4444-4444-4444-444444444444",
+  intent: "sell",
+  channel: "phone",
+  material: "copper",
+  contactName: "Ahmed",
+  contactPhone: "+971501234567",
+};
 
 describe("handleOwnerLeadListRequest — method", () => {
   it("rejects a non-GET method", async () => {
@@ -193,5 +224,131 @@ describe("handleOwnerLeadListRequest — error sanitization", () => {
     });
     const response = await handleOwnerLeadListRequest(authorizedRequest("/api/owner/leads"));
     expect(response.status).toBe(500);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// CHECKPOINT C2J-F — POST /api/owner/leads (Quick Add)
+// ---------------------------------------------------------------------------
+
+describe("handleOwnerLeadQuickAddCreateRequest — method", () => {
+  it("rejects a non-POST method", async () => {
+    const request = new Request("https://example.test/api/owner/leads", { method: "GET" });
+    const response = await handleOwnerLeadQuickAddCreateRequest(request);
+    expect(response.status).toBe(405);
+    expect(verifyOwnerSessionMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("handleOwnerLeadQuickAddCreateRequest — authorization", () => {
+  it("denies a request with no bearer token, never reaching the service", async () => {
+    verifyOwnerSessionMock.mockResolvedValue({ ok: false, reason: "missing_token" });
+    const response = await handleOwnerLeadQuickAddCreateRequest(new Request("https://example.test/api/owner/leads", { method: "POST" }));
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({ ok: false });
+    expect(createOwnerQuickAddLeadMock).not.toHaveBeenCalled();
+  });
+
+  it("denies an inactive owner", async () => {
+    verifyOwnerSessionMock.mockResolvedValue({ ok: false, reason: "inactive_owner" });
+    const response = await handleOwnerLeadQuickAddCreateRequest(quickAddRequest(VALID_QUICK_ADD_BODY));
+    expect(response.status).toBe(401);
+    expect(createOwnerQuickAddLeadMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("handleOwnerLeadQuickAddCreateRequest — request validation", () => {
+  it("returns a sanitized 400 for malformed JSON", async () => {
+    verifyOwnerSessionMock.mockResolvedValue(AUTHORIZED_SESSION);
+    const request = new Request("https://example.test/api/owner/leads", {
+      method: "POST",
+      headers: { authorization: "Bearer aaaa.bbbb.cccc", "content-type": "application/json" },
+      body: "{not-json",
+    });
+    const response = await handleOwnerLeadQuickAddCreateRequest(request);
+    expect(response.status).toBe(400);
+    expect(createOwnerQuickAddLeadMock).not.toHaveBeenCalled();
+  });
+
+  it("returns a sanitized 400 for an unknown field, never reaching the service", async () => {
+    verifyOwnerSessionMock.mockResolvedValue(AUTHORIZED_SESSION);
+    const response = await handleOwnerLeadQuickAddCreateRequest(quickAddRequest({ ...VALID_QUICK_ADD_BODY, ownerUserId: "sneaky" }));
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+    expect(createOwnerQuickAddLeadMock).not.toHaveBeenCalled();
+  });
+
+  it("returns a sanitized 400 for the 'website' capture channel", async () => {
+    verifyOwnerSessionMock.mockResolvedValue(AUTHORIZED_SESSION);
+    const response = await handleOwnerLeadQuickAddCreateRequest(quickAddRequest({ ...VALID_QUICK_ADD_BODY, channel: "website" }));
+    expect(response.status).toBe(400);
+    expect(createOwnerQuickAddLeadMock).not.toHaveBeenCalled();
+  });
+
+  it("returns a sanitized 400 for a seller/buyer cross-field violation (buyer request carrying seller location)", async () => {
+    verifyOwnerSessionMock.mockResolvedValue(AUTHORIZED_SESSION);
+    const response = await handleOwnerLeadQuickAddCreateRequest(
+      quickAddRequest({ ...VALID_QUICK_ADD_BODY, intent: "buy", sellerEmirate: "dubai" }),
+    );
+    expect(response.status).toBe(400);
+    expect(createOwnerQuickAddLeadMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("handleOwnerLeadQuickAddCreateRequest — success", () => {
+  it("an active owner's valid submission succeeds and forwards the verified ownerUserId (never trusting a browser-supplied one)", async () => {
+    verifyOwnerSessionMock.mockResolvedValue(AUTHORIZED_SESSION);
+    createOwnerQuickAddLeadMock.mockResolvedValue({
+      ok: true,
+      leadId: "11111111-1111-1111-1111-111111111111",
+      reference: "MSM-260101-ABCDEF",
+      idempotentReplay: false,
+    });
+    const response = await handleOwnerLeadQuickAddCreateRequest(quickAddRequest(VALID_QUICK_ADD_BODY));
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body).toEqual({
+      ok: true,
+      data: { leadId: "11111111-1111-1111-1111-111111111111", reference: "MSM-260101-ABCDEF", idempotentReplay: false },
+    });
+    expect(createOwnerQuickAddLeadMock).toHaveBeenCalledWith(
+      expect.objectContaining({ ownerUserId: AUTHORIZED_SESSION.owner.userId }),
+      expect.anything(),
+    );
+  });
+});
+
+describe("handleOwnerLeadQuickAddCreateRequest — service failure mapping", () => {
+  it("maps reason: unauthorized to 401", async () => {
+    verifyOwnerSessionMock.mockResolvedValue(AUTHORIZED_SESSION);
+    createOwnerQuickAddLeadMock.mockResolvedValue({ ok: false, reason: "unauthorized" });
+    const response = await handleOwnerLeadQuickAddCreateRequest(quickAddRequest(VALID_QUICK_ADD_BODY));
+    expect(response.status).toBe(401);
+  });
+
+  it("maps reason: conflict to 409 with a sanitized message", async () => {
+    verifyOwnerSessionMock.mockResolvedValue(AUTHORIZED_SESSION);
+    createOwnerQuickAddLeadMock.mockResolvedValue({ ok: false, reason: "conflict" });
+    const response = await handleOwnerLeadQuickAddCreateRequest(quickAddRequest(VALID_QUICK_ADD_BODY));
+    expect(response.status).toBe(409);
+    const body = await response.json();
+    expect(body.error.code).toBe("CONFLICT");
+  });
+
+  it("maps reason: internal_error to a generic 500, never a raw database/provider error", async () => {
+    verifyOwnerSessionMock.mockResolvedValue(AUTHORIZED_SESSION);
+    createOwnerQuickAddLeadMock.mockResolvedValue({ ok: false, reason: "internal_error" });
+    const response = await handleOwnerLeadQuickAddCreateRequest(quickAddRequest(VALID_QUICK_ADD_BODY));
+    expect(response.status).toBe(500);
+  });
+
+  it("returns a generic 500 when the service throws", async () => {
+    verifyOwnerSessionMock.mockResolvedValue(AUTHORIZED_SESSION);
+    createOwnerQuickAddLeadMock.mockRejectedValue(new Error("connection reset"));
+    const response = await handleOwnerLeadQuickAddCreateRequest(quickAddRequest(VALID_QUICK_ADD_BODY));
+    expect(response.status).toBe(500);
+    const raw = JSON.stringify(await response.json());
+    expect(raw).not.toMatch(/connection reset/i);
   });
 });

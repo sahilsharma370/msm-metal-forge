@@ -183,3 +183,11 @@ describe("OwnerLeadInbox — load more", () => {
     expect(screen.queryByRole("button", { name: /load more/i })).not.toBeInTheDocument();
   });
 });
+
+describe("OwnerLeadInbox — Quick Add entry point (CHECKPOINT C2J-F)", () => {
+  it("shows an Add enquiry action linking to /owner/leads/new, on every state", () => {
+    render(<OwnerLeadInbox {...baseProps()} />);
+    const link = screen.getByRole("link", { name: /add enquiry/i });
+    expect(link).toHaveAttribute("href", "/owner/leads/new");
+  });
+});

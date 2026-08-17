@@ -36,7 +36,7 @@ export const OWNER_LEAD_STATUS_VALUES = [
 export const OWNER_LEAD_CAPTURE_CHANNEL_VALUES = ["website", "phone", "whatsapp", "walk_in", "owner_manual"] as const;
 export const OWNER_LEAD_MATERIAL_VALUES = ["copper", "aluminium", "steel_iron", "lead", "other"] as const;
 export const OWNER_LEAD_INTENT_VALUES = ["sell", "buy"] as const;
-export const OWNER_NOTIFICATION_SUMMARY_STATUS_VALUES = ["sent", "pending", "attention"] as const;
+export const OWNER_NOTIFICATION_SUMMARY_STATUS_VALUES = ["sent", "pending", "attention", "not_required"] as const;
 
 export type OwnerLeadStatus = (typeof OWNER_LEAD_STATUS_VALUES)[number];
 export type OwnerLeadCaptureChannel = (typeof OWNER_LEAD_CAPTURE_CHANNEL_VALUES)[number];

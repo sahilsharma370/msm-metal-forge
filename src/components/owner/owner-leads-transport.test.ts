@@ -5,9 +5,11 @@ import {
   requestOwnerLeadFileAccess,
   changeOwnerLeadStatus,
   addOwnerLeadNote,
+  createOwnerQuickAddLead,
   type OwnerLeadsTransportDeps,
 } from "./owner-leads-transport";
 import type { OwnerAuthClient } from "./owner-auth-client";
+import type { OwnerLeadQuickAddRequest } from "@/lib/owner/owner-lead-quick-add-contract";
 
 function fakeAuthClient(overrides: Partial<OwnerAuthClient> = {}): OwnerAuthClient {
   return {
@@ -223,5 +225,51 @@ describe("owner-leads-transport — addOwnerLeadNote (CHECKPOINT C2J-E)", () => 
     await addOwnerLeadNote("lead-1", "a private detail", REQUEST_ID, { authClient: fakeAuthClient(), fetchImpl });
     expect(consoleSpy).not.toHaveBeenCalled();
     consoleSpy.mockRestore();
+  });
+});
+
+describe("owner-leads-transport — createOwnerQuickAddLead (CHECKPOINT C2J-F)", () => {
+  const REQUEST: OwnerLeadQuickAddRequest = {
+    requestId: "44444444-4444-4444-4444-444444444444",
+    intent: "sell",
+    channel: "phone",
+    material: "copper",
+    contactName: "Ahmed",
+    contactPhone: "+971501234567",
+  };
+
+  it("POSTs to /api/owner/leads with the exact request as the JSON payload", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(jsonResponse(200, { ok: true, data: { leadId: "11111111-1111-1111-1111-111111111111", reference: "MSM-260101-ABCDEF", idempotentReplay: false } }));
+    await createOwnerQuickAddLead(REQUEST, { authClient: fakeAuthClient(), fetchImpl });
+    const [url, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/owner/leads");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body as string)).toEqual(REQUEST);
+  });
+
+  it("parses a valid response against the canonical contract", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(jsonResponse(200, { ok: true, data: { leadId: "11111111-1111-1111-1111-111111111111", reference: "MSM-260101-ABCDEF", idempotentReplay: false } }));
+    const result = await createOwnerQuickAddLead(REQUEST, { authClient: fakeAuthClient(), fetchImpl });
+    expect(result).toEqual({ kind: "ok", data: { leadId: "11111111-1111-1111-1111-111111111111", reference: "MSM-260101-ABCDEF", idempotentReplay: false } });
+  });
+
+  it("surfaces a 409 conflict as a distinguishable error result", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(jsonResponse(409, { ok: false, error: { code: "CONFLICT", message: "This request was already submitted with different details." } }));
+    const result = await createOwnerQuickAddLead(REQUEST, { authClient: fakeAuthClient(), fetchImpl });
+    expect(result).toEqual({ kind: "error", message: "This request was already submitted with different details.", status: 409 });
+  });
+
+  it("returns unauthorized without calling fetch when there is no local token", async () => {
+    const authClient = fakeAuthClient({ getAccessToken: vi.fn().mockResolvedValue(null) });
+    const fetchImpl = vi.fn();
+    const result = await createOwnerQuickAddLead(REQUEST, { authClient, fetchImpl });
+    expect(result).toEqual({ kind: "unauthorized" });
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 });

@@ -7,6 +7,24 @@ import "@testing-library/jest-dom/vitest";
 import * as transport from "@/components/owner/owner-leads-transport";
 import type { RegisterOwnerShellRefresh } from "@/components/owner/OwnerShell";
 
+// CHECKPOINT C2J-F: OwnerLeadInbox now always renders a real <Link> (the
+// "Add enquiry" Quick Add entry point), which needs a live RouterProvider to
+// resolve — this harness renders OwnerInboxBody without one (see the header
+// comment below), so <Link> is swapped for a plain anchor here, matching the
+// same substitution OwnerLeadInbox.test.tsx and routes/owner/leads/$leadId.test.tsx
+// already use for the identical reason.
+vi.mock("@tanstack/react-router", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@tanstack/react-router")>();
+  return {
+    ...actual,
+    Link: ({ to, children, ...props }: { to: string; children: React.ReactNode }) => (
+      <a href={to} {...props}>
+        {children}
+      </a>
+    ),
+  };
+});
+
 /**
  * CHECKPOINT C2J-D1 — regression test proving the route wrapper does not
  * cause a repeated-render/repeated-fetch loop. `OwnerInboxBody` is the

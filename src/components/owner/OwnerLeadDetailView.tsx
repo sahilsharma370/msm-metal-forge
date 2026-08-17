@@ -1,4 +1,4 @@
-import { AlertTriangle, CheckCircle2, Clock, MapPin, MessageCircle, Phone } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Clock, MapPin, MessageCircle, MinusCircle, Phone } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { OwnerLeadDetailData } from "./use-owner-lead-detail";
@@ -30,7 +30,7 @@ import {
  * the other variant.
  */
 
-const NOTIFICATION_ICONS = { sent: CheckCircle2, pending: Clock, attention: AlertTriangle } as const;
+const NOTIFICATION_ICONS = { sent: CheckCircle2, pending: Clock, attention: AlertTriangle, not_required: MinusCircle } as const;
 
 export interface OwnerLeadDetailViewProps {
   readonly leadId: string;

@@ -300,13 +300,30 @@ describe("getOwnerLeadDetail — notification status mapping", () => {
     expect(result.ok && result.notification.status).toBe("attention");
   });
 
-  it("a missing delivery row -> attention, with zeroed counters and null timestamps", async () => {
-    const deps = fakeDeps({ queryNotificationDelivery: vi.fn().mockResolvedValue(null) });
+  it("a missing delivery row on a WEBSITE lead -> attention, with zeroed counters and null timestamps", async () => {
+    const deps = fakeDeps({
+      queryLeadById: vi.fn().mockResolvedValue(fakeLeadRow({ capture_channel: "website" })),
+      queryNotificationDelivery: vi.fn().mockResolvedValue(null),
+    });
     const result = await getOwnerLeadDetail("11111111-1111-1111-1111-111111111111", deps);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.notification).toEqual({ status: "attention", attemptCount: 0, manualRequeueCount: 0, lastErrorCode: null, lastErrorAt: null, sentAt: null });
   });
+
+  it.each(["phone", "whatsapp", "walk_in", "owner_manual"])(
+    "a missing delivery row on a %s (non-website / Quick Add) lead -> not_required, never attention",
+    async (channel) => {
+      const deps = fakeDeps({
+        queryLeadById: vi.fn().mockResolvedValue(fakeLeadRow({ capture_channel: channel as LeadDetailRow["capture_channel"] })),
+        queryNotificationDelivery: vi.fn().mockResolvedValue(null),
+      });
+      const result = await getOwnerLeadDetail("11111111-1111-1111-1111-111111111111", deps);
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.notification).toEqual({ status: "not_required", attemptCount: 0, manualRequeueCount: 0, lastErrorCode: null, lastErrorAt: null, sentAt: null });
+    },
+  );
 });
 
 describe("getOwnerLeadDetail — never leaks forbidden fields", () => {

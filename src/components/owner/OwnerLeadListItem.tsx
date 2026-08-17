@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { AlertTriangle, CheckCircle2, Clock, MapPin, Phone } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Clock, MapPin, MinusCircle, Phone } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import type { OwnerLeadListItem as OwnerLeadListItemType } from "@/lib/owner/owner-leads-contract";
 import {
@@ -24,12 +24,14 @@ const NOTIFICATION_ICONS = {
   sent: CheckCircle2,
   pending: Clock,
   attention: AlertTriangle,
+  not_required: MinusCircle,
 } as const;
 
 const NOTIFICATION_BADGE_VARIANT = {
   sent: "outline",
   pending: "outline",
   attention: "destructive",
+  not_required: "outline",
 } as const;
 
 export interface OwnerLeadListItemProps {

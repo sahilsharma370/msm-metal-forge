@@ -17,6 +17,11 @@ import {
   ownerLeadNoteCreateSuccessBodySchema,
   type OwnerLeadNoteCreateSuccessBody,
 } from "@/lib/owner/owner-lead-detail-contract";
+import {
+  ownerLeadQuickAddSuccessBodySchema,
+  type OwnerLeadQuickAddSuccessBody,
+  type OwnerLeadQuickAddRequest,
+} from "@/lib/owner/owner-lead-quick-add-contract";
 import type { OwnerAuthClient } from "./owner-auth-client";
 
 /**
@@ -256,5 +261,23 @@ export async function addOwnerLeadNote(
     deps,
     withJsonBody("POST", { body, requestId }, signal),
   );
+  return mapOk(result);
+}
+
+// ---------------------------------------------------------------------------
+// CHECKPOINT C2J-F — owner Quick Add
+// ---------------------------------------------------------------------------
+
+/**
+ * `request.requestId` is caller-supplied (see use-owner-lead-quick-add.ts),
+ * not generated here — this function stays a thin, stateless transport,
+ * matching addOwnerLeadNote's own established shape exactly.
+ */
+export async function createOwnerQuickAddLead(
+  request: OwnerLeadQuickAddRequest,
+  deps: OwnerLeadsTransportDeps,
+  signal?: AbortSignal,
+): Promise<OwnerApiResult<OwnerLeadQuickAddSuccessBody["data"]>> {
+  const result = await callOwnerApi(`/api/owner/leads`, ownerLeadQuickAddSuccessBodySchema, deps, withJsonBody("POST", request, signal));
   return mapOk(result);
 }
