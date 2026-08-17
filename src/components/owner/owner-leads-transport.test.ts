@@ -1,5 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
-import { fetchOwnerLeadList, fetchOwnerLeadDetail, requestOwnerLeadFileAccess, type OwnerLeadsTransportDeps } from "./owner-leads-transport";
+import {
+  fetchOwnerLeadList,
+  fetchOwnerLeadDetail,
+  requestOwnerLeadFileAccess,
+  changeOwnerLeadStatus,
+  addOwnerLeadNote,
+  type OwnerLeadsTransportDeps,
+} from "./owner-leads-transport";
 import type { OwnerAuthClient } from "./owner-auth-client";
 
 function fakeAuthClient(overrides: Partial<OwnerAuthClient> = {}): OwnerAuthClient {
@@ -148,5 +155,73 @@ describe("owner-leads-transport — request parameters", () => {
     await requestOwnerLeadFileAccess("lead-1", "file-1", { authClient: fakeAuthClient(), fetchImpl });
     const [, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
     expect(init.method).toBe("POST");
+  });
+});
+
+describe("owner-leads-transport — changeOwnerLeadStatus (CHECKPOINT C2J-E)", () => {
+  it("POSTs to the status endpoint with a JSON body carrying exactly the given input", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(jsonResponse(200, { ok: true, data: { changed: true, status: "contacted", lostReason: null, closedAt: null, updatedAt: "2026-01-01T00:00:00.000Z" } }));
+    await changeOwnerLeadStatus("lead-1", { expectedStatus: "new", newStatus: "contacted" }, { authClient: fakeAuthClient(), fetchImpl });
+    const [url, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/owner/leads/lead-1/status");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body as string)).toEqual({ expectedStatus: "new", newStatus: "contacted" });
+  });
+
+  it("parses a valid response against the canonical contract", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(jsonResponse(200, { ok: true, data: { changed: true, status: "contacted", lostReason: null, closedAt: null, updatedAt: "2026-01-01T00:00:00.000Z" } }));
+    const result = await changeOwnerLeadStatus("lead-1", { expectedStatus: "new", newStatus: "contacted" }, { authClient: fakeAuthClient(), fetchImpl });
+    expect(result).toEqual({ kind: "ok", data: { changed: true, status: "contacted", lostReason: null, closedAt: null, updatedAt: "2026-01-01T00:00:00.000Z" } });
+  });
+
+  it("surfaces a 409 conflict as a distinguishable error result", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(409, { ok: false, error: { code: "CONFLICT", message: "This lead was already updated." } }));
+    const result = await changeOwnerLeadStatus("lead-1", { expectedStatus: "new", newStatus: "contacted" }, { authClient: fakeAuthClient(), fetchImpl });
+    expect(result).toEqual({ kind: "error", message: "This lead was already updated.", status: 409 });
+  });
+
+  it("returns unauthorized without calling fetch when there is no local token", async () => {
+    const authClient = fakeAuthClient({ getAccessToken: vi.fn().mockResolvedValue(null) });
+    const fetchImpl = vi.fn();
+    const result = await changeOwnerLeadStatus("lead-1", { expectedStatus: "new", newStatus: "contacted" }, { authClient, fetchImpl });
+    expect(result).toEqual({ kind: "unauthorized" });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+});
+
+describe("owner-leads-transport — addOwnerLeadNote (CHECKPOINT C2J-E)", () => {
+  const REQUEST_ID = "44444444-4444-4444-4444-444444444444";
+
+  it("POSTs to the notes endpoint with { body, requestId } as the JSON payload", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(jsonResponse(200, { ok: true, data: { activityId: "11111111-1111-1111-1111-111111111111", note: "hello", createdAt: "2026-01-01T00:00:00.000Z" } }));
+    await addOwnerLeadNote("lead-1", "hello", REQUEST_ID, { authClient: fakeAuthClient(), fetchImpl });
+    const [url, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/owner/leads/lead-1/notes");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body as string)).toEqual({ body: "hello", requestId: REQUEST_ID });
+  });
+
+  it("parses a valid response against the canonical contract", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(jsonResponse(200, { ok: true, data: { activityId: "11111111-1111-1111-1111-111111111111", note: "hello", createdAt: "2026-01-01T00:00:00.000Z" } }));
+    const result = await addOwnerLeadNote("lead-1", "hello", REQUEST_ID, { authClient: fakeAuthClient(), fetchImpl });
+    expect(result).toEqual({ kind: "ok", data: { activityId: "11111111-1111-1111-1111-111111111111", note: "hello", createdAt: "2026-01-01T00:00:00.000Z" } });
+  });
+
+  it("never console.logs the note body", async () => {
+    const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(jsonResponse(200, { ok: true, data: { activityId: "11111111-1111-1111-1111-111111111111", note: "a private detail", createdAt: "2026-01-01T00:00:00.000Z" } }));
+    await addOwnerLeadNote("lead-1", "a private detail", REQUEST_ID, { authClient: fakeAuthClient(), fetchImpl });
+    expect(consoleSpy).not.toHaveBeenCalled();
+    consoleSpy.mockRestore();
   });
 });

@@ -22,6 +22,8 @@ import { Route as OwnerLeadsLeadIdRouteImport } from './routes/owner/leads/$lead
 import { Route as ApiOwnerLeadsLeadIdRouteImport } from './routes/api/owner/leads/$leadId'
 import { Route as ApiOwnerLoginRequestCodeRouteImport } from './routes/api/owner/login/request-code'
 import { Route as ApiOwnerLoginVerifyCodeRouteImport } from './routes/api/owner/login/verify-code'
+import { Route as ApiOwnerLeadsLeadIdNotesRouteImport } from './routes/api/owner/leads/$leadId.notes'
+import { Route as ApiOwnerLeadsLeadIdStatusRouteImport } from './routes/api/owner/leads/$leadId.status'
 import { Route as ApiOwnerLeadsLeadIdFilesFileIdAccessRouteImport } from './routes/api/owner/leads/$leadId.files.$fileId.access'
 
 const IndexRoute = IndexRouteImport.update({
@@ -90,6 +92,18 @@ const ApiOwnerLoginVerifyCodeRoute = ApiOwnerLoginVerifyCodeRouteImport.update({
   path: '/api/owner/login/verify-code',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiOwnerLeadsLeadIdNotesRoute =
+  ApiOwnerLeadsLeadIdNotesRouteImport.update({
+    id: '/notes',
+    path: '/notes',
+    getParentRoute: () => ApiOwnerLeadsLeadIdRoute,
+  } as any)
+const ApiOwnerLeadsLeadIdStatusRoute =
+  ApiOwnerLeadsLeadIdStatusRouteImport.update({
+    id: '/status',
+    path: '/status',
+    getParentRoute: () => ApiOwnerLeadsLeadIdRoute,
+  } as any)
 const ApiOwnerLeadsLeadIdFilesFileIdAccessRoute =
   ApiOwnerLeadsLeadIdFilesFileIdAccessRouteImport.update({
     id: '/files/$fileId/access',
@@ -111,6 +125,8 @@ export interface FileRoutesByFullPath {
   '/api/owner/leads/$leadId': typeof ApiOwnerLeadsLeadIdRouteWithChildren
   '/api/owner/login/request-code': typeof ApiOwnerLoginRequestCodeRoute
   '/api/owner/login/verify-code': typeof ApiOwnerLoginVerifyCodeRoute
+  '/api/owner/leads/$leadId/notes': typeof ApiOwnerLeadsLeadIdNotesRoute
+  '/api/owner/leads/$leadId/status': typeof ApiOwnerLeadsLeadIdStatusRoute
   '/api/owner/leads/$leadId/files/$fileId/access': typeof ApiOwnerLeadsLeadIdFilesFileIdAccessRoute
 }
 export interface FileRoutesByTo {
@@ -127,6 +143,8 @@ export interface FileRoutesByTo {
   '/api/owner/leads/$leadId': typeof ApiOwnerLeadsLeadIdRouteWithChildren
   '/api/owner/login/request-code': typeof ApiOwnerLoginRequestCodeRoute
   '/api/owner/login/verify-code': typeof ApiOwnerLoginVerifyCodeRoute
+  '/api/owner/leads/$leadId/notes': typeof ApiOwnerLeadsLeadIdNotesRoute
+  '/api/owner/leads/$leadId/status': typeof ApiOwnerLeadsLeadIdStatusRoute
   '/api/owner/leads/$leadId/files/$fileId/access': typeof ApiOwnerLeadsLeadIdFilesFileIdAccessRoute
 }
 export interface FileRoutesById {
@@ -144,6 +162,8 @@ export interface FileRoutesById {
   '/api/owner/leads/$leadId': typeof ApiOwnerLeadsLeadIdRouteWithChildren
   '/api/owner/login/request-code': typeof ApiOwnerLoginRequestCodeRoute
   '/api/owner/login/verify-code': typeof ApiOwnerLoginVerifyCodeRoute
+  '/api/owner/leads/$leadId/notes': typeof ApiOwnerLeadsLeadIdNotesRoute
+  '/api/owner/leads/$leadId/status': typeof ApiOwnerLeadsLeadIdStatusRoute
   '/api/owner/leads/$leadId/files/$fileId/access': typeof ApiOwnerLeadsLeadIdFilesFileIdAccessRoute
 }
 export interface FileRouteTypes {
@@ -162,6 +182,8 @@ export interface FileRouteTypes {
     | '/api/owner/leads/$leadId'
     | '/api/owner/login/request-code'
     | '/api/owner/login/verify-code'
+    | '/api/owner/leads/$leadId/notes'
+    | '/api/owner/leads/$leadId/status'
     | '/api/owner/leads/$leadId/files/$fileId/access'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -178,6 +200,8 @@ export interface FileRouteTypes {
     | '/api/owner/leads/$leadId'
     | '/api/owner/login/request-code'
     | '/api/owner/login/verify-code'
+    | '/api/owner/leads/$leadId/notes'
+    | '/api/owner/leads/$leadId/status'
     | '/api/owner/leads/$leadId/files/$fileId/access'
   id:
     | '__root__'
@@ -194,6 +218,8 @@ export interface FileRouteTypes {
     | '/api/owner/leads/$leadId'
     | '/api/owner/login/request-code'
     | '/api/owner/login/verify-code'
+    | '/api/owner/leads/$leadId/notes'
+    | '/api/owner/leads/$leadId/status'
     | '/api/owner/leads/$leadId/files/$fileId/access'
   fileRoutesById: FileRoutesById
 }
@@ -305,6 +331,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiOwnerLoginVerifyCodeRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/owner/leads/$leadId/notes': {
+      id: '/api/owner/leads/$leadId/notes'
+      path: '/notes'
+      fullPath: '/api/owner/leads/$leadId/notes'
+      preLoaderRoute: typeof ApiOwnerLeadsLeadIdNotesRouteImport
+      parentRoute: typeof ApiOwnerLeadsLeadIdRoute
+    }
+    '/api/owner/leads/$leadId/status': {
+      id: '/api/owner/leads/$leadId/status'
+      path: '/status'
+      fullPath: '/api/owner/leads/$leadId/status'
+      preLoaderRoute: typeof ApiOwnerLeadsLeadIdStatusRouteImport
+      parentRoute: typeof ApiOwnerLeadsLeadIdRoute
+    }
     '/api/owner/leads/$leadId/files/$fileId/access': {
       id: '/api/owner/leads/$leadId/files/$fileId/access'
       path: '/files/$fileId/access'
@@ -316,10 +356,14 @@ declare module '@tanstack/react-router' {
 }
 
 interface ApiOwnerLeadsLeadIdRouteChildren {
+  ApiOwnerLeadsLeadIdNotesRoute: typeof ApiOwnerLeadsLeadIdNotesRoute
+  ApiOwnerLeadsLeadIdStatusRoute: typeof ApiOwnerLeadsLeadIdStatusRoute
   ApiOwnerLeadsLeadIdFilesFileIdAccessRoute: typeof ApiOwnerLeadsLeadIdFilesFileIdAccessRoute
 }
 
 const ApiOwnerLeadsLeadIdRouteChildren: ApiOwnerLeadsLeadIdRouteChildren = {
+  ApiOwnerLeadsLeadIdNotesRoute: ApiOwnerLeadsLeadIdNotesRoute,
+  ApiOwnerLeadsLeadIdStatusRoute: ApiOwnerLeadsLeadIdStatusRoute,
   ApiOwnerLeadsLeadIdFilesFileIdAccessRoute:
     ApiOwnerLeadsLeadIdFilesFileIdAccessRoute,
 }

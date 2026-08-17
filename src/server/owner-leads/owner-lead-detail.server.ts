@@ -32,9 +32,11 @@ import {
   OWNER_LEAD_FILE_MIME_TYPE_VALUES,
   OWNER_LEAD_FILE_UPLOAD_STATUS_VALUES,
   OWNER_LEAD_ACTIVITY_ACTOR_TYPE_VALUES,
+  ownerLeadDetailActivityStatusChangeSchema,
   type OwnerLeadDetail,
   type OwnerLeadDetailFile,
   type OwnerLeadDetailActivity,
+  type OwnerLeadDetailActivityStatusChange,
   type OwnerLeadDetailNotification,
 } from "@/lib/owner/owner-lead-detail-contract";
 
@@ -136,12 +138,17 @@ const leadFileRowSchema = z.object({
 });
 export type LeadFileRow = z.infer<typeof leadFileRowSchema>;
 
-const LEAD_ACTIVITIES_SELECT_COLUMNS = ["id", "event_type", "actor_type", "created_at"].join(", ");
+const LEAD_ACTIVITIES_SELECT_COLUMNS = ["id", "event_type", "actor_type", "metadata", "created_at"].join(", ");
 
 const leadActivityRowSchema = z.object({
   id: z.string().uuid(),
   event_type: z.string().min(1).max(60).regex(/^[a-z0-9_]+$/),
   actor_type: z.enum(OWNER_LEAD_ACTIVITY_ACTOR_TYPE_VALUES),
+  // Never surfaced to the browser as-is — mapLeadActivityRow below projects
+  // only the two narrow, allowlisted fields (statusChange/noteBody) the
+  // contract exposes. See the migration's own header comment for why
+  // status/note content lives in this column rather than a new table.
+  metadata: z.record(z.string(), z.unknown()),
   created_at: z.string(),
 });
 export type LeadActivityRow = z.infer<typeof leadActivityRowSchema>;
@@ -316,8 +323,30 @@ function mapLeadFileRow(row: LeadFileRow): OwnerLeadDetailFile {
   };
 }
 
+/** Malformed/unexpected metadata shape never throws — it just yields no statusChange, matching this codebase's general defensive-parsing posture on stored JSON. */
+function extractStatusChange(metadata: Record<string, unknown>): OwnerLeadDetailActivityStatusChange | null {
+  const parsed = ownerLeadDetailActivityStatusChangeSchema.safeParse({
+    from: metadata["from_status"],
+    to: metadata["to_status"],
+    reason: metadata["reason"] ?? null,
+  });
+  return parsed.success ? parsed.data : null;
+}
+
+function extractNoteBody(metadata: Record<string, unknown>): string | null {
+  const note = metadata["note"];
+  return typeof note === "string" ? note : null;
+}
+
 function mapLeadActivityRow(row: LeadActivityRow): OwnerLeadDetailActivity {
-  return { id: row.id, eventType: row.event_type, actorType: row.actor_type, createdAt: row.created_at };
+  return {
+    id: row.id,
+    eventType: row.event_type,
+    actorType: row.actor_type,
+    createdAt: row.created_at,
+    statusChange: row.event_type === "status_changed" ? extractStatusChange(row.metadata) : null,
+    noteBody: row.event_type === "note_added" ? extractNoteBody(row.metadata) : null,
+  };
 }
 
 function mapNotification(row: NotificationDeliveryRow | null): OwnerLeadDetailNotification {

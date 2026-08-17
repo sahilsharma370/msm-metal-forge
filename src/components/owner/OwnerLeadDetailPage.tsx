@@ -93,7 +93,7 @@ export function OwnerLeadDetailPage({ leadId, state, retry, deps, onUnauthorized
       <div className="mx-auto w-full max-w-3xl px-4 pt-4">
         <BackToEnquiriesLink />
       </div>
-      <OwnerLeadDetailView leadId={leadId} data={state.data} deps={deps} onUnauthorized={onUnauthorized} />
+      <OwnerLeadDetailView leadId={leadId} data={state.data} deps={deps} onUnauthorized={onUnauthorized} onMutated={retry} />
     </div>
   );
 }

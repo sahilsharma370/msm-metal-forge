@@ -75,6 +75,8 @@ export const OWNER_LEAD_ACTIVITY_ACTOR_LABELS: Record<OwnerLeadActivityActorType
 const OWNER_LEAD_ACTIVITY_EVENT_LABELS: Record<string, string> = {
   lead_created: "Enquiry received",
   submission_completed: "Submission completed",
+  status_changed: "Status changed",
+  note_added: "Private note added",
 };
 
 /** Falls back to a humanized version of an unrecognized event_type (underscores -> spaces, capitalized) rather than showing raw snake_case, without inventing a fixed vocabulary the database itself does not enforce. */

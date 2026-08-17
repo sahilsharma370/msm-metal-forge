@@ -3,6 +3,9 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { OwnerLeadDetailData } from "./use-owner-lead-detail";
 import { OwnerLeadFileViewer } from "./OwnerLeadFileViewer";
+import { OwnerLeadStatusControl } from "./OwnerLeadStatusControl";
+import { OwnerLeadNoteComposer } from "./OwnerLeadNoteComposer";
+import { useOwnerLeadMutations } from "./use-owner-lead-mutations";
 import type { OwnerLeadsTransportDeps } from "./owner-leads-transport";
 import {
   OWNER_LEAD_STATUS_LABELS,
@@ -34,6 +37,7 @@ export interface OwnerLeadDetailViewProps {
   readonly data: OwnerLeadDetailData;
   readonly deps: OwnerLeadsTransportDeps;
   readonly onUnauthorized: () => void;
+  readonly onMutated: () => void;
 }
 
 function Field({ label, value }: { label: string; value: string | null | undefined }) {
@@ -46,8 +50,9 @@ function Field({ label, value }: { label: string; value: string | null | undefin
   );
 }
 
-export function OwnerLeadDetailView({ leadId, data, deps, onUnauthorized }: OwnerLeadDetailViewProps) {
+export function OwnerLeadDetailView({ leadId, data, deps, onUnauthorized, onMutated }: OwnerLeadDetailViewProps) {
   const { lead, files, activities, notification } = data;
+  const mutations = useOwnerLeadMutations(leadId, deps, onMutated, onUnauthorized);
   const NotificationIcon = NOTIFICATION_ICONS[notification.status];
   const telHref = buildTelHref(lead.contact.phone);
   const whatsappHref = buildOwnerWhatsAppHref(lead.contact.phone);
@@ -189,6 +194,28 @@ export function OwnerLeadDetailView({ leadId, data, deps, onUnauthorized }: Owne
         )}
       </section>
 
+      {/* 6. Manage — status change + private notes (CHECKPOINT C2J-E) */}
+      <section aria-labelledby="owner-lead-manage-heading" className="rounded-lg border border-border bg-card/40 p-4">
+        <h3 id="owner-lead-manage-heading" className="mb-3 text-sm font-semibold text-foreground">
+          Manage
+        </h3>
+        <div className="flex flex-col gap-6">
+          <OwnerLeadStatusControl
+            currentStatus={lead.status}
+            isSaving={mutations.state.isChangingStatus}
+            error={mutations.state.statusError}
+            onChangeStatus={mutations.changeStatus}
+            onClearError={mutations.clearStatusError}
+          />
+          <OwnerLeadNoteComposer
+            isSaving={mutations.state.isAddingNote}
+            error={mutations.state.noteError}
+            onAddNote={mutations.addNote}
+            onClearError={mutations.clearNoteError}
+          />
+        </div>
+      </section>
+
       {/* 7. Notification (rendered before activity per typical operator priority — attention-worthy state first) */}
       <section aria-labelledby="owner-lead-notification-heading" className="rounded-lg border border-border bg-card/40 p-4">
         <h3 id="owner-lead-notification-heading" className="mb-3 text-sm font-semibold text-foreground">
@@ -221,6 +248,15 @@ export function OwnerLeadDetailView({ leadId, data, deps, onUnauthorized }: Owne
             {activities.map((activity) => (
               <li key={activity.id} className="text-sm">
                 <p className="text-foreground">{formatActivityEventType(activity.eventType)}</p>
+                {activity.statusChange ? (
+                  <p className="text-sm text-foreground">
+                    {OWNER_LEAD_STATUS_LABELS[activity.statusChange.from]} → {OWNER_LEAD_STATUS_LABELS[activity.statusChange.to]}
+                    {activity.statusChange.reason ? ` — "${activity.statusChange.reason}"` : ""}
+                  </p>
+                ) : null}
+                {activity.noteBody ? (
+                  <p className="whitespace-pre-wrap rounded-md bg-muted/50 px-2 py-1.5 text-sm text-foreground">{activity.noteBody}</p>
+                ) : null}
                 <p className="text-xs text-muted-foreground">
                   {OWNER_LEAD_ACTIVITY_ACTOR_LABELS[activity.actorType]} · {formatUaeDateTime(activity.createdAt) ?? "—"}
                 </p>

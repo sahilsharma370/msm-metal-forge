@@ -12,6 +12,10 @@ import {
   type OwnerLeadDetailSuccessBody,
   ownerLeadFileAccessSuccessBodySchema,
   type OwnerLeadFileAccessSuccessBody,
+  ownerLeadStatusChangeSuccessBodySchema,
+  type OwnerLeadStatusChangeSuccessBody,
+  ownerLeadNoteCreateSuccessBodySchema,
+  type OwnerLeadNoteCreateSuccessBody,
 } from "@/lib/owner/owner-lead-detail-contract";
 import type { OwnerAuthClient } from "./owner-auth-client";
 
@@ -120,6 +124,11 @@ function withMethod(method: "GET" | "POST", signal: AbortSignal | undefined): Re
   return signal ? { method, signal } : { method };
 }
 
+function withJsonBody(method: "POST", body: unknown, signal: AbortSignal | undefined): RequestInit {
+  const init: RequestInit = { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) };
+  return signal ? { ...init, signal } : init;
+}
+
 // ---------------------------------------------------------------------------
 // Lead list
 // ---------------------------------------------------------------------------
@@ -198,6 +207,54 @@ export async function requestOwnerLeadFileAccess(
     ownerLeadFileAccessSuccessBodySchema,
     deps,
     withMethod("POST", signal),
+  );
+  return mapOk(result);
+}
+
+// ---------------------------------------------------------------------------
+// CHECKPOINT C2J-E — status change + private notes
+// ---------------------------------------------------------------------------
+
+export interface OwnerLeadStatusChangeInput {
+  readonly expectedStatus: OwnerLeadStatus;
+  readonly newStatus: OwnerLeadStatus;
+  readonly lostReason?: string | null;
+}
+
+/** A 409 (kind: "error", status: 409) means expectedStatus was stale — the response body carries no reconciliation data of its own, so callers should re-fetch detail on that status to pick up the lead's real current state (see use-owner-lead-detail.ts). */
+export async function changeOwnerLeadStatus(
+  leadId: string,
+  input: OwnerLeadStatusChangeInput,
+  deps: OwnerLeadsTransportDeps,
+  signal?: AbortSignal,
+): Promise<OwnerApiResult<OwnerLeadStatusChangeSuccessBody["data"]>> {
+  const result = await callOwnerApi(
+    `/api/owner/leads/${encodeURIComponent(leadId)}/status`,
+    ownerLeadStatusChangeSuccessBodySchema,
+    deps,
+    withJsonBody("POST", input, signal),
+  );
+  return mapOk(result);
+}
+
+/**
+ * `requestId` is caller-supplied (see use-owner-lead-mutations.ts), not
+ * generated here — this function stays a thin, stateless transport, and
+ * the caller is what decides whether a given call is a fresh note or a
+ * retry of a prior attempt (by reusing or regenerating the id).
+ */
+export async function addOwnerLeadNote(
+  leadId: string,
+  body: string,
+  requestId: string,
+  deps: OwnerLeadsTransportDeps,
+  signal?: AbortSignal,
+): Promise<OwnerApiResult<OwnerLeadNoteCreateSuccessBody["data"]>> {
+  const result = await callOwnerApi(
+    `/api/owner/leads/${encodeURIComponent(leadId)}/notes`,
+    ownerLeadNoteCreateSuccessBodySchema,
+    deps,
+    withJsonBody("POST", { body, requestId }, signal),
   );
   return mapOk(result);
 }

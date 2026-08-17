@@ -59,8 +59,8 @@ function sellData(overrides: Partial<OwnerLeadDetailData["lead"]> = {}): OwnerLe
     } as OwnerLeadDetailData["lead"],
     files: [],
     activities: [
-      { id: "a1", eventType: "lead_created", actorType: "system", createdAt: "2026-01-01T00:00:00.000Z" },
-      { id: "a2", eventType: "submission_completed", actorType: "system", createdAt: "2026-01-01T00:05:00.000Z" },
+      { id: "a1", eventType: "lead_created", actorType: "system", createdAt: "2026-01-01T00:00:00.000Z", statusChange: null, noteBody: null },
+      { id: "a2", eventType: "submission_completed", actorType: "system", createdAt: "2026-01-01T00:05:00.000Z", statusChange: null, noteBody: null },
     ],
     notification: { status: "pending", attemptCount: 0, manualRequeueCount: 0, lastErrorCode: null, lastErrorAt: null, sentAt: null },
   };
@@ -111,7 +111,7 @@ function buyData(): OwnerLeadDetailData {
 
 describe("OwnerLeadDetailView — seller-only view", () => {
   it("renders seller contact/location/enquiry fields, never buyer-only labels", () => {
-    render(<OwnerLeadDetailView leadId="lead-1" data={sellData()} deps={fakeDeps} onUnauthorized={vi.fn()} />);
+    render(<OwnerLeadDetailView leadId="lead-1" data={sellData()} deps={fakeDeps} onUnauthorized={vi.fn()} onMutated={vi.fn()} />);
     expect(screen.getByRole("heading", { name: "Ahmed Seller" })).toBeInTheDocument();
     expect(screen.getByText("ahmed@example.com")).toBeInTheDocument();
     expect(screen.getByText("Ahmed Trading")).toBeInTheDocument();
@@ -123,7 +123,7 @@ describe("OwnerLeadDetailView — seller-only view", () => {
 
 describe("OwnerLeadDetailView — buyer-only view", () => {
   it("renders buyer contact/enquiry fields, never seller-only labels", () => {
-    render(<OwnerLeadDetailView leadId="lead-2" data={buyData()} deps={fakeDeps} onUnauthorized={vi.fn()} />);
+    render(<OwnerLeadDetailView leadId="lead-2" data={buyData()} deps={fakeDeps} onUnauthorized={vi.fn()} onMutated={vi.fn()} />);
     expect(screen.getByRole("heading", { name: "Fatima Buyer" })).toBeInTheDocument();
     expect(screen.getByText("Fatima LLC")).toBeInTheDocument();
     expect(screen.getByText(/local/i)).toBeInTheDocument();
@@ -134,22 +134,77 @@ describe("OwnerLeadDetailView — buyer-only view", () => {
 
 describe("OwnerLeadDetailView — activity timeline", () => {
   it("renders activities in the order provided, with readable event copy and actor labels", () => {
-    render(<OwnerLeadDetailView leadId="lead-1" data={sellData()} deps={fakeDeps} onUnauthorized={vi.fn()} />);
+    render(<OwnerLeadDetailView leadId="lead-1" data={sellData()} deps={fakeDeps} onUnauthorized={vi.fn()} onMutated={vi.fn()} />);
     expect(screen.getByText("Enquiry received")).toBeInTheDocument();
     expect(screen.getByText("Submission completed")).toBeInTheDocument();
     const items = screen.getAllByText(/System ·/);
     expect(items).toHaveLength(2);
   });
+
+  it("renders a status_changed activity's from/to (and reason, when present) distinctly from a plain event", () => {
+    const data = sellData();
+    const withStatusChange = {
+      ...data,
+      activities: [
+        ...data.activities,
+        {
+          id: "a3",
+          eventType: "status_changed",
+          actorType: "owner" as const,
+          createdAt: "2026-01-02T00:00:00.000Z",
+          statusChange: { from: "new" as const, to: "lost" as const, reason: "Went with a competitor" },
+          noteBody: null,
+        },
+      ],
+    };
+    render(<OwnerLeadDetailView leadId="lead-1" data={withStatusChange} deps={fakeDeps} onUnauthorized={vi.fn()} onMutated={vi.fn()} />);
+    expect(screen.getByText("Status changed")).toBeInTheDocument();
+    expect(screen.getByText(/New → Lost/)).toBeInTheDocument();
+    expect(screen.getByText(/Went with a competitor/)).toBeInTheDocument();
+    expect(screen.getByText(/Owner ·/)).toBeInTheDocument();
+  });
+
+  it("renders a note_added activity's body as safe text, distinct from a status change", () => {
+    const data = sellData();
+    const withNote = {
+      ...data,
+      activities: [
+        ...data.activities,
+        {
+          id: "a4",
+          eventType: "note_added",
+          actorType: "owner" as const,
+          createdAt: "2026-01-02T00:00:00.000Z",
+          statusChange: null,
+          noteBody: "<b>Customer</b> wants pickup Friday",
+        },
+      ],
+    };
+    render(<OwnerLeadDetailView leadId="lead-1" data={withNote} deps={fakeDeps} onUnauthorized={vi.fn()} onMutated={vi.fn()} />);
+    expect(screen.getByText("Private note added")).toBeInTheDocument();
+    // Rendered as literal text (React auto-escapes), never parsed as HTML.
+    expect(screen.getByText("<b>Customer</b> wants pickup Friday")).toBeInTheDocument();
+    expect(document.querySelector("b")).not.toBeInTheDocument();
+  });
+});
+
+describe("OwnerLeadDetailView — Manage section", () => {
+  it("renders the status control and note composer", () => {
+    render(<OwnerLeadDetailView leadId="lead-1" data={sellData()} deps={fakeDeps} onUnauthorized={vi.fn()} onMutated={vi.fn()} />);
+    expect(screen.getByRole("heading", { name: "Manage" })).toBeInTheDocument();
+    expect(screen.getByRole("combobox")).toBeInTheDocument();
+    expect(screen.getByLabelText(/add a private note/i)).toBeInTheDocument();
+  });
 });
 
 describe("OwnerLeadDetailView — notification states", () => {
   it("shows a pending notification with zeroed counters", () => {
-    render(<OwnerLeadDetailView leadId="lead-1" data={sellData()} deps={fakeDeps} onUnauthorized={vi.fn()} />);
+    render(<OwnerLeadDetailView leadId="lead-1" data={sellData()} deps={fakeDeps} onUnauthorized={vi.fn()} onMutated={vi.fn()} />);
     expect(screen.getByText("Pending")).toBeInTheDocument();
   });
 
   it("shows an attention notification with attempt/error summary, never a raw provider payload", () => {
-    render(<OwnerLeadDetailView leadId="lead-2" data={buyData()} deps={fakeDeps} onUnauthorized={vi.fn()} />);
+    render(<OwnerLeadDetailView leadId="lead-2" data={buyData()} deps={fakeDeps} onUnauthorized={vi.fn()} onMutated={vi.fn()} />);
     expect(screen.getByText("Attention required")).toBeInTheDocument();
     expect(screen.getByText("PROVIDER_TIMEOUT")).toBeInTheDocument();
     expect(screen.getByText("3")).toBeInTheDocument();
@@ -158,7 +213,7 @@ describe("OwnerLeadDetailView — notification states", () => {
 
 describe("OwnerLeadDetailView — Call and WhatsApp links", () => {
   it("builds a tel: link and a wa.me link from the normalized phone, without a prefilled message", () => {
-    render(<OwnerLeadDetailView leadId="lead-1" data={sellData()} deps={fakeDeps} onUnauthorized={vi.fn()} />);
+    render(<OwnerLeadDetailView leadId="lead-1" data={sellData()} deps={fakeDeps} onUnauthorized={vi.fn()} onMutated={vi.fn()} />);
     const callLink = screen.getByRole("link", { name: /call ahmed seller/i });
     expect(callLink).toHaveAttribute("href", "tel:+971501234567");
     const whatsappLink = screen.getByRole("link", { name: /message ahmed seller on whatsapp/i });
@@ -169,7 +224,7 @@ describe("OwnerLeadDetailView — Call and WhatsApp links", () => {
 
   it("hides Call/WhatsApp entirely when the phone is absent", () => {
     const data = sellData({ contact: { name: "No Phone", phone: null, email: null, company: null } } as never);
-    render(<OwnerLeadDetailView leadId="lead-1" data={data} deps={fakeDeps} onUnauthorized={vi.fn()} />);
+    render(<OwnerLeadDetailView leadId="lead-1" data={data} deps={fakeDeps} onUnauthorized={vi.fn()} onMutated={vi.fn()} />);
     expect(screen.queryByRole("link", { name: /call/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /whatsapp/i })).not.toBeInTheDocument();
   });
@@ -177,7 +232,7 @@ describe("OwnerLeadDetailView — Call and WhatsApp links", () => {
 
 describe("OwnerLeadDetailView — safe external map link", () => {
   it("renders a map link only for an https:// URL", () => {
-    render(<OwnerLeadDetailView leadId="lead-1" data={sellData()} deps={fakeDeps} onUnauthorized={vi.fn()} />);
+    render(<OwnerLeadDetailView leadId="lead-1" data={sellData()} deps={fakeDeps} onUnauthorized={vi.fn()} onMutated={vi.fn()} />);
     const mapLink = screen.getByRole("link", { name: /view on map/i });
     expect(mapLink).toHaveAttribute("href", "https://maps.google.com/?q=25,55");
     expect(mapLink).toHaveAttribute("rel", "noopener noreferrer");

@@ -88,6 +88,7 @@ function fakeActivityRow(overrides: Partial<LeadActivityRow> = {}): LeadActivity
     id: "33333333-3333-3333-3333-333333333333",
     event_type: "submission_completed",
     actor_type: "system",
+    metadata: {},
     created_at: "2026-01-01T00:05:00.000Z",
     ...overrides,
   };
@@ -206,6 +207,73 @@ describe("getOwnerLeadDetail — files/activities pass through with deterministi
     if (!result.ok) return;
     const serialized = JSON.stringify(result.activities);
     expect(serialized).not.toMatch(/metadata|actor_owner_id/i);
+  });
+});
+
+describe("getOwnerLeadDetail — CHECKPOINT C2J-E: statusChange/noteBody narrow projection", () => {
+  it("projects statusChange only for a status_changed activity, from its metadata", async () => {
+    const row = fakeActivityRow({
+      event_type: "status_changed",
+      actor_type: "owner",
+      metadata: { from_status: "new", to_status: "contacted", reason: null },
+    });
+    const deps = fakeDeps({ queryLeadActivities: vi.fn().mockResolvedValue([row]) });
+    const result = await getOwnerLeadDetail("11111111-1111-1111-1111-111111111111", deps);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.activities[0]?.statusChange).toEqual({ from: "new", to: "contacted", reason: null });
+    expect(result.activities[0]?.noteBody).toBeNull();
+  });
+
+  it("includes the reason when present (a transition to lost)", async () => {
+    const row = fakeActivityRow({
+      event_type: "status_changed",
+      actor_type: "owner",
+      metadata: { from_status: "new", to_status: "lost", reason: "Price too low" },
+    });
+    const deps = fakeDeps({ queryLeadActivities: vi.fn().mockResolvedValue([row]) });
+    const result = await getOwnerLeadDetail("11111111-1111-1111-1111-111111111111", deps);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.activities[0]?.statusChange).toEqual({ from: "new", to: "lost", reason: "Price too low" });
+  });
+
+  it("projects noteBody only for a note_added activity, from its metadata", async () => {
+    const row = fakeActivityRow({ event_type: "note_added", actor_type: "owner", metadata: { note: "Customer called twice." } });
+    const deps = fakeDeps({ queryLeadActivities: vi.fn().mockResolvedValue([row]) });
+    const result = await getOwnerLeadDetail("11111111-1111-1111-1111-111111111111", deps);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.activities[0]?.noteBody).toBe("Customer called twice.");
+    expect(result.activities[0]?.statusChange).toBeNull();
+  });
+
+  it("a non-status/non-note event (e.g. submission_completed) carries neither field, even with unrelated metadata", async () => {
+    const row = fakeActivityRow({ event_type: "submission_completed", metadata: { something: "unexpected" } });
+    const deps = fakeDeps({ queryLeadActivities: vi.fn().mockResolvedValue([row]) });
+    const result = await getOwnerLeadDetail("11111111-1111-1111-1111-111111111111", deps);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.activities[0]?.statusChange).toBeNull();
+    expect(result.activities[0]?.noteBody).toBeNull();
+  });
+
+  it("malformed status_changed metadata (missing/invalid keys) yields null instead of throwing", async () => {
+    const row = fakeActivityRow({ event_type: "status_changed", metadata: { unexpected: "shape" } });
+    const deps = fakeDeps({ queryLeadActivities: vi.fn().mockResolvedValue([row]) });
+    const result = await getOwnerLeadDetail("11111111-1111-1111-1111-111111111111", deps);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.activities[0]?.statusChange).toBeNull();
+  });
+
+  it("non-string note_added metadata.note yields null instead of throwing or coercing", async () => {
+    const row = fakeActivityRow({ event_type: "note_added", metadata: { note: 12345 } });
+    const deps = fakeDeps({ queryLeadActivities: vi.fn().mockResolvedValue([row]) });
+    const result = await getOwnerLeadDetail("11111111-1111-1111-1111-111111111111", deps);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.activities[0]?.noteBody).toBeNull();
   });
 });
 

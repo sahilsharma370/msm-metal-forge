@@ -172,8 +172,20 @@ export type OwnerLeadDetailFile = z.infer<typeof ownerLeadDetailFileSchema>;
 // ---------------------------------------------------------------------------
 // activities — deliberately excludes the raw `metadata` jsonb column and
 // `actor_owner_id` (an internal owner_profiles foreign key, not a public
-// identity in this checkpoint).
+// identity in this checkpoint). CHECKPOINT C2J-E adds two narrow,
+// explicitly-allowlisted fields — statusChange / noteBody — populated by
+// the server only for their matching eventType; this is still not a raw
+// metadata pass-through, just two named projections of it.
 // ---------------------------------------------------------------------------
+
+export const ownerLeadDetailActivityStatusChangeSchema = z
+  .object({
+    from: z.enum(OWNER_LEAD_STATUS_VALUES),
+    to: z.enum(OWNER_LEAD_STATUS_VALUES),
+    reason: z.string().nullable(),
+  })
+  .strict();
+export type OwnerLeadDetailActivityStatusChange = z.infer<typeof ownerLeadDetailActivityStatusChangeSchema>;
 
 export const ownerLeadDetailActivitySchema = z
   .object({
@@ -181,6 +193,8 @@ export const ownerLeadDetailActivitySchema = z
     eventType: z.string(),
     actorType: z.enum(OWNER_LEAD_ACTIVITY_ACTOR_TYPE_VALUES),
     createdAt: z.string(),
+    statusChange: ownerLeadDetailActivityStatusChangeSchema.nullable(),
+    noteBody: z.string().nullable(),
   })
   .strict();
 export type OwnerLeadDetailActivity = z.infer<typeof ownerLeadDetailActivitySchema>;
@@ -240,6 +254,104 @@ export type OwnerLeadDetailErrorBody = z.infer<typeof ownerLeadDetailErrorBodySc
 
 export const ownerLeadDetailResponseBodySchema = z.union([ownerLeadDetailSuccessBodySchema, ownerLeadDetailErrorBodySchema]);
 export type OwnerLeadDetailResponseBody = z.infer<typeof ownerLeadDetailResponseBodySchema>;
+
+// ---------------------------------------------------------------------------
+// CHECKPOINT C2J-E — status change (POST .../status) and private note
+// creation (POST .../notes). Both share one error-code vocabulary that adds
+// CONFLICT (a stale expectedStatus) to the detail endpoint's existing set.
+// Neither request ever carries an owner identity or activity metadata —
+// the server sources both exclusively from the verified session and its
+// own RPC logic (see change-lead-status.server.ts / add-lead-note.server.ts).
+// ---------------------------------------------------------------------------
+
+export const OWNER_LEAD_MUTATION_ERROR_CODES = ["VALIDATION_ERROR", "NOT_FOUND", "UNAUTHORIZED", "CONFLICT", "INTERNAL_ERROR"] as const;
+export type OwnerLeadMutationErrorCode = (typeof OWNER_LEAD_MUTATION_ERROR_CODES)[number];
+
+export const ownerLeadMutationErrorBodySchema = z
+  .object({
+    ok: z.literal(false),
+    error: z
+      .object({
+        code: z.enum(OWNER_LEAD_MUTATION_ERROR_CODES),
+        message: z.string(),
+      })
+      .strict(),
+  })
+  .strict();
+export type OwnerLeadMutationErrorBody = z.infer<typeof ownerLeadMutationErrorBodySchema>;
+
+// Status change ---------------------------------------------------------
+
+export const ownerLeadStatusChangeRequestSchema = z
+  .object({
+    expectedStatus: z.enum(OWNER_LEAD_STATUS_VALUES),
+    newStatus: z.enum(OWNER_LEAD_STATUS_VALUES),
+    // Optional/nullable at the schema level (most transitions never need
+    // it); the "required exactly when newStatus === 'lost'" rule is a
+    // cross-field concern enforced below AND, independently, by the RPC's
+    // own check against leads_lost_reason_matches_status — the browser
+    // schema exists for fast/clear UX, not as the sole enforcement point.
+    lostReason: z.string().max(300).nullable().optional(),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.newStatus === "lost" && (!value.lostReason || value.lostReason.trim().length === 0)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["lostReason"], message: "A reason is required when marking a lead as lost." });
+    }
+  });
+export type OwnerLeadStatusChangeRequest = z.infer<typeof ownerLeadStatusChangeRequestSchema>;
+
+export const ownerLeadStatusChangeSuccessBodySchema = z
+  .object({
+    ok: z.literal(true),
+    data: z
+      .object({
+        changed: z.boolean(),
+        status: z.enum(OWNER_LEAD_STATUS_VALUES),
+        lostReason: z.string().nullable(),
+        closedAt: z.string().nullable(),
+        updatedAt: z.string(),
+      })
+      .strict(),
+  })
+  .strict();
+export type OwnerLeadStatusChangeSuccessBody = z.infer<typeof ownerLeadStatusChangeSuccessBodySchema>;
+
+export const ownerLeadStatusChangeResponseBodySchema = z.union([ownerLeadStatusChangeSuccessBodySchema, ownerLeadMutationErrorBodySchema]);
+export type OwnerLeadStatusChangeResponseBody = z.infer<typeof ownerLeadStatusChangeResponseBodySchema>;
+
+// Note creation -----------------------------------------------------------
+
+export const OWNER_LEAD_NOTE_MAX_LENGTH = 2000;
+
+export const ownerLeadNoteCreateRequestSchema = z
+  .object({
+    body: z.string().trim().min(1, "Note cannot be empty.").max(OWNER_LEAD_NOTE_MAX_LENGTH, "Note is too long."),
+    // Client-generated once per logical note-composition attempt and resent
+    // unchanged across a retry of that same attempt — the server-side
+    // idempotency anchor (see add_lead_note_v1's own header comment).
+    // Never reused across two intentionally-different notes.
+    requestId: z.string().uuid(),
+  })
+  .strict();
+export type OwnerLeadNoteCreateRequest = z.infer<typeof ownerLeadNoteCreateRequestSchema>;
+
+export const ownerLeadNoteCreateSuccessBodySchema = z
+  .object({
+    ok: z.literal(true),
+    data: z
+      .object({
+        activityId: z.string().uuid(),
+        note: z.string(),
+        createdAt: z.string(),
+      })
+      .strict(),
+  })
+  .strict();
+export type OwnerLeadNoteCreateSuccessBody = z.infer<typeof ownerLeadNoteCreateSuccessBodySchema>;
+
+export const ownerLeadNoteCreateResponseBodySchema = z.union([ownerLeadNoteCreateSuccessBodySchema, ownerLeadMutationErrorBodySchema]);
+export type OwnerLeadNoteCreateResponseBody = z.infer<typeof ownerLeadNoteCreateResponseBodySchema>;
 
 // ---------------------------------------------------------------------------
 // File-access response — deliberately minimal: only what a browser needs to
