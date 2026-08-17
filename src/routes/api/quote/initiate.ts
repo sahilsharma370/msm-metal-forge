@@ -83,7 +83,7 @@ export async function handleQuoteInitiateRequest(request: Request): Promise<Resp
     const clientIp = getCloudflareClientIp(request);
     if (!clientIp) return jsonResponse(500, genericServerErrorBody);
 
-    const limiter = getRateLimiterBinding("initiate");
+    const limiter = getRateLimiterBinding(request, "initiate");
     const { allowed } = await checkRateLimit(limiter, clientIp);
     if (!allowed) return rateLimitedResponse();
 

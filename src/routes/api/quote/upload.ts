@@ -98,7 +98,7 @@ export async function handleQuoteUploadRequest(request: Request): Promise<Respon
     const clientIp = getCloudflareClientIp(request);
     if (!clientIp) return jsonResponse(500, genericServerErrorBody);
 
-    const limiter = getRateLimiterBinding("upload");
+    const limiter = getRateLimiterBinding(request, "upload");
     const { allowed } = await checkRateLimit(limiter, clientIp);
     if (!allowed) return rateLimitedResponse();
 

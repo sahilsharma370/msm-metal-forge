@@ -13,19 +13,23 @@
  * the common case fast (near-immediate dispatch after completion) — it is
  * never load-bearing for correctness.
  *
- * Runtime mechanism (verified by reading Nitro's cloudflare-module preset
- * source, not assumed — see rate-limit.server.ts's own doc comment for the
- * exact same underlying process.env/globalThis.__env__ mechanism this
- * module relies on): `env.OWNER_NOTIFICATION_QUEUE` is a real Cloudflare
- * Queue producer binding (`send(message, options?): Promise<QueueSendResponse>`,
- * per @cloudflare/workers-types) reachable via `process.env["OWNER_NOTIFICATION_QUEUE"]`
- * inside a request — the same binding-via-process.env mechanism already
- * used for the Rate Limiting bindings. Locally (`vite dev`, vitest) there is
- * no such binding — getOwnerNotificationQueueBinding() returns null rather
- * than throwing, since a missing Queue binding must never break ordinary
- * Quote completion (unlike the Rate Limiting bindings, which fail closed —
- * a wake-up publish is a pure optimization, not an abuse-protection control).
+ * CHECKPOINT C2I-B — corrected: `env.OWNER_NOTIFICATION_QUEUE` is a real
+ * Cloudflare Queue producer binding (`send(message, options?): Promise<QueueSendResponse>`,
+ * per @cloudflare/workers-types), but it is a live binding OBJECT, not a
+ * string — `process.env` never carries it, on this project's pinned
+ * `compatibility_date`/installed wrangler version or otherwise (see
+ * `@/server/cloudflare-runtime.server`'s own doc comment for the full
+ * empirical story, and rate-limit.server.ts, which hit and fixed the exact
+ * same bug for Rate Limiting bindings first). This module now reads the
+ * binding via that shared `getCloudflareBinding` boundary, keyed off the
+ * calling route's own Request — never a second inline cast. Locally
+ * (`vite dev`, vitest) there is no such binding —
+ * getOwnerNotificationQueueBinding() returns null rather than throwing,
+ * since a missing Queue binding must never break ordinary Quote completion
+ * (unlike the Rate Limiting bindings, which fail closed — a wake-up publish
+ * is a pure optimization, not an abuse-protection control).
  */
+import { getCloudflareBinding } from "@/server/cloudflare-runtime.server";
 
 /** The exact shape of Cloudflare's Queue producer binding this module needs — nothing else. */
 export interface QueueProducerBinding {
@@ -56,9 +60,8 @@ export const OWNER_NOTIFICATION_WAKEUP_MESSAGE: OwnerNotificationWakeupMessage =
 };
 
 /** Returns null (never throws) when the binding is missing or malformed — see this module's own header comment for why a missing Queue binding must fail safely, not closed. */
-export function getOwnerNotificationQueueBinding(): QueueProducerBinding | null {
-  const binding = process.env[OWNER_NOTIFICATION_QUEUE_BINDING_NAME];
-  return isQueueProducerBinding(binding) ? binding : null;
+export function getOwnerNotificationQueueBinding(request: Request): QueueProducerBinding | null {
+  return getCloudflareBinding(request, OWNER_NOTIFICATION_QUEUE_BINDING_NAME, isQueueProducerBinding) ?? null;
 }
 
 export interface PublishWakeupResult {

@@ -32,13 +32,13 @@ vi.mock("@/server/rate-limit.server", async (importOriginal) => {
 // implementation. Defaults to a present binding + successful publish so
 // every pre-existing test in this file is unaffected unless it explicitly
 // overrides one of these.
-const getOwnerNotificationQueueBindingMock = vi.fn(() => ({ send: vi.fn().mockResolvedValue(undefined) }));
+const getOwnerNotificationQueueBindingMock = vi.fn((_request: Request) => ({ send: vi.fn().mockResolvedValue(undefined) }));
 const publishOwnerNotificationWakeupMock = vi.fn().mockResolvedValue({ published: true });
 vi.mock("@/server/notifications/queue-producer.server", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/server/notifications/queue-producer.server")>();
   return {
     ...actual,
-    getOwnerNotificationQueueBinding: () => getOwnerNotificationQueueBindingMock(),
+    getOwnerNotificationQueueBinding: (request: Request) => getOwnerNotificationQueueBindingMock(request),
     publishOwnerNotificationWakeup: (binding: unknown) => publishOwnerNotificationWakeupMock(binding),
   };
 });
@@ -338,5 +338,13 @@ describe("handleQuoteCompleteRequest — CHECKPOINT C2H-B2 Queue wake-up", () =>
     const serialized = JSON.stringify(body);
     expect(serialized).not.toMatch(/queue|published|binding|wakeup/i);
     expect(Object.keys(body)).toEqual(["ok", "data"]);
+  });
+
+  it("CHECKPOINT C2I-B: resolves the Queue binding from the request's own Cloudflare runtime env, never process.env", async () => {
+    rpcMock.mockResolvedValue({ data: rpcSuccessPayload, error: null });
+    const request = jsonRequest({ leadId: LEAD_ID, idempotencyKey: IDEMPOTENCY_KEY });
+    await handleQuoteCompleteRequest(request);
+    expect(getOwnerNotificationQueueBindingMock).toHaveBeenCalledTimes(1);
+    expect(getOwnerNotificationQueueBindingMock).toHaveBeenCalledWith(request);
   });
 });

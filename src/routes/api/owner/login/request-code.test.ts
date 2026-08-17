@@ -17,7 +17,7 @@ vi.mock("@/server/rate-limit.server", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/server/rate-limit.server")>();
   return {
     ...actual,
-    getRateLimiterBinding: (routeClass: string) => {
+    getRateLimiterBinding: (_request: Request, routeClass: string) => {
       getRateLimiterBindingMock(routeClass);
       return { limit: rateLimiterLimitMock };
     },

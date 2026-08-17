@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   getOwnerNotificationQueueBinding,
   publishOwnerNotificationWakeup,
@@ -7,9 +7,12 @@ import {
   type QueueProducerBinding,
 } from "./queue-producer.server";
 
-afterEach(() => {
-  vi.unstubAllGlobals();
-});
+/** Matches exactly what Nitro's cloudflare-module preset attaches to a real Request (see cloudflare-runtime.server.ts's own doc comment) — nothing more is needed to fake it. */
+function fakeCloudflareRequest(env: Record<string, unknown> = {}): Request {
+  const request = new Request("https://example.test/");
+  Object.assign(request, { runtime: { cloudflare: { env } } });
+  return request;
+}
 
 describe("OWNER_NOTIFICATION_WAKEUP_MESSAGE", () => {
   it("is the exact minimal versioned payload with no customer information", () => {
@@ -19,21 +22,40 @@ describe("OWNER_NOTIFICATION_WAKEUP_MESSAGE", () => {
 });
 
 describe("getOwnerNotificationQueueBinding", () => {
-  it("returns null (never throws) when the binding is missing", () => {
-    vi.stubGlobal("process", { env: { ...process.env, [OWNER_NOTIFICATION_QUEUE_BINDING_NAME]: undefined } });
-    expect(() => getOwnerNotificationQueueBinding()).not.toThrow();
-    expect(getOwnerNotificationQueueBinding()).toBeNull();
+  it("returns null (never throws) when the request has no attached Cloudflare runtime at all (e.g. plain vite dev)", () => {
+    const request = new Request("https://example.test/");
+    expect(() => getOwnerNotificationQueueBinding(request)).not.toThrow();
+    expect(getOwnerNotificationQueueBinding(request)).toBeNull();
   });
 
-  it("returns null when the binding is present but shaped wrong (no send method)", () => {
-    vi.stubGlobal("process", { env: { ...process.env, [OWNER_NOTIFICATION_QUEUE_BINDING_NAME]: { notSend: true } } });
-    expect(getOwnerNotificationQueueBinding()).toBeNull();
+  it("returns null when the binding is entirely absent from the attached env", () => {
+    const request = fakeCloudflareRequest({});
+    expect(getOwnerNotificationQueueBinding(request)).toBeNull();
+  });
+
+  it("returns null when the binding is present but shaped wrong (no send method) — a poison/malformed binding is handled safely, never thrown", () => {
+    const request = fakeCloudflareRequest({ [OWNER_NOTIFICATION_QUEUE_BINDING_NAME]: { notSend: true } });
+    expect(() => getOwnerNotificationQueueBinding(request)).not.toThrow();
+    expect(getOwnerNotificationQueueBinding(request)).toBeNull();
+  });
+
+  it("returns null when the binding value is a plain string (the exact process.env-style mistake this checkpoint fixes)", () => {
+    const request = fakeCloudflareRequest({ [OWNER_NOTIFICATION_QUEUE_BINDING_NAME]: "not-a-binding" });
+    expect(getOwnerNotificationQueueBinding(request)).toBeNull();
   });
 
   it("returns the binding when it is a real object with a send() method", () => {
     const fakeBinding: QueueProducerBinding = { send: async () => undefined };
-    vi.stubGlobal("process", { env: { ...process.env, [OWNER_NOTIFICATION_QUEUE_BINDING_NAME]: fakeBinding } });
-    expect(getOwnerNotificationQueueBinding()).toBe(fakeBinding);
+    const request = fakeCloudflareRequest({ [OWNER_NOTIFICATION_QUEUE_BINDING_NAME]: fakeBinding });
+    expect(getOwnerNotificationQueueBinding(request)).toBe(fakeBinding);
+  });
+
+  it("reads from the exact Request instance passed in, never a different/global source (never process.env)", () => {
+    const boundBinding: QueueProducerBinding = { send: async () => undefined };
+    const boundRequest = fakeCloudflareRequest({ [OWNER_NOTIFICATION_QUEUE_BINDING_NAME]: boundBinding });
+    const unboundRequest = fakeCloudflareRequest({});
+    expect(getOwnerNotificationQueueBinding(boundRequest)).toBe(boundBinding);
+    expect(getOwnerNotificationQueueBinding(unboundRequest)).toBeNull();
   });
 });
 

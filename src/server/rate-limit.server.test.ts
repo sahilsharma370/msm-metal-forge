@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   RATE_LIMITER_BINDING_NAMES,
   RateLimiterConfigurationError,
@@ -7,53 +7,53 @@ import {
   getRateLimiterBinding,
 } from "./rate-limit.server";
 
-const ORIGINAL_ENV = { ...process.env };
-
-afterEach(() => {
-  for (const key of Object.keys(RATE_LIMITER_BINDING_NAMES).map((k) => RATE_LIMITER_BINDING_NAMES[k as keyof typeof RATE_LIMITER_BINDING_NAMES])) {
-    delete process.env[key];
-  }
-  for (const [key, value] of Object.entries(ORIGINAL_ENV)) {
-    process.env[key] = value;
-  }
-});
+/** Matches exactly what Nitro's cloudflare-module preset attaches to a real Request (see this module's own doc comment) — nothing more is needed to fake it. */
+function fakeCloudflareRequest(env: Record<string, unknown> = {}): Request {
+  const request = new Request("https://example.test/");
+  Object.assign(request, { runtime: { cloudflare: { env } } });
+  return request;
+}
 
 describe("getRateLimiterBinding — fails closed when missing/misshapen", () => {
-  it("throws RateLimiterConfigurationError when the binding is entirely absent", () => {
-    expect(() => getRateLimiterBinding("initiate")).toThrow(RateLimiterConfigurationError);
+  it("throws RateLimiterConfigurationError when the request has no attached Cloudflare env at all (e.g. plain vite dev, no Workers runtime)", () => {
+    const request = new Request("https://example.test/");
+    expect(() => getRateLimiterBinding(request, "initiate")).toThrow(RateLimiterConfigurationError);
   });
 
-  it("throws when the env value exists but has no limit() method (e.g. a plain string, matching an accidental .env entry)", () => {
-    // Simulating a misconfigured plain string in env — process.env is
-    // typed as string-valued, so this assignment needs no type escape.
-    process.env[RATE_LIMITER_BINDING_NAMES.initiate] = "not-a-binding";
-    expect(() => getRateLimiterBinding("initiate")).toThrow(RateLimiterConfigurationError);
+  it("throws RateLimiterConfigurationError when the binding is entirely absent from the attached env", () => {
+    const request = fakeCloudflareRequest({});
+    expect(() => getRateLimiterBinding(request, "initiate")).toThrow(RateLimiterConfigurationError);
+  });
+
+  it("throws when the env value exists but has no limit() method (e.g. a plain string, matching an accidental misconfiguration)", () => {
+    const request = fakeCloudflareRequest({ [RATE_LIMITER_BINDING_NAMES.initiate]: "not-a-binding" });
+    expect(() => getRateLimiterBinding(request, "initiate")).toThrow(RateLimiterConfigurationError);
   });
 
   it("the thrown error message never reveals which binding was missing", () => {
+    const request = fakeCloudflareRequest({});
     try {
-      getRateLimiterBinding("upload");
+      getRateLimiterBinding(request, "upload");
       expect.unreachable();
     } catch (error) {
       expect((error as Error).message).not.toMatch(/RATE_LIMITER|upload/i);
     }
   });
 
-  it("returns the live binding object when present and correctly shaped", () => {
-    // Node's real process.env setter stringifies any assigned value (a
-    // well-known Node quirk), which would silently turn a fake binding
-    // object into "[object Object]" and defeat this test. The real
-    // Cloudflare Workers process.env Proxy (see this module's own doc
-    // comment) does no such coercion — vi.stubGlobal replaces the whole
-    // `process` with a plain object whose `.env` is a plain object too,
-    // which correctly preserves object identity, matching production.
-    const fakeBinding = { limit: vi.fn() };
-    vi.stubGlobal("process", { env: { ...process.env, [RATE_LIMITER_BINDING_NAMES.complete]: fakeBinding } });
-    try {
-      expect(getRateLimiterBinding("complete")).toBe(fakeBinding);
-    } finally {
-      vi.unstubAllGlobals();
+  it("returns the live binding object when present and correctly shaped, for every route class including the owner-login ones", () => {
+    for (const routeClass of Object.keys(RATE_LIMITER_BINDING_NAMES) as (keyof typeof RATE_LIMITER_BINDING_NAMES)[]) {
+      const fakeBinding = { limit: vi.fn() };
+      const request = fakeCloudflareRequest({ [RATE_LIMITER_BINDING_NAMES[routeClass]]: fakeBinding });
+      expect(getRateLimiterBinding(request, routeClass)).toBe(fakeBinding);
     }
+  });
+
+  it("reads the binding from the exact Request instance passed in, never a different/global source", () => {
+    const boundBinding = { limit: vi.fn() };
+    const boundRequest = fakeCloudflareRequest({ [RATE_LIMITER_BINDING_NAMES.complete]: boundBinding });
+    const unboundRequest = fakeCloudflareRequest({});
+    expect(getRateLimiterBinding(boundRequest, "complete")).toBe(boundBinding);
+    expect(() => getRateLimiterBinding(unboundRequest, "complete")).toThrow(RateLimiterConfigurationError);
   });
 });
 

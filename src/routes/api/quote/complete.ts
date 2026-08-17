@@ -85,7 +85,7 @@ export async function handleQuoteCompleteRequest(request: Request): Promise<Resp
     const clientIp = getCloudflareClientIp(request);
     if (!clientIp) return jsonResponse(500, genericServerErrorBody);
 
-    const limiter = getRateLimiterBinding("complete");
+    const limiter = getRateLimiterBinding(request, "complete");
     const { allowed } = await checkRateLimit(limiter, clientIp);
     if (!allowed) return rateLimitedResponse();
 
@@ -121,7 +121,7 @@ export async function handleQuoteCompleteRequest(request: Request): Promise<Resp
   // completion (any non-2xx result) never publishes — there is nothing to
   // notify the owner about yet.
   if (result.body.ok) {
-    await publishOwnerNotificationWakeup(getOwnerNotificationQueueBinding());
+    await publishOwnerNotificationWakeup(getOwnerNotificationQueueBinding(request));
   }
 
   return jsonResponse(result.status, result.body);

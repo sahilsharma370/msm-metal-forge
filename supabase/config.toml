@@ -156,11 +156,17 @@ max_indexes = 5
 enabled = true
 # The base URL of your website. Used as an allow-list for redirects and for constructing URLs used
 # in emails.
-site_url = "http://127.0.0.1:3000"
+# CHECKPOINT C2I-A: corrected from the stale default (127.0.0.1:3000, no
+# route in this app) to this project's actual local app origin
+# (`wrangler dev`, see docs/cloudflare-setup.md). The owner login flow
+# itself never follows a Supabase-constructed redirect URL (OTP code entry
+# only, never a clicked magic-link) — this value only matters as Auth's own
+# allow-list target, so it is a single exact local origin, never a wildcard.
+site_url = "http://localhost:8787"
 # The public URL that Auth serves on. Defaults to the API external URL with `/auth/v1` appended.
 # external_url = ""
 # A list of *exact* URLs that auth providers are permitted to redirect to post authentication.
-additional_redirect_urls = ["https://127.0.0.1:3000"]
+additional_redirect_urls = ["http://localhost:8787"]
 # How long tokens are valid for, in seconds. Defaults to 3600 (1 hour), maximum 604,800 (1 week).
 jwt_expiry = 3600
 # JWT issuer URL. If not set, defaults to auth.external_url.
@@ -221,9 +227,20 @@ web3 = 30
 # secret = ""
 
 [auth.email]
-# CHECKPOINT C2I-A: same reasoning as the top-level [auth] enable_signup
-# above — no public self-registration surface exists in this app.
-enable_signup = false
+# CHECKPOINT C2I-A — CORRECTED: despite its name, this CLI field maps to
+# GoTrue's GOTRUE_EXTERNAL_EMAIL_ENABLED, which gates the entire email auth
+# provider (sign-IN included, not just sign-up). Setting it to false — the
+# original, name-literal reading — silently broke the owner OTP sign-in
+# flow with `422 email_provider_disabled`, only surfacing on a real
+# `supabase stop && supabase start` cycle that rebuilt the Auth container
+# from this file (an already-running container never re-reads it). Public
+# self-registration is still fully blocked without this flag: the
+# top-level [auth] enable_signup = false above blocks the signup surface
+# project-wide, and every owner OTP request also passes
+# shouldCreateUser: false in application code
+# (src/server/owner-auth/owner-login.server.ts) — this flag alone was
+# never the only signup control, so enabling it here reopens no gap.
+enable_signup = true
 # If enabled, a user will be required to confirm any email change on both the old, and new email
 # addresses. If disabled, only the new email is required to confirm.
 double_confirm_changes = true
@@ -247,6 +264,22 @@ otp_expiry = 3600
 # pass = "env(SENDGRID_API_KEY)"
 # admin_email = "admin@email.com"
 # sender_name = "Admin"
+
+# CHECKPOINT C2I-A: the owner login flow (src/routes/owner/login.tsx) is a
+# locked six-digit-code architecture, never a clicked magic link —
+# signInWithOtp()/verifyOtp({type:"email"}) both use GoTrue's "magiclink"
+# email internally regardless of which one the caller actually uses, so
+# THIS is the template that must carry `{{ .Token }}`. content_path is
+# resolved relative to the project root, the directory `supabase` commands
+# are run from (verified empirically: `./templates/...` here failed with
+# ENOENT against the repo root, not supabase/) — matching the existing
+# commented `[auth.email.template.invite]` example's own
+# `./supabase/templates/invite.html` convention below. See
+# supabase/templates/magic_link.html for the actual template, which
+# deliberately has no ConfirmationURL/magic-link button.
+[auth.email.template.magic_link]
+subject = "Your MSM Scrap owner sign-in code"
+content_path = "./supabase/templates/magic_link.html"
 
 # Uncomment to customize email template
 # [auth.email.template.invite]

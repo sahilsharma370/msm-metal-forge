@@ -3,32 +3,29 @@
  * bindings. `.server.ts` suffix — see env.server.ts for why that's
  * sufficient import protection on its own.
  *
- * Runtime mechanism (verified by reading node_modules/nitro's actual
- * cloudflare-module preset before writing this file, not assumed):
- * Nitro's `_module-handler.mjs` sets `globalThis.__env__ = env` on every
- * Worker `fetch(request, env, context)` invocation, where `env` is
- * Cloudflare's own per-request bindings object (containing live binding
- * instances — KV, Durable Objects, Rate Limiting — not just strings).
- * unenv's `process.env` polyfill (node_modules/unenv/.../internal/process/env.mjs)
- * is a Proxy whose `get` trap reads directly from `globalThis.__env__` with
- * no type coercion. This is the exact same mechanism env.server.ts already
- * relies on for SUPABASE_URL/SUPABASE_SECRET_KEY — `process.env["MY_BINDING"]`
- * genuinely yields the live Cloudflare binding object in production, not a
- * stringified value. Every read happens inside a function, never at module
- * scope, for the same per-request-injection reason as env.server.ts.
+ * Runtime mechanism: reads the live binding via
+ * `@/server/cloudflare-runtime.server`'s `getCloudflareBinding` — see that
+ * module's own doc comment for the full empirical story of why bindings
+ * must come from `request.runtime.cloudflare.env`, never `process.env`
+ * (confirmed against a real `wrangler dev` run: even with
+ * `nodejs_compat_populate_process_env` enabled, `process.env` only ever
+ * carries plain-string vars, never a live binding object).
  *
  * Locally (`vite dev`, vitest) there is no Cloudflare Workers runtime and
- * therefore no real binding — getRateLimiterBinding() throws in that case,
- * exactly like createSupabaseAdminClient() does for missing Supabase env.
- * Route handlers catch this and fail closed with a generic 500 — production
- * must not silently run unprotected, so "binding missing" is never treated
- * as "skip rate limiting". Manual local testing of these three routes
- * therefore requires a Cloudflare Workers-emulating runtime (`wrangler dev`
- * against the built output, which provisions bindings from the checked-in
+ * therefore no real binding, and no `request.runtime.cloudflare.env` either
+ * — getRateLimiterBinding() throws in that case, exactly like
+ * createSupabaseAdminClient() does for missing Supabase env. Route handlers
+ * catch this and fail closed with a generic 500 — production must not
+ * silently run unprotected, so "binding missing" is never treated as "skip
+ * rate limiting". Manual local testing of these five routes therefore
+ * requires a Cloudflare Workers-emulating runtime (`wrangler dev` against
+ * the built output, which provisions bindings from the checked-in
  * wrangler.jsonc via Miniflare) — plain `vite dev` intentionally fails
- * closed here. Automated tests inject a fake binding via `vi.mock`, exactly
- * like the existing `@/server/supabase-admin.server` mocking convention.
+ * closed here. Automated tests inject a fake `Request` shaped with
+ * `runtime.cloudflare.env`, exactly like the existing
+ * `@/server/supabase-admin.server` mocking convention.
  */
+import { getCloudflareBinding } from "./cloudflare-runtime.server";
 
 /** One route class's outcome from a single rate-limit check — never exposes the underlying counter or IP. */
 export interface RateLimitCheckResult {
@@ -112,10 +109,10 @@ function isRateLimiterBinding(value: unknown): value is RateLimiterBinding {
   );
 }
 
-/** Reads one named binding from the current request's Cloudflare env via process.env (see module doc comment). Throws (fail closed) if missing or shaped wrong. */
-export function getRateLimiterBinding(routeClass: RateLimitRouteClass): RateLimiterBinding {
-  const binding = process.env[RATE_LIMITER_BINDING_NAMES[routeClass]];
-  if (!isRateLimiterBinding(binding)) {
+/** Reads one named binding from the current request's own attached Cloudflare env (see module doc comment — never process.env for a binding). Throws (fail closed) if missing or shaped wrong; the thrown error never names the binding. */
+export function getRateLimiterBinding(request: Request, routeClass: RateLimitRouteClass): RateLimiterBinding {
+  const binding = getCloudflareBinding(request, RATE_LIMITER_BINDING_NAMES[routeClass], isRateLimiterBinding);
+  if (!binding) {
     throw new RateLimiterConfigurationError();
   }
   return binding;

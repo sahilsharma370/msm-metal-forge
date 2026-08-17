@@ -27,14 +27,34 @@
   // forward deliberately later; must never be left to float.
   "compatibility_date": "2024-09-23",
 
-  // Required for src/server/env.server.ts, rate-limit.server.ts and
-  // turnstile.server.ts, all of which read secrets/bindings via
-  // `process.env["..."]` — that relies on unenv's Node.js `process.env`
-  // polyfill, which is only active under this flag. Nitro's own
-  // `cloudflare.nodeCompat` option (on by default) would add this
-  // automatically, but it's made explicit here per this checkpoint's own
-  // "configure required compatibility behavior explicitly" requirement.
-  "compatibility_flags": ["nodejs_compat"],
+  // `nodejs_compat`: the base Node.js compatibility polyfill layer (Buffer,
+  // streams, etc.) — required broadly, including by @supabase/supabase-js.
+  //
+  // `nodejs_compat_populate_process_env` — CHECKPOINT C2I-B: required for
+  // `process.env["..."]` to actually be populated at all with this
+  // project's pinned `compatibility_date` (2024-09-23, well before
+  // Cloudflare's 2025-04-01 default-on cutoff for this behavior) — without
+  // it, `process.env` reads (env.server.ts's SUPABASE_URL/
+  // SUPABASE_SECRET_KEY/RESEND_API_KEY/etc., turnstile.server.ts's
+  // TURNSTILE_SECRET_KEY/TURNSTILE_ALLOWED_HOSTNAMES) silently return
+  // undefined, discovered empirically against a real `wrangler dev` run.
+  // This flag is explicitly NOT a substitute for bumping
+  // `compatibility_date` forward — that stays pinned deliberately (see its
+  // own comment above) so behavior never silently shifts on a future
+  // Workers runtime release; this flag opts into exactly the one documented
+  // behavior needed, nothing else.
+  //
+  // Explicitly does NOT cover live binding objects (Rate Limiting, Queues,
+  // KV, R2, Durable Objects, service bindings): Cloudflare's `process.env`
+  // — with or without this flag — only ever carries plain-string values,
+  // never a binding object with methods like `.limit()`/`.send()`. Every
+  // live binding in this codebase is read via
+  // `@/server/cloudflare-runtime.server`'s `getCloudflareBinding`, from
+  // `request.runtime.cloudflare.env` (Nitro's own per-request attachment),
+  // never `process.env` — see that module's own doc comment for the full
+  // empirical story and rate-limit.server.ts/queue-producer.server.ts for
+  // the two call sites.
+  "compatibility_flags": ["nodejs_compat", "nodejs_compat_populate_process_env"],
 
   // CHECKPOINT C2G — Cloudflare Workers Rate Limiting bindings (native
   // Workers Free-tier feature; no paid add-on, no external service, no

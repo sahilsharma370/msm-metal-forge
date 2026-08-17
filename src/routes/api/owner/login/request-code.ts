@@ -71,7 +71,7 @@ export async function handleOwnerLoginRequestCodeRequest(request: Request): Prom
     const clientIp = getCloudflareClientIp(request);
     if (!clientIp) return jsonResponse(500, genericServerErrorBody);
 
-    const limiter = getRateLimiterBinding("ownerLoginRequestCode");
+    const limiter = getRateLimiterBinding(request, "ownerLoginRequestCode");
     const { allowed } = await checkRateLimit(limiter, clientIp);
     if (!allowed) return rateLimitedResponse();
   } catch {

@@ -11,13 +11,17 @@ were performed while producing this checkpoint — all work was local-only.
 ## 1. What's already checked in
 
 - `wrangler.jsonc` (project root) — pinned `compatibility_date`,
-  `compatibility_flags: ["nodejs_compat"]`, the three Rate Limiting
-  bindings (`RATE_LIMITER_INITIATE`, `RATE_LIMITER_UPLOAD`,
-  `RATE_LIMITER_COMPLETE`), the `OWNER_NOTIFICATION_QUEUE` producer/
-  consumer (CHECKPOINT C2H-B2), and an every-minute Cron trigger. Picked
-  up automatically by Nitro's `cloudflare-module` preset at build time —
-  see the comment block at the top of that file for exactly how it's
-  merged.
+  `compatibility_flags: ["nodejs_compat", "nodejs_compat_populate_process_env"]`
+  (the second flag is CHECKPOINT C2I-B — required for `process.env["..."]`
+  string reads to actually be populated at all under this pinned
+  `compatibility_date`; see that file's own comment for the full story and
+  section 5 below), the five Rate Limiting bindings (`RATE_LIMITER_INITIATE`,
+  `RATE_LIMITER_UPLOAD`, `RATE_LIMITER_COMPLETE`,
+  `RATE_LIMITER_OWNER_LOGIN_REQUEST_CODE`, `RATE_LIMITER_OWNER_LOGIN_VERIFY_CODE`
+  — CHECKPOINT C2I-A), the `OWNER_NOTIFICATION_QUEUE` producer/consumer
+  (CHECKPOINT C2H-B2), and an every-minute Cron trigger. Picked up
+  automatically by Nitro's `cloudflare-module` preset at build time — see
+  the comment block at the top of that file for exactly how it's merged.
 - `.env.example` — documents every required variable name (server secrets
   and the one public build-time key). No real values.
 - `src/server/notifications/` — the owner-notification email brain
@@ -33,10 +37,42 @@ Cloudflare Workers Rate Limiting bindings are configured entirely through
 `wrangler.jsonc`'s `ratelimits` array — `namespace_id` is an arbitrary,
 developer-chosen unique string, not a dashboard-provisioned resource ID
 (unlike KV/D1/R2). As long as `wrangler.jsonc` deploys with the Worker, all
-three limiter bindings exist automatically. Available on the Workers Free
+five limiter bindings exist automatically. Available on the Workers Free
 plan.
 
-## 3. Manual steps still required before a real deployment
+## 3. How server code reads a live Cloudflare binding (CHECKPOINT C2I-B)
+
+Every live Cloudflare binding this project uses — the five Rate Limiting
+bindings and the `OWNER_NOTIFICATION_QUEUE` producer — is read through one
+shared, tested boundary: `src/server/cloudflare-runtime.server.ts`'s
+`getCloudflareBinding(request, bindingName, isBindingGuard)`. It pulls the
+binding from `request.runtime.cloudflare.env`, the per-request object
+Nitro's `cloudflare-module` preset attaches directly onto the incoming
+`Request` (confirmed by reading
+`node_modules/nitro/dist/presets/cloudflare/runtime/_module-handler.mjs`'s
+`augmentReq`), never from `process.env`.
+
+This distinction matters and was the root cause of a real local bug found
+during CHECKPOINT C2I-A/C2I-B: Cloudflare's Workers runtime only ever
+populates `process.env` with plain-string values (secrets, config)  — a
+live binding object (something with a `.limit()` or `.send()` method) is
+never exposed through `process.env`, with or without the
+`nodejs_compat_populate_process_env` compatibility flag. Confirmed
+empirically with an isolated Worker that had no Nitro/unenv involved at
+all. Any new binding this project adds later (KV, R2, another Queue, a
+Durable Object, a service binding) must be read the same way — through
+`getCloudflareBinding`, keyed off the handling route's own `Request` —
+never a fresh `process.env["..."]` lookup and never a second inline cast
+of `request.runtime.cloudflare.env`.
+
+Plain-string secrets (`SUPABASE_URL`, `SUPABASE_SECRET_KEY`,
+`RESEND_API_KEY`, `TURNSTILE_SECRET_KEY`, etc.) are the opposite case and
+correctly keep using `process.env` directly (`env.server.ts`,
+`turnstile.server.ts`) — that mechanism does work for strings, provided the
+`nodejs_compat_populate_process_env` compatibility flag is set (see
+`wrangler.jsonc`'s own comment and section 5 below).
+
+## 4. Manual steps still required before a real deployment
 
 1. **Create a Turnstile widget** in the Cloudflare dashboard (Turnstile →
    Add widget). Use "Managed" mode. Register the real production
@@ -74,7 +110,7 @@ plan.
 6. **Deploy** with `wrangler deploy` (or the project's normal CI/CD path).
    Not run from this repository as part of this checkpoint.
 
-## 4. Verifying it worked (post-deploy, not part of this checkpoint)
+## 5. Verifying it worked (post-deploy, not part of this checkpoint)
 
 - Submitting the real Quote form should require completing the visible
   Turnstile challenge before `/api/quote/initiate` succeeds.

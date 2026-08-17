@@ -67,7 +67,7 @@ export async function handleOwnerLoginVerifyCodeRequest(request: Request): Promi
     const clientIp = getCloudflareClientIp(request);
     if (!clientIp) return jsonResponse(500, genericServerErrorBody);
 
-    const limiter = getRateLimiterBinding("ownerLoginVerifyCode");
+    const limiter = getRateLimiterBinding(request, "ownerLoginVerifyCode");
     const { allowed } = await checkRateLimit(limiter, clientIp);
     if (!allowed) return rateLimitedResponse();
   } catch {
