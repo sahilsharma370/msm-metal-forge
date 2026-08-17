@@ -18,8 +18,10 @@ import { Route as ApiOwnerSessionRouteImport } from './routes/api/owner/session'
 import { Route as ApiQuoteCompleteRouteImport } from './routes/api/quote/complete'
 import { Route as ApiQuoteInitiateRouteImport } from './routes/api/quote/initiate'
 import { Route as ApiQuoteUploadRouteImport } from './routes/api/quote/upload'
+import { Route as ApiOwnerLeadsLeadIdRouteImport } from './routes/api/owner/leads/$leadId'
 import { Route as ApiOwnerLoginRequestCodeRouteImport } from './routes/api/owner/login/request-code'
 import { Route as ApiOwnerLoginVerifyCodeRouteImport } from './routes/api/owner/login/verify-code'
+import { Route as ApiOwnerLeadsLeadIdFilesFileIdAccessRouteImport } from './routes/api/owner/leads/$leadId.files.$fileId.access'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -66,6 +68,11 @@ const ApiQuoteUploadRoute = ApiQuoteUploadRouteImport.update({
   path: '/api/quote/upload',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiOwnerLeadsLeadIdRoute = ApiOwnerLeadsLeadIdRouteImport.update({
+  id: '/$leadId',
+  path: '/$leadId',
+  getParentRoute: () => ApiOwnerLeadsRoute,
+} as any)
 const ApiOwnerLoginRequestCodeRoute =
   ApiOwnerLoginRequestCodeRouteImport.update({
     id: '/api/owner/login/request-code',
@@ -77,32 +84,42 @@ const ApiOwnerLoginVerifyCodeRoute = ApiOwnerLoginVerifyCodeRouteImport.update({
   path: '/api/owner/login/verify-code',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiOwnerLeadsLeadIdFilesFileIdAccessRoute =
+  ApiOwnerLeadsLeadIdFilesFileIdAccessRouteImport.update({
+    id: '/files/$fileId/access',
+    path: '/files/$fileId/access',
+    getParentRoute: () => ApiOwnerLeadsLeadIdRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/quote': typeof QuoteRoute
   '/owner/login': typeof OwnerLoginRoute
   '/owner/': typeof OwnerIndexRoute
-  '/api/owner/leads': typeof ApiOwnerLeadsRoute
+  '/api/owner/leads': typeof ApiOwnerLeadsRouteWithChildren
   '/api/owner/session': typeof ApiOwnerSessionRoute
   '/api/quote/complete': typeof ApiQuoteCompleteRoute
   '/api/quote/initiate': typeof ApiQuoteInitiateRoute
   '/api/quote/upload': typeof ApiQuoteUploadRoute
+  '/api/owner/leads/$leadId': typeof ApiOwnerLeadsLeadIdRouteWithChildren
   '/api/owner/login/request-code': typeof ApiOwnerLoginRequestCodeRoute
   '/api/owner/login/verify-code': typeof ApiOwnerLoginVerifyCodeRoute
+  '/api/owner/leads/$leadId/files/$fileId/access': typeof ApiOwnerLeadsLeadIdFilesFileIdAccessRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/quote': typeof QuoteRoute
   '/owner/login': typeof OwnerLoginRoute
   '/owner': typeof OwnerIndexRoute
-  '/api/owner/leads': typeof ApiOwnerLeadsRoute
+  '/api/owner/leads': typeof ApiOwnerLeadsRouteWithChildren
   '/api/owner/session': typeof ApiOwnerSessionRoute
   '/api/quote/complete': typeof ApiQuoteCompleteRoute
   '/api/quote/initiate': typeof ApiQuoteInitiateRoute
   '/api/quote/upload': typeof ApiQuoteUploadRoute
+  '/api/owner/leads/$leadId': typeof ApiOwnerLeadsLeadIdRouteWithChildren
   '/api/owner/login/request-code': typeof ApiOwnerLoginRequestCodeRoute
   '/api/owner/login/verify-code': typeof ApiOwnerLoginVerifyCodeRoute
+  '/api/owner/leads/$leadId/files/$fileId/access': typeof ApiOwnerLeadsLeadIdFilesFileIdAccessRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -110,13 +127,15 @@ export interface FileRoutesById {
   '/quote': typeof QuoteRoute
   '/owner/login': typeof OwnerLoginRoute
   '/owner/': typeof OwnerIndexRoute
-  '/api/owner/leads': typeof ApiOwnerLeadsRoute
+  '/api/owner/leads': typeof ApiOwnerLeadsRouteWithChildren
   '/api/owner/session': typeof ApiOwnerSessionRoute
   '/api/quote/complete': typeof ApiQuoteCompleteRoute
   '/api/quote/initiate': typeof ApiQuoteInitiateRoute
   '/api/quote/upload': typeof ApiQuoteUploadRoute
+  '/api/owner/leads/$leadId': typeof ApiOwnerLeadsLeadIdRouteWithChildren
   '/api/owner/login/request-code': typeof ApiOwnerLoginRequestCodeRoute
   '/api/owner/login/verify-code': typeof ApiOwnerLoginVerifyCodeRoute
+  '/api/owner/leads/$leadId/files/$fileId/access': typeof ApiOwnerLeadsLeadIdFilesFileIdAccessRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -130,8 +149,10 @@ export interface FileRouteTypes {
     | '/api/quote/complete'
     | '/api/quote/initiate'
     | '/api/quote/upload'
+    | '/api/owner/leads/$leadId'
     | '/api/owner/login/request-code'
     | '/api/owner/login/verify-code'
+    | '/api/owner/leads/$leadId/files/$fileId/access'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -143,8 +164,10 @@ export interface FileRouteTypes {
     | '/api/quote/complete'
     | '/api/quote/initiate'
     | '/api/quote/upload'
+    | '/api/owner/leads/$leadId'
     | '/api/owner/login/request-code'
     | '/api/owner/login/verify-code'
+    | '/api/owner/leads/$leadId/files/$fileId/access'
   id:
     | '__root__'
     | '/'
@@ -156,8 +179,10 @@ export interface FileRouteTypes {
     | '/api/quote/complete'
     | '/api/quote/initiate'
     | '/api/quote/upload'
+    | '/api/owner/leads/$leadId'
     | '/api/owner/login/request-code'
     | '/api/owner/login/verify-code'
+    | '/api/owner/leads/$leadId/files/$fileId/access'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -165,7 +190,7 @@ export interface RootRouteChildren {
   QuoteRoute: typeof QuoteRoute
   OwnerLoginRoute: typeof OwnerLoginRoute
   OwnerIndexRoute: typeof OwnerIndexRoute
-  ApiOwnerLeadsRoute: typeof ApiOwnerLeadsRoute
+  ApiOwnerLeadsRoute: typeof ApiOwnerLeadsRouteWithChildren
   ApiOwnerSessionRoute: typeof ApiOwnerSessionRoute
   ApiQuoteCompleteRoute: typeof ApiQuoteCompleteRoute
   ApiQuoteInitiateRoute: typeof ApiQuoteInitiateRoute
@@ -239,6 +264,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiQuoteUploadRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/owner/leads/$leadId': {
+      id: '/api/owner/leads/$leadId'
+      path: '/$leadId'
+      fullPath: '/api/owner/leads/$leadId'
+      preLoaderRoute: typeof ApiOwnerLeadsLeadIdRouteImport
+      parentRoute: typeof ApiOwnerLeadsRoute
+    }
     '/api/owner/login/request-code': {
       id: '/api/owner/login/request-code'
       path: '/api/owner/login/request-code'
@@ -253,15 +285,46 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiOwnerLoginVerifyCodeRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/owner/leads/$leadId/files/$fileId/access': {
+      id: '/api/owner/leads/$leadId/files/$fileId/access'
+      path: '/files/$fileId/access'
+      fullPath: '/api/owner/leads/$leadId/files/$fileId/access'
+      preLoaderRoute: typeof ApiOwnerLeadsLeadIdFilesFileIdAccessRouteImport
+      parentRoute: typeof ApiOwnerLeadsLeadIdRoute
+    }
   }
 }
+
+interface ApiOwnerLeadsLeadIdRouteChildren {
+  ApiOwnerLeadsLeadIdFilesFileIdAccessRoute: typeof ApiOwnerLeadsLeadIdFilesFileIdAccessRoute
+}
+
+const ApiOwnerLeadsLeadIdRouteChildren: ApiOwnerLeadsLeadIdRouteChildren = {
+  ApiOwnerLeadsLeadIdFilesFileIdAccessRoute:
+    ApiOwnerLeadsLeadIdFilesFileIdAccessRoute,
+}
+
+const ApiOwnerLeadsLeadIdRouteWithChildren =
+  ApiOwnerLeadsLeadIdRoute._addFileChildren(ApiOwnerLeadsLeadIdRouteChildren)
+
+interface ApiOwnerLeadsRouteChildren {
+  ApiOwnerLeadsLeadIdRoute: typeof ApiOwnerLeadsLeadIdRouteWithChildren
+}
+
+const ApiOwnerLeadsRouteChildren: ApiOwnerLeadsRouteChildren = {
+  ApiOwnerLeadsLeadIdRoute: ApiOwnerLeadsLeadIdRouteWithChildren,
+}
+
+const ApiOwnerLeadsRouteWithChildren = ApiOwnerLeadsRoute._addFileChildren(
+  ApiOwnerLeadsRouteChildren,
+)
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   QuoteRoute: QuoteRoute,
   OwnerLoginRoute: OwnerLoginRoute,
   OwnerIndexRoute: OwnerIndexRoute,
-  ApiOwnerLeadsRoute: ApiOwnerLeadsRoute,
+  ApiOwnerLeadsRoute: ApiOwnerLeadsRouteWithChildren,
   ApiOwnerSessionRoute: ApiOwnerSessionRoute,
   ApiQuoteCompleteRoute: ApiQuoteCompleteRoute,
   ApiQuoteInitiateRoute: ApiQuoteInitiateRoute,
