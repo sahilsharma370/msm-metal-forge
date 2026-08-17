@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as QuoteRouteImport } from './routes/quote'
 import { Route as OwnerIndexRouteImport } from './routes/owner/index'
 import { Route as OwnerLoginRouteImport } from './routes/owner/login'
+import { Route as ApiOwnerLeadsRouteImport } from './routes/api/owner/leads'
 import { Route as ApiOwnerSessionRouteImport } from './routes/api/owner/session'
 import { Route as ApiQuoteCompleteRouteImport } from './routes/api/quote/complete'
 import { Route as ApiQuoteInitiateRouteImport } from './routes/api/quote/initiate'
@@ -38,6 +39,11 @@ const OwnerIndexRoute = OwnerIndexRouteImport.update({
 const OwnerLoginRoute = OwnerLoginRouteImport.update({
   id: '/owner/login',
   path: '/owner/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiOwnerLeadsRoute = ApiOwnerLeadsRouteImport.update({
+  id: '/api/owner/leads',
+  path: '/api/owner/leads',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiOwnerSessionRoute = ApiOwnerSessionRouteImport.update({
@@ -77,6 +83,7 @@ export interface FileRoutesByFullPath {
   '/quote': typeof QuoteRoute
   '/owner/login': typeof OwnerLoginRoute
   '/owner/': typeof OwnerIndexRoute
+  '/api/owner/leads': typeof ApiOwnerLeadsRoute
   '/api/owner/session': typeof ApiOwnerSessionRoute
   '/api/quote/complete': typeof ApiQuoteCompleteRoute
   '/api/quote/initiate': typeof ApiQuoteInitiateRoute
@@ -89,6 +96,7 @@ export interface FileRoutesByTo {
   '/quote': typeof QuoteRoute
   '/owner/login': typeof OwnerLoginRoute
   '/owner': typeof OwnerIndexRoute
+  '/api/owner/leads': typeof ApiOwnerLeadsRoute
   '/api/owner/session': typeof ApiOwnerSessionRoute
   '/api/quote/complete': typeof ApiQuoteCompleteRoute
   '/api/quote/initiate': typeof ApiQuoteInitiateRoute
@@ -102,6 +110,7 @@ export interface FileRoutesById {
   '/quote': typeof QuoteRoute
   '/owner/login': typeof OwnerLoginRoute
   '/owner/': typeof OwnerIndexRoute
+  '/api/owner/leads': typeof ApiOwnerLeadsRoute
   '/api/owner/session': typeof ApiOwnerSessionRoute
   '/api/quote/complete': typeof ApiQuoteCompleteRoute
   '/api/quote/initiate': typeof ApiQuoteInitiateRoute
@@ -116,6 +125,7 @@ export interface FileRouteTypes {
     | '/quote'
     | '/owner/login'
     | '/owner/'
+    | '/api/owner/leads'
     | '/api/owner/session'
     | '/api/quote/complete'
     | '/api/quote/initiate'
@@ -128,6 +138,7 @@ export interface FileRouteTypes {
     | '/quote'
     | '/owner/login'
     | '/owner'
+    | '/api/owner/leads'
     | '/api/owner/session'
     | '/api/quote/complete'
     | '/api/quote/initiate'
@@ -140,6 +151,7 @@ export interface FileRouteTypes {
     | '/quote'
     | '/owner/login'
     | '/owner/'
+    | '/api/owner/leads'
     | '/api/owner/session'
     | '/api/quote/complete'
     | '/api/quote/initiate'
@@ -153,6 +165,7 @@ export interface RootRouteChildren {
   QuoteRoute: typeof QuoteRoute
   OwnerLoginRoute: typeof OwnerLoginRoute
   OwnerIndexRoute: typeof OwnerIndexRoute
+  ApiOwnerLeadsRoute: typeof ApiOwnerLeadsRoute
   ApiOwnerSessionRoute: typeof ApiOwnerSessionRoute
   ApiQuoteCompleteRoute: typeof ApiQuoteCompleteRoute
   ApiQuoteInitiateRoute: typeof ApiQuoteInitiateRoute
@@ -189,6 +202,13 @@ declare module '@tanstack/react-router' {
       path: '/owner/login'
       fullPath: '/owner/login'
       preLoaderRoute: typeof OwnerLoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/owner/leads': {
+      id: '/api/owner/leads'
+      path: '/api/owner/leads'
+      fullPath: '/api/owner/leads'
+      preLoaderRoute: typeof ApiOwnerLeadsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/owner/session': {
@@ -241,6 +261,7 @@ const rootRouteChildren: RootRouteChildren = {
   QuoteRoute: QuoteRoute,
   OwnerLoginRoute: OwnerLoginRoute,
   OwnerIndexRoute: OwnerIndexRoute,
+  ApiOwnerLeadsRoute: ApiOwnerLeadsRoute,
   ApiOwnerSessionRoute: ApiOwnerSessionRoute,
   ApiQuoteCompleteRoute: ApiQuoteCompleteRoute,
   ApiQuoteInitiateRoute: ApiQuoteInitiateRoute,
