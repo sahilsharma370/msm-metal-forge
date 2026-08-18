@@ -42,12 +42,17 @@ export function OwnerLeadInbox({ state, draftFilters, setDraftFilters, applyFilt
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
         <h2 className="text-sm font-semibold text-foreground">Enquiries</h2>
-        <Button asChild size="sm" className="gap-1.5">
-          <Link to="/owner/leads/new">
-            <Plus className="size-4" aria-hidden="true" />
-            Add enquiry
-          </Link>
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button asChild size="sm" variant="outline">
+            <Link to="/owner/overview">Overview</Link>
+          </Button>
+          <Button asChild size="sm" className="gap-1.5">
+            <Link to="/owner/leads/new">
+              <Plus className="size-4" aria-hidden="true" />
+              Add enquiry
+            </Link>
+          </Button>
+        </div>
       </div>
       <OwnerLeadFilters
         draftFilters={draftFilters}

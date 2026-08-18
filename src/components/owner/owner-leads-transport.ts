@@ -22,6 +22,10 @@ import {
   type OwnerLeadQuickAddSuccessBody,
   type OwnerLeadQuickAddRequest,
 } from "@/lib/owner/owner-lead-quick-add-contract";
+import {
+  ownerLeadOverviewSuccessBodySchema,
+  type OwnerLeadOverviewSuccessBody,
+} from "@/lib/owner/owner-lead-overview-contract";
 import type { OwnerAuthClient } from "./owner-auth-client";
 
 /**
@@ -279,5 +283,22 @@ export async function createOwnerQuickAddLead(
   signal?: AbortSignal,
 ): Promise<OwnerApiResult<OwnerLeadQuickAddSuccessBody["data"]>> {
   const result = await callOwnerApi(`/api/owner/leads`, ownerLeadQuickAddSuccessBodySchema, deps, withJsonBody("POST", request, signal));
+  return mapOk(result);
+}
+
+// ---------------------------------------------------------------------------
+// CHECKPOINT C2K — owner overview
+// ---------------------------------------------------------------------------
+
+export async function fetchOwnerLeadOverview(
+  deps: OwnerLeadsTransportDeps,
+  signal?: AbortSignal,
+): Promise<OwnerApiResult<OwnerLeadOverviewSuccessBody["data"]>> {
+  const result = await callOwnerApi(
+    `/api/owner/leads/overview`,
+    ownerLeadOverviewSuccessBodySchema,
+    deps,
+    withMethod("GET", signal),
+  );
   return mapOk(result);
 }

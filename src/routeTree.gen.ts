@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as QuoteRouteImport } from './routes/quote'
 import { Route as OwnerIndexRouteImport } from './routes/owner/index'
 import { Route as OwnerLoginRouteImport } from './routes/owner/login'
+import { Route as OwnerOverviewRouteImport } from './routes/owner/overview'
 import { Route as ApiOwnerLeadsRouteImport } from './routes/api/owner/leads'
 import { Route as ApiOwnerSessionRouteImport } from './routes/api/owner/session'
 import { Route as ApiQuoteCompleteRouteImport } from './routes/api/quote/complete'
@@ -21,6 +22,7 @@ import { Route as ApiQuoteUploadRouteImport } from './routes/api/quote/upload'
 import { Route as OwnerLeadsLeadIdRouteImport } from './routes/owner/leads/$leadId'
 import { Route as OwnerLeadsNewRouteImport } from './routes/owner/leads/new'
 import { Route as ApiOwnerLeadsLeadIdRouteImport } from './routes/api/owner/leads/$leadId'
+import { Route as ApiOwnerLeadsOverviewRouteImport } from './routes/api/owner/leads/overview'
 import { Route as ApiOwnerLoginRequestCodeRouteImport } from './routes/api/owner/login/request-code'
 import { Route as ApiOwnerLoginVerifyCodeRouteImport } from './routes/api/owner/login/verify-code'
 import { Route as ApiOwnerLeadsLeadIdNotesRouteImport } from './routes/api/owner/leads/$leadId.notes'
@@ -45,6 +47,11 @@ const OwnerIndexRoute = OwnerIndexRouteImport.update({
 const OwnerLoginRoute = OwnerLoginRouteImport.update({
   id: '/owner/login',
   path: '/owner/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OwnerOverviewRoute = OwnerOverviewRouteImport.update({
+  id: '/owner/overview',
+  path: '/owner/overview',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiOwnerLeadsRoute = ApiOwnerLeadsRouteImport.update({
@@ -87,6 +94,11 @@ const ApiOwnerLeadsLeadIdRoute = ApiOwnerLeadsLeadIdRouteImport.update({
   path: '/$leadId',
   getParentRoute: () => ApiOwnerLeadsRoute,
 } as any)
+const ApiOwnerLeadsOverviewRoute = ApiOwnerLeadsOverviewRouteImport.update({
+  id: '/overview',
+  path: '/overview',
+  getParentRoute: () => ApiOwnerLeadsRoute,
+} as any)
 const ApiOwnerLoginRequestCodeRoute =
   ApiOwnerLoginRequestCodeRouteImport.update({
     id: '/api/owner/login/request-code',
@@ -121,6 +133,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/quote': typeof QuoteRoute
   '/owner/login': typeof OwnerLoginRoute
+  '/owner/overview': typeof OwnerOverviewRoute
   '/owner/': typeof OwnerIndexRoute
   '/api/owner/leads': typeof ApiOwnerLeadsRouteWithChildren
   '/api/owner/session': typeof ApiOwnerSessionRoute
@@ -130,6 +143,7 @@ export interface FileRoutesByFullPath {
   '/owner/leads/$leadId': typeof OwnerLeadsLeadIdRoute
   '/owner/leads/new': typeof OwnerLeadsNewRoute
   '/api/owner/leads/$leadId': typeof ApiOwnerLeadsLeadIdRouteWithChildren
+  '/api/owner/leads/overview': typeof ApiOwnerLeadsOverviewRoute
   '/api/owner/login/request-code': typeof ApiOwnerLoginRequestCodeRoute
   '/api/owner/login/verify-code': typeof ApiOwnerLoginVerifyCodeRoute
   '/api/owner/leads/$leadId/notes': typeof ApiOwnerLeadsLeadIdNotesRoute
@@ -140,6 +154,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/quote': typeof QuoteRoute
   '/owner/login': typeof OwnerLoginRoute
+  '/owner/overview': typeof OwnerOverviewRoute
   '/owner': typeof OwnerIndexRoute
   '/api/owner/leads': typeof ApiOwnerLeadsRouteWithChildren
   '/api/owner/session': typeof ApiOwnerSessionRoute
@@ -149,6 +164,7 @@ export interface FileRoutesByTo {
   '/owner/leads/$leadId': typeof OwnerLeadsLeadIdRoute
   '/owner/leads/new': typeof OwnerLeadsNewRoute
   '/api/owner/leads/$leadId': typeof ApiOwnerLeadsLeadIdRouteWithChildren
+  '/api/owner/leads/overview': typeof ApiOwnerLeadsOverviewRoute
   '/api/owner/login/request-code': typeof ApiOwnerLoginRequestCodeRoute
   '/api/owner/login/verify-code': typeof ApiOwnerLoginVerifyCodeRoute
   '/api/owner/leads/$leadId/notes': typeof ApiOwnerLeadsLeadIdNotesRoute
@@ -160,6 +176,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/quote': typeof QuoteRoute
   '/owner/login': typeof OwnerLoginRoute
+  '/owner/overview': typeof OwnerOverviewRoute
   '/owner/': typeof OwnerIndexRoute
   '/api/owner/leads': typeof ApiOwnerLeadsRouteWithChildren
   '/api/owner/session': typeof ApiOwnerSessionRoute
@@ -169,6 +186,7 @@ export interface FileRoutesById {
   '/owner/leads/$leadId': typeof OwnerLeadsLeadIdRoute
   '/owner/leads/new': typeof OwnerLeadsNewRoute
   '/api/owner/leads/$leadId': typeof ApiOwnerLeadsLeadIdRouteWithChildren
+  '/api/owner/leads/overview': typeof ApiOwnerLeadsOverviewRoute
   '/api/owner/login/request-code': typeof ApiOwnerLoginRequestCodeRoute
   '/api/owner/login/verify-code': typeof ApiOwnerLoginVerifyCodeRoute
   '/api/owner/leads/$leadId/notes': typeof ApiOwnerLeadsLeadIdNotesRoute
@@ -181,6 +199,7 @@ export interface FileRouteTypes {
     | '/'
     | '/quote'
     | '/owner/login'
+    | '/owner/overview'
     | '/owner/'
     | '/api/owner/leads'
     | '/api/owner/session'
@@ -190,6 +209,7 @@ export interface FileRouteTypes {
     | '/owner/leads/$leadId'
     | '/owner/leads/new'
     | '/api/owner/leads/$leadId'
+    | '/api/owner/leads/overview'
     | '/api/owner/login/request-code'
     | '/api/owner/login/verify-code'
     | '/api/owner/leads/$leadId/notes'
@@ -200,6 +220,7 @@ export interface FileRouteTypes {
     | '/'
     | '/quote'
     | '/owner/login'
+    | '/owner/overview'
     | '/owner'
     | '/api/owner/leads'
     | '/api/owner/session'
@@ -209,6 +230,7 @@ export interface FileRouteTypes {
     | '/owner/leads/$leadId'
     | '/owner/leads/new'
     | '/api/owner/leads/$leadId'
+    | '/api/owner/leads/overview'
     | '/api/owner/login/request-code'
     | '/api/owner/login/verify-code'
     | '/api/owner/leads/$leadId/notes'
@@ -219,6 +241,7 @@ export interface FileRouteTypes {
     | '/'
     | '/quote'
     | '/owner/login'
+    | '/owner/overview'
     | '/owner/'
     | '/api/owner/leads'
     | '/api/owner/session'
@@ -228,6 +251,7 @@ export interface FileRouteTypes {
     | '/owner/leads/$leadId'
     | '/owner/leads/new'
     | '/api/owner/leads/$leadId'
+    | '/api/owner/leads/overview'
     | '/api/owner/login/request-code'
     | '/api/owner/login/verify-code'
     | '/api/owner/leads/$leadId/notes'
@@ -239,6 +263,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   QuoteRoute: typeof QuoteRoute
   OwnerLoginRoute: typeof OwnerLoginRoute
+  OwnerOverviewRoute: typeof OwnerOverviewRoute
   OwnerIndexRoute: typeof OwnerIndexRoute
   ApiOwnerLeadsRoute: typeof ApiOwnerLeadsRouteWithChildren
   ApiOwnerSessionRoute: typeof ApiOwnerSessionRoute
@@ -279,6 +304,13 @@ declare module '@tanstack/react-router' {
       path: '/owner/login'
       fullPath: '/owner/login'
       preLoaderRoute: typeof OwnerLoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/owner/overview': {
+      id: '/owner/overview'
+      path: '/owner/overview'
+      fullPath: '/owner/overview'
+      preLoaderRoute: typeof OwnerOverviewRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/owner/leads': {
@@ -337,6 +369,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiOwnerLeadsLeadIdRouteImport
       parentRoute: typeof ApiOwnerLeadsRoute
     }
+    '/api/owner/leads/overview': {
+      id: '/api/owner/leads/overview'
+      path: '/overview'
+      fullPath: '/api/owner/leads/overview'
+      preLoaderRoute: typeof ApiOwnerLeadsOverviewRouteImport
+      parentRoute: typeof ApiOwnerLeadsRoute
+    }
     '/api/owner/login/request-code': {
       id: '/api/owner/login/request-code'
       path: '/api/owner/login/request-code'
@@ -393,10 +432,12 @@ const ApiOwnerLeadsLeadIdRouteWithChildren =
 
 interface ApiOwnerLeadsRouteChildren {
   ApiOwnerLeadsLeadIdRoute: typeof ApiOwnerLeadsLeadIdRouteWithChildren
+  ApiOwnerLeadsOverviewRoute: typeof ApiOwnerLeadsOverviewRoute
 }
 
 const ApiOwnerLeadsRouteChildren: ApiOwnerLeadsRouteChildren = {
   ApiOwnerLeadsLeadIdRoute: ApiOwnerLeadsLeadIdRouteWithChildren,
+  ApiOwnerLeadsOverviewRoute: ApiOwnerLeadsOverviewRoute,
 }
 
 const ApiOwnerLeadsRouteWithChildren = ApiOwnerLeadsRoute._addFileChildren(
@@ -407,6 +448,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   QuoteRoute: QuoteRoute,
   OwnerLoginRoute: OwnerLoginRoute,
+  OwnerOverviewRoute: OwnerOverviewRoute,
   OwnerIndexRoute: OwnerIndexRoute,
   ApiOwnerLeadsRoute: ApiOwnerLeadsRouteWithChildren,
   ApiOwnerSessionRoute: ApiOwnerSessionRoute,
