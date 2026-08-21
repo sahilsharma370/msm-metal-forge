@@ -1,7 +1,7 @@
 import { useMemo } from "react";
-import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
-import { ArrowLeft } from "lucide-react";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { OwnerShell } from "@/components/owner/OwnerShell";
+import { OwnerPageHeader } from "@/components/owner/OwnerPageHeader";
 import { OwnerLeadQuickAddForm } from "@/components/owner/OwnerLeadQuickAddForm";
 import { useOwnerLeadQuickAdd } from "@/components/owner/use-owner-lead-quick-add";
 import { createOwnerAuthClient } from "@/components/owner/owner-auth-client";
@@ -28,7 +28,7 @@ function OwnerLeadQuickAddRouteComponent() {
   }
 
   return (
-    <OwnerShell onUnauthorized={goToLogin}>
+    <OwnerShell onUnauthorized={goToLogin} hideAddEnquiryCta>
       {() => <OwnerLeadQuickAddBody onUnauthorized={() => goToLogin("unauthorized")} />}
     </OwnerShell>
   );
@@ -47,25 +47,25 @@ export function OwnerLeadQuickAddBody({ onUnauthorized }: { readonly onUnauthori
     void navigate({ to: "/owner/leads/$leadId", params: { leadId } });
   }
 
+  function cancel() {
+    void navigate({ to: "/owner" });
+  }
+
   return (
-    <div className="mx-auto w-full max-w-3xl px-4 py-6">
-      <div className="mb-4">
-        <Link
-          to="/owner"
-          className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          <ArrowLeft className="size-4" aria-hidden="true" />
-          Back to enquiries
-        </Link>
-      </div>
-      <h2 className="mb-1 text-lg font-semibold text-foreground">Add enquiry</h2>
-      <p className="mb-5 text-sm text-muted-foreground">Record a phone, WhatsApp or walk-in enquiry directly into the enquiry list.</p>
+    <div className="flex min-h-0 flex-1 flex-col">
+      <OwnerPageHeader title="Add enquiry" description="Record a phone, WhatsApp or walk-in enquiry directly into the enquiry list." />
+      {/* CHECKPOINT OWNER DESKTOP REFINEMENT — OwnerLeadQuickAddForm now owns
+          its own internal shell (compact centred scrollable fields region +
+          a static, never-sticky-inside-scroll action footer), the same
+          "header auto / body scroll / footer static sibling" architecture
+          used everywhere else in this workspace. */}
       <OwnerLeadQuickAddForm
         isSubmitting={state.isSubmitting}
         error={state.error}
         onSubmit={submit}
         onClearError={clearError}
         onOpenLead={openLead}
+        onCancel={cancel}
       />
     </div>
   );

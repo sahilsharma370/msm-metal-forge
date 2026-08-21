@@ -39,6 +39,7 @@ const VALID_LEAD_ITEM = {
   quantity: { value: 100, unit: "kg" },
   fileUploadStatus: "complete",
   notificationStatus: "sent",
+  deletedAt: null,
 };
 
 describe("owner-leads-transport — access token / bearer header", () => {

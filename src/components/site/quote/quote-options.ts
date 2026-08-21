@@ -1,4 +1,4 @@
-import type { QuoteMaterialKey, QuoteTradeRoute } from "./quote-search";
+import type { QuoteIntent, QuoteMaterialKey, QuoteTradeRoute } from "./quote-search";
 
 /**
  * PROVISIONAL business config. Swap this number when a dedicated quote-desk
@@ -176,6 +176,12 @@ export function getSubtypeLabel(
   return family?.subtypes.find((s) => s.value === subtypeValue)?.label;
 }
 
+/**
+ * Internal wizard steps (1-6) — unchanged since CHECKPOINT C2F. Still the
+ * numbering `quote-schema.ts`'s per-step schemas and `quote-storage.ts`'s
+ * persisted `step` field use; kept only for that internal bookkeeping. The
+ * customer-facing presentation is now the 5-stage model below.
+ */
 export const QUOTE_STEP_NAMES = [
   "Enquiry Type",
   "Material",
@@ -186,3 +192,87 @@ export const QUOTE_STEP_NAMES = [
 ] as const;
 
 export const QUOTE_TOTAL_STEPS = QUOTE_STEP_NAMES.length;
+
+/**
+ * C2L-Q1 — the 5-stage customer-facing presentation. Stage 2 ("Material &
+ * Requirements") merges the former internal steps 2 (Material) and 3
+ * (Material Details) into one screen with one Continue gate; every other
+ * stage maps 1:1 onto its internal step. See `stageOf` below for the exact
+ * step->stage mapping, which doubles as the legacy-draft migration: a draft
+ * saved by the old 6-step build (which may have `step: 3`) lands on exactly
+ * the same stage a fresh 5-stage draft would, with no separate migration
+ * pass needed — the mapping is a pure, stable function, so it can never
+ * "re-migrate" a value that's already correct.
+ */
+/**
+ * C2L-Q2 — short, compact labels for the header's progress segments only
+ * (desktop shows all 5 side by side, mobile shows none — just the current
+ * "Step X of 5 · <label>" text using this same set). The fuller,
+ * branch-aware customer wording ("Location & collection" vs "Delivery
+ * details", etc.) lives in `getStageEyebrow` below and is used inside each
+ * stage's own content heading, not in this compact chrome.
+ */
+export const QUOTE_STAGE_NAMES = ["Request", "Material", "Logistics", "Contact", "Review"] as const;
+
+export const QUOTE_TOTAL_STAGES = QUOTE_STAGE_NAMES.length;
+
+/** old 1 -> new 1; old 2 or 3 -> new 2; old 4 -> new 3; old 5 -> new 4; old 6 -> new 5. */
+export function stageOf(step: number): number {
+  if (step <= 1) return 1;
+  if (step <= 3) return 2;
+  if (step === 4) return 3;
+  if (step === 5) return 4;
+  return 5;
+}
+
+/** The internal step to land on when *entering* a given stage (1-5) via Continue/Back/Edit — the one place stage<->step is inverted. */
+export const STAGE_ENTRY_STEP: Record<number, number> = { 1: 1, 2: 2, 3: 4, 4: 5, 5: 6 };
+
+/**
+ * C2L-Q2 — the branch-aware, customer-facing heading shown inside each
+ * stage's own content (the "label-eyebrow" line above each stage's H2) —
+ * distinct from the compact generic QUOTE_STAGE_NAMES used in the header
+ * chrome. Every step component reads its own eyebrow from here so the
+ * wording can't drift between components.
+ */
+export function getStageEyebrow(stage: number, intent: QuoteIntent | undefined): string {
+  const isSeller = intent === "sell";
+  switch (stage) {
+    case 1:
+      return "Request type";
+    case 2:
+      return "Material details";
+    case 3:
+      return isSeller ? "Location & collection" : "Delivery details";
+    case 4:
+      return isSeller ? "Contact & photos" : "Contact & documents";
+    default:
+      return "Review & send";
+  }
+}
+
+/**
+ * Display-only relabeling of the shared FULFILMENT_CHOICES enum for the
+ * redesigned Location & Logistics stage — stored values (delivery/
+ * collection/discuss) are unchanged; only the buyer-facing wording differs
+ * by context (local/import share one clearer phrasing, export uses shipping
+ * language). FULFILMENT_LABELS above is untouched and still used by
+ * Review/WhatsApp copy.
+ */
+export const FULFILMENT_DISPLAY_LOCAL_IMPORT: Record<QuoteFulfilment, string> = {
+  delivery: "MSM-arranged delivery",
+  collection: "I'll arrange collection",
+  discuss: "Discuss with MSM",
+};
+export const FULFILMENT_DISPLAY_EXPORT: Record<QuoteFulfilment, string> = {
+  delivery: "MSM-arranged shipment",
+  collection: "I'll arrange collection/shipping",
+  discuss: "Discuss with MSM",
+};
+
+/** Display-only relabeling of buyerTradeRequirement for the "Supply route" pill group — stored values unchanged. */
+export const TRADE_REQUIREMENT_DISPLAY_LABELS: Record<QuoteTradeRoute, string> = {
+  local: "Within the UAE",
+  import: "Import into the UAE",
+  export: "Export from the UAE",
+};

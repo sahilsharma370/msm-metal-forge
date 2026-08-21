@@ -1,5 +1,6 @@
 import { normalizePhoneNumber } from "@/components/site/quote/quote-schema";
 import { buildWhatsAppUrl } from "@/components/site/quote/quote-summary";
+import { EMIRATE_LABELS, type QuoteEmirate } from "@/components/site/quote/quote-options";
 import type {
   OwnerLeadStatus,
   OwnerLeadCaptureChannel,
@@ -42,6 +43,67 @@ export const OWNER_LEAD_CAPTURE_CHANNEL_LABELS: Record<OwnerLeadCaptureChannel, 
   owner_manual: "Manual entry",
 };
 
+/**
+ * CHECKPOINT OWNER DESKTOP CORRECTION (list hierarchy pass) — the list row's
+ * "Via {channel}" secondary line under the received timestamp. Deliberately
+ * a distinct, lowercase-except-brand-names vocabulary from
+ * OWNER_LEAD_CAPTURE_CHANNEL_LABELS above (which stays Title Case for
+ * badges/detail/forms elsewhere) — this phrase reads as a sentence
+ * fragment, not a label.
+ */
+const OWNER_LEAD_CAPTURE_CHANNEL_VIA_LABELS: Record<OwnerLeadCaptureChannel, string> = {
+  website: "Via website",
+  phone: "Via phone",
+  whatsapp: "Via WhatsApp",
+  walk_in: "Via walk-in",
+  owner_manual: "Via manual entry",
+};
+
+export function formatCaptureChannelVia(channel: OwnerLeadCaptureChannel): string {
+  return OWNER_LEAD_CAPTURE_CHANNEL_VIA_LABELS[channel];
+}
+
+/**
+ * CHECKPOINT OWNER DESKTOP CORRECTION (small fixes pass) — presentation-case
+ * emirate name for the Enquiries list row (e.g. "sharjah" -> "Sharjah"),
+ * reusing the ONE canonical EMIRATE_LABELS map already used by the Quote
+ * flow and Quick Add form — never a second label list, and never a change
+ * to the stored lowercase-enum value itself. Falls back to the raw value
+ * for anything outside the known 7-emirate vocabulary (defensive only —
+ * the DB CHECK constraint already guarantees this never happens in practice).
+ */
+export function formatEmirateLabel(emirate: string | null): string | null {
+  if (!emirate) return null;
+  return EMIRATE_LABELS[emirate as QuoteEmirate] ?? emirate;
+}
+
+/**
+ * CHECKPOINT OWNER DESKTOP CORRECTION (capitalization pass) — presentation-
+ * only Title Case for a customer's contact name, e.g. "rakesh" -> "Rakesh".
+ * A word already carrying an uppercase letter past its first character
+ * (e.g. "McDonald", "MOHAMMED") is left exactly as typed — re-casing it
+ * would be as likely to break an intentional spelling as to fix an
+ * accidental one. Splits on spaces/hyphens so each side of a hyphenated
+ * name is capitalized independently ("al-farsi" -> "Al-Farsi"). Purely a
+ * display transform — the stored contact name is never mutated, and this
+ * is never applied to free-text Area.
+ */
+export function formatPersonName(name: string | null): string | null {
+  if (!name) return name;
+  return name.replace(/[^\s-]+/g, (word) => {
+    if (word.length === 0) return word;
+    const rest = word.slice(1);
+    if (/\p{Lu}/u.test(rest)) return word;
+    return word.charAt(0).toUpperCase() + rest;
+  });
+}
+
+/** CHECKPOINT OWNER DESKTOP CORRECTION (Overview pass) — the seven-day chart's per-day label, e.g. "15 Aug" rather than the raw "08-15" slice of a YYYY-MM-DD key. `dateKey` is already a UAE calendar date with no time/zone of its own (see owner-lead-overview.server.ts's own uaeDateKey) — parsed as UTC midnight, which a +4h Asia/Dubai conversion can only ever move forward within that same calendar date, never roll it back a day. */
+const UAE_CALENDAR_DATE_SHORT_FORMATTER = new Intl.DateTimeFormat("en-AE", { timeZone: "Asia/Dubai", day: "numeric", month: "short" });
+export function formatUaeCalendarDateShort(dateKey: string): string {
+  return UAE_CALENDAR_DATE_SHORT_FORMATTER.format(new Date(`${dateKey}T00:00:00Z`));
+}
+
 export const OWNER_LEAD_MATERIAL_LABELS: Record<OwnerLeadMaterial, string> = {
   copper: "Copper",
   aluminium: "Aluminium",
@@ -78,6 +140,7 @@ const OWNER_LEAD_ACTIVITY_EVENT_LABELS: Record<string, string> = {
   submission_completed: "Submission completed",
   status_changed: "Status changed",
   note_added: "Private note added",
+  lead_details_updated: "Enquiry details updated",
 };
 
 /** Falls back to a humanized version of an unrecognized event_type (underscores -> spaces, capitalized) rather than showing raw snake_case, without inventing a fixed vocabulary the database itself does not enforce. */
@@ -173,6 +236,45 @@ export function formatUaeDateTime(iso: string | null): string | null {
 }
 
 // ---------------------------------------------------------------------------
+// CHECKPOINT C2M-A — concise row-level UAE timestamp. The list already
+// discloses "UAE" once at the column-heading level (see OwnerLeadInbox's
+// "Channel / received (UAE)" heading), so every row repeating "(UAE time)"
+// is pure noise there; the detail screen keeps the full, exact timestamp
+// via formatUaeDateTime above, unchanged.
+// ---------------------------------------------------------------------------
+
+const UAE_DATE_KEY_FORMATTER = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Dubai", year: "numeric", month: "2-digit", day: "2-digit" });
+const UAE_TIME_ONLY_FORMATTER = new Intl.DateTimeFormat("en-AE", { timeZone: "Asia/Dubai", hour: "numeric", minute: "2-digit", hour12: true });
+const UAE_DAY_MONTH_FORMATTER = new Intl.DateTimeFormat("en-AE", { timeZone: "Asia/Dubai", day: "2-digit", month: "short" });
+const UAE_DAY_MONTH_YEAR_FORMATTER = new Intl.DateTimeFormat("en-AE", { timeZone: "Asia/Dubai", day: "2-digit", month: "short", year: "numeric" });
+
+/**
+ * "Today, 3:29 PM" / "Yesterday, 5:03 PM" / "18 Aug, 5:03 PM" — the year is
+ * appended only when it differs from the current UAE calendar year. UAE
+ * observes no DST (see this project's own UAE-day-bucketing precedent in
+ * owner-lead-overview.server.ts), so a plain 24h subtraction always lands
+ * on the correct previous Asia/Dubai calendar day. `now` is an injectable
+ * parameter purely for deterministic testing; real call sites omit it.
+ */
+export function formatUaeDateTimeConcise(iso: string | null, now: Date = new Date()): string | null {
+  if (!iso) return null;
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return null;
+
+  const time = UAE_TIME_ONLY_FORMATTER.format(date);
+  const dateKey = UAE_DATE_KEY_FORMATTER.format(date);
+  const todayKey = UAE_DATE_KEY_FORMATTER.format(now);
+  if (dateKey === todayKey) return `Today, ${time}`;
+
+  const yesterdayKey = UAE_DATE_KEY_FORMATTER.format(new Date(now.getTime() - 24 * 60 * 60 * 1000));
+  if (dateKey === yesterdayKey) return `Yesterday, ${time}`;
+
+  const sameYear = dateKey.slice(0, 4) === todayKey.slice(0, 4);
+  const dayMonth = (sameYear ? UAE_DAY_MONTH_FORMATTER : UAE_DAY_MONTH_YEAR_FORMATTER).format(date);
+  return `${dayMonth}, ${time}`;
+}
+
+// ---------------------------------------------------------------------------
 // File sizes
 // ---------------------------------------------------------------------------
 
@@ -208,3 +310,101 @@ export function buildOwnerWhatsAppHref(phone: string | null): string | null {
   if (!canonical) return null;
   return buildWhatsAppUrl(canonical.replace(/^\+/, ""), "");
 }
+
+/** `mailto:` needs no normalization the way phone numbers do — a stored email already passed the same-shape CHECK constraint at write time (lowercase, one @, no whitespace). Returns null only when there is genuinely no email to link to. */
+export function buildOwnerMailtoHref(email: string | null): string | null {
+  return email ? `mailto:${email}` : null;
+}
+
+export type OwnerLeadPrimaryContactAction = "call" | "whatsapp" | "email";
+
+/**
+ * CHECKPOINT C2M-A — resolves which single contact action is primary
+ * (copper) on the detail screen's Contact card, in priority order:
+ *
+ *   1. The customer's own stated preferredContact, whenever the matching
+ *      channel actually has a value (a stated preference with nothing to
+ *      act on is not usable).
+ *   2. For a Quick Add lead (preferredContact is never captured there —
+ *      see owner-lead-quick-add-contract.ts's own header comment), the
+ *      capture channel is used as a safe hint ONLY when it unambiguously
+ *      implies a method: 'whatsapp' -> WhatsApp, 'phone' -> Call.
+ *      'walk_in'/'website'/'owner_manual' carry no contact-method signal
+ *      and are deliberately not guessed.
+ *   3. Otherwise, Call before WhatsApp before Email — matching this
+ *      screen's pre-existing "Call is primary whenever available" default.
+ *
+ * Never returns a method whose underlying value doesn't exist — the caller
+ * (OwnerLeadDetailView) additionally never renders an action button at all
+ * for a method with no value, regardless of what this function returns.
+ */
+export function resolvePrimaryContactAction(input: {
+  readonly preferredContact: string | null;
+  readonly captureChannel: OwnerLeadCaptureChannel;
+  readonly hasPhone: boolean;
+  readonly hasEmail: boolean;
+}): OwnerLeadPrimaryContactAction | null {
+  const { preferredContact, captureChannel, hasPhone, hasEmail } = input;
+
+  if (preferredContact === "whatsapp" && hasPhone) return "whatsapp";
+  if (preferredContact === "call" && hasPhone) return "call";
+  if (preferredContact === "email" && hasEmail) return "email";
+
+  if (!preferredContact) {
+    if (captureChannel === "whatsapp" && hasPhone) return "whatsapp";
+    if (captureChannel === "phone" && hasPhone) return "call";
+  }
+
+  if (hasPhone) return "call";
+  if (hasEmail) return "email";
+  return null;
+}
+
+/**
+ * CHECKPOINT C2M-A — display-only UAE phone grouping, e.g.
+ * "+971501234567" -> "+971 50 123 4567". Never used for `tel:`/WhatsApp
+ * hrefs (buildTelHref/buildOwnerWhatsAppHref keep using the canonical
+ * E.164 form via normalizePhoneNumber, untouched) — this is purely
+ * cosmetic, local grouping logic rather than a phone-formatting library,
+ * since no such dependency already exists in this codebase and one row-
+ * level display tweak does not justify adding one. A non-UAE E.164 number
+ * (any country code other than +971) falls back to a generic
+ * "country code, then the rest" split rather than guessing a grouping
+ * scheme this function cannot verify (country-code length varies 1-3
+ * digits in a way that can't be reliably detected from the digit string
+ * alone) — a non-UAE number is returned unchanged rather than risking an
+ * incorrect grouping. This project's contact base is UAE-only in practice.
+ */
+export function formatPhoneForDisplay(canonicalPhone: string | null): string | null {
+  if (!canonicalPhone) return null;
+  const uae = canonicalPhone.match(/^\+971(\d{9})$/);
+  if (!uae) return canonicalPhone;
+  const digits = uae[1] as string;
+  return `+971 ${digits.slice(0, 2)} ${digits.slice(2, 5)} ${digits.slice(5)}`;
+}
+
+// ---------------------------------------------------------------------------
+// CHECKPOINT C2M-A — restrained, semantic status-badge colour mapping.
+// Applied as a className override on top of the shared ui/Badge's
+// `variant="outline"` base (tailwind-merge resolves the conflicting
+// border/bg/text utilities in the caller's favour — see src/lib/utils.ts's
+// own `cn` helper) rather than adding new badgeVariants entries, since
+// these six colours are specific to lead-status semantics and have no
+// other consumer in the design system. Every treatment stays a translucent
+// tint + soft border, matching `warning`/`accent`'s own restrained recipe —
+// never a solid, bright fill ("rainbow badges").
+// ---------------------------------------------------------------------------
+
+const ACTIVE_PROGRESSION_STATUS_CLASS = "border-sky-400/30 bg-sky-400/10 text-sky-300";
+
+export const OWNER_LEAD_STATUS_BADGE_CLASS: Record<OwnerLeadStatus, string> = {
+  new: "border-copper-bright/40 bg-copper-bright/10 text-copper-bright",
+  needs_information: "border-amber-400/30 bg-amber-400/10 text-amber-300",
+  contacted: ACTIVE_PROGRESSION_STATUS_CLASS,
+  inspection: ACTIVE_PROGRESSION_STATUS_CLASS,
+  quote_sent: ACTIVE_PROGRESSION_STATUS_CLASS,
+  pickup_delivery: ACTIVE_PROGRESSION_STATUS_CLASS,
+  completed: "border-emerald-400/30 bg-emerald-400/10 text-emerald-300",
+  lost: "border-rose-400/25 bg-rose-400/10 text-rose-300",
+  archived: "border-white/15 bg-white/5 text-foreground/55",
+};

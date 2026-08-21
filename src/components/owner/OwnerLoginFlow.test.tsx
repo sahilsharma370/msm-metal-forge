@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom/vitest";
 import { OwnerLoginFlow } from "./OwnerLoginFlow";
@@ -138,10 +138,52 @@ describe("OwnerLoginFlow — verify-code step", () => {
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(/invalid or has expired/i));
   });
 
-  it("the retry button (resend code) requests a fresh code", async () => {
-    const { user, transport } = await renderAtVerifyStep();
-    await user.click(screen.getByRole("button", { name: /resend code/i }));
-    await waitFor(() => expect(transport.requestCode).toHaveBeenCalledTimes(2));
+  it("disables resend with a visible cooldown immediately after a code is sent — a client-side courtesy only, never the real (server-side) rate limit", async () => {
+    await renderAtVerifyStep();
+    const resendButton = screen.getByRole("button", { name: /resend code/i });
+    expect(resendButton).toBeDisabled();
+    expect(resendButton).toHaveTextContent(/resend code \(\d+s\)/i);
+  });
+
+  it("the resend button requests a fresh code once the cooldown elapses", async () => {
+    // Fake timers active for the WHOLE test (including reaching the verify
+    // step) — the cooldown's own setInterval is created at that point, and
+    // must be a fake-clock interval for vi.advanceTimersByTime() to affect
+    // it later. fireEvent + explicit act() flushes throughout, never
+    // userEvent — combining userEvent's own internal timing with fake
+    // timers is a well-known source of hangs (see
+    // OwnerLeadFileViewer.test.tsx's own identical pattern). Real timers
+    // are always restored in `finally`.
+    vi.useFakeTimers();
+    try {
+      const transport = fakeTransport();
+      render(<OwnerLoginFlow transport={transport} authClient={fakeAuthClient()} onAuthenticated={vi.fn()} />);
+
+      fireEvent.change(screen.getByLabelText("Email"), { target: { value: "owner@example.test" } });
+      fireEvent.click(screen.getByRole("button", { name: /send sign-in code/i }));
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(screen.getByRole("button", { name: /verify code/i })).toBeInTheDocument();
+
+      const cooldownButton = screen.getByRole("button", { name: /resend code/i });
+      expect(cooldownButton).toBeDisabled();
+
+      act(() => {
+        vi.advanceTimersByTime(30_000);
+      });
+      const resendButton = screen.getByRole("button", { name: /^resend code$/i });
+      expect(resendButton).toBeEnabled();
+      fireEvent.click(resendButton);
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(transport.requestCode).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("'use a different email' returns to the request-code step", async () => {

@@ -1,28 +1,62 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom/vitest";
 import { OwnerLeadQuickAddForm } from "./OwnerLeadQuickAddForm";
 
+/**
+ * CHECKPOINT C2M-A — the form's selects moved from native `<select>` to the
+ * repository's Radix-based Select primitive. Radix requires pointer-capture/
+ * scrollIntoView APIs jsdom does not implement — same established polyfill
+ * pattern already used for every other Radix Select test in this codebase.
+ */
+beforeEach(() => {
+  Element.prototype.hasPointerCapture = vi.fn().mockReturnValue(false);
+  Element.prototype.scrollIntoView = vi.fn();
+  Element.prototype.releasePointerCapture = vi.fn();
+});
+
 afterEach(() => {
   cleanup();
 });
+
+/** Opens a labelled Radix Select combobox and clicks the option with the given accessible name — the click-trigger/click-option replacement for `userEvent.selectOptions`, which only works on a native `<select>`. */
+async function selectRadixOption(user: ReturnType<typeof userEvent.setup>, labelText: RegExp, optionName: string) {
+  await user.click(screen.getByLabelText(labelText));
+  await user.click(await screen.findByRole("option", { name: optionName }));
+}
 
 function renderForm(overrides: Partial<Parameters<typeof OwnerLeadQuickAddForm>[0]> = {}) {
   const onSubmit = vi.fn().mockResolvedValue({ ok: true, leadId: "11111111-1111-1111-1111-111111111111", reference: "MSM-260101-ABCDEF" });
   const onClearError = vi.fn();
   const onOpenLead = vi.fn();
+  const onCancel = vi.fn();
   render(
-    <OwnerLeadQuickAddForm isSubmitting={false} error={null} onSubmit={onSubmit} onClearError={onClearError} onOpenLead={onOpenLead} {...overrides} />,
+    <OwnerLeadQuickAddForm
+      isSubmitting={false}
+      error={null}
+      onSubmit={onSubmit}
+      onClearError={onClearError}
+      onOpenLead={onOpenLead}
+      onCancel={onCancel}
+      {...overrides}
+    />,
   );
-  return { onSubmit, onClearError, onOpenLead };
+  return { onSubmit, onClearError, onOpenLead, onCancel };
 }
 
 async function fillRequiredFields(user: ReturnType<typeof userEvent.setup>) {
   await user.type(screen.getByLabelText(/contact name/i), "Ahmed");
   await user.type(screen.getByLabelText(/phone \/ whatsapp/i), "+971501234567");
 }
+
+describe("OwnerLeadQuickAddForm — contact name field (CHECKPOINT OWNER DESKTOP CORRECTION — capitalization pass)", () => {
+  it("hints mobile keyboards to auto-capitalize each word, without changing the submission contract", () => {
+    renderForm();
+    expect(screen.getByLabelText(/contact name/i)).toHaveAttribute("autoCapitalize", "words");
+  });
+});
 
 describe("OwnerLeadQuickAddForm — required-field gating", () => {
   it("disables Save enquiry until contact name and phone are entered", () => {
@@ -49,7 +83,7 @@ describe("OwnerLeadQuickAddForm — required-field gating", () => {
     const user = userEvent.setup();
     renderForm();
     await fillRequiredFields(user);
-    await user.selectOptions(screen.getByLabelText(/^material$/i), "other");
+    await selectRadixOption(user, /^material$/i, "Other");
     expect(screen.getByRole("button", { name: /save enquiry/i })).toBeDisabled();
     await user.type(screen.getByLabelText(/describe the material/i), "Mixed cable scrap");
     await waitFor(() => expect(screen.getByRole("button", { name: /save enquiry/i })).toBeEnabled());
@@ -65,8 +99,22 @@ describe("OwnerLeadQuickAddForm — seller/buyer branching", () => {
   it("hides seller location fields when intent is switched to buying", async () => {
     const user = userEvent.setup();
     renderForm();
-    await user.selectOptions(screen.getByLabelText(/enquiry type/i), "buy");
+    await selectRadixOption(user, /enquiry type/i, "Buying");
     expect(screen.queryByLabelText(/emirate/i)).not.toBeInTheDocument();
+  });
+});
+
+describe("OwnerLeadQuickAddForm — Select primitive (CHECKPOINT C2M-A)", () => {
+  it("uses the accessible Select primitive, never a native <select>, for enquiry type/channel/material", () => {
+    renderForm();
+    expect(screen.getByLabelText(/enquiry type/i).tagName).not.toBe("SELECT");
+    expect(screen.getByLabelText(/how it came in/i).tagName).not.toBe("SELECT");
+    expect(screen.getByLabelText(/^material$/i).tagName).not.toBe("SELECT");
+  });
+
+  it("shows the concise note helper text", () => {
+    renderForm();
+    expect(screen.getByText(/specifications, logistics or other details collected during the conversation/i)).toBeInTheDocument();
   });
 });
 
@@ -125,5 +173,21 @@ describe("OwnerLeadQuickAddForm — success shows the genuine reference and an o
     await user.click(screen.getByRole("button", { name: /add another enquiry/i }));
     expect(screen.getByLabelText(/contact name/i)).toBeInTheDocument();
     expect((screen.getByLabelText(/contact name/i) as HTMLInputElement).value).toBe("");
+  });
+});
+
+describe("OwnerLeadQuickAddForm — cancel (OWNER DESKTOP REFINEMENT)", () => {
+  it("calls onCancel when the footer Cancel button is clicked", async () => {
+    const user = userEvent.setup();
+    const { onCancel } = renderForm();
+    await user.click(screen.getByRole("button", { name: /^cancel$/i }));
+    expect(onCancel).toHaveBeenCalledTimes(1);
+  });
+
+  it("calls onCancel when the Back to enquiries control is clicked", async () => {
+    const user = userEvent.setup();
+    const { onCancel } = renderForm();
+    await user.click(screen.getByRole("button", { name: /back to enquiries/i }));
+    expect(onCancel).toHaveBeenCalledTimes(1);
   });
 });

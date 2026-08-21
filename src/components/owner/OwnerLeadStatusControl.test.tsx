@@ -41,7 +41,7 @@ describe("OwnerLeadStatusControl — initial state", () => {
   it("shows the current status and a disabled Save button (no pending change)", () => {
     renderControl({ currentStatus: "contacted" });
     expect(screen.getByRole("combobox")).toHaveTextContent("Contacted");
-    expect(screen.getByRole("button", { name: /save status/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /update status/i })).toBeDisabled();
   });
 
   it("does not show the lost-reason field when the current status isn't lost", () => {
@@ -51,6 +51,30 @@ describe("OwnerLeadStatusControl — initial state", () => {
 });
 
 describe("OwnerLeadStatusControl — selecting a new status", () => {
+  it("shows no 'Unsaved status change' indicator before anything is selected", () => {
+    renderControl({ currentStatus: "new" });
+    expect(screen.queryByText(/unsaved status change/i)).not.toBeInTheDocument();
+  });
+
+  it("shows the 'Unsaved status change' indicator the moment a different status is selected, never auto-saving", async () => {
+    const user = userEvent.setup();
+    const { onChangeStatus } = renderControl({ currentStatus: "new" });
+
+    await user.click(screen.getByRole("combobox"));
+    await user.click(await screen.findByRole("option", { name: "Contacted" }));
+
+    expect(await screen.findByText(/unsaved status change/i)).toBeInTheDocument();
+    expect(onChangeStatus).not.toHaveBeenCalled();
+  });
+
+  it("calls out Archived in plain language (not as deletion) in the unsaved indicator", async () => {
+    const user = userEvent.setup();
+    renderControl({ currentStatus: "new" });
+    await user.click(screen.getByRole("combobox"));
+    await user.click(await screen.findByRole("option", { name: "Archived" }));
+    expect(await screen.findByText(/archiving keeps the enquiry/i)).toBeInTheDocument();
+  });
+
   it("enables Save and calls onChangeStatus with the expected/new status on save", async () => {
     const user = userEvent.setup();
     const { onChangeStatus } = renderControl({ currentStatus: "new" });
@@ -58,7 +82,7 @@ describe("OwnerLeadStatusControl — selecting a new status", () => {
     await user.click(screen.getByRole("combobox"));
     await user.click(await screen.findByRole("option", { name: "Contacted" }));
 
-    const saveButton = screen.getByRole("button", { name: /save status/i });
+    const saveButton = screen.getByRole("button", { name: /update status/i });
     await waitFor(() => expect(saveButton).toBeEnabled());
     await user.click(saveButton);
 
@@ -73,7 +97,7 @@ describe("OwnerLeadStatusControl — selecting a new status", () => {
     await user.click(await screen.findByRole("option", { name: "Lost" }));
 
     const reasonField = await screen.findByLabelText(/reason lead was lost/i);
-    const saveButton = screen.getByRole("button", { name: /save status/i });
+    const saveButton = screen.getByRole("button", { name: /update status/i });
     expect(saveButton).toBeDisabled();
 
     await user.type(reasonField, "Went with a competitor");
@@ -102,6 +126,16 @@ describe("OwnerLeadStatusControl — saving/error/success feedback", () => {
     );
     rerender(<OwnerLeadStatusControl currentStatus="quote_sent" isSaving={false} error={null} onChangeStatus={vi.fn()} onClearError={vi.fn()} />);
     expect(screen.getByRole("combobox")).toHaveTextContent("Quote sent");
-    expect(screen.getByRole("button", { name: /save status/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /update status/i })).toBeDisabled();
+  });
+});
+
+describe("OwnerLeadStatusControl — menu anchoring (CHECKPOINT OWNER DESKTOP CORRECTION)", () => {
+  it("caps the popover height (instead of letting the full 9-item list force a flip-above that can cover the Contact card)", async () => {
+    const user = userEvent.setup();
+    renderControl();
+    await user.click(screen.getByRole("combobox"));
+    const listbox = await screen.findByRole("listbox");
+    expect(listbox.className).toMatch(/max-h-\[min\(260px/);
   });
 });

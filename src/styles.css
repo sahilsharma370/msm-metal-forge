@@ -110,6 +110,29 @@
     oklch(0.62 0.13 50) 78%,
     oklch(0.46 0.11 42) 100%
   );
+  /* CHECKPOINT C2L (public hero/header CTA correction) — originally the two
+     public "Get a Quote" buttons only. Same stop family as --gradient-copper
+     (the exact palette already approved on the visible "14+ Years"
+     text-copper-metal treatment: copper-deep 0.46 -> copper 0.583 ->
+     copper-bright 0.72) so it reads as clearly related, not a new hue — but
+     the resting gradient stops at copper-bright (L 0.72) and never reaches
+     --gradient-copper's own near-white mid-stop (L 0.88), which is what
+     previously read as a permanent shine streak. Warm and rich at rest
+     without that stripe.
+     CHECKPOINT C2Q-FINAL-V2 — reused as-is (never re-declared with new
+     colour literals) for the Quote UI's own primary CTAs (Continue, Review
+     Request, Submit Request, Retry Submission — see QuoteNavigation.tsx's
+     quotePrimaryCtaSurface), for the exact same "consistent copper CTA
+     across the funnel" reason. Still never used by owner UI or any other
+     shared component. */
+  --gradient-copper-cta: linear-gradient(
+    100deg,
+    oklch(0.46 0.11 42) 0%,
+    oklch(0.583 0.135 45.5) 30%,
+    oklch(0.72 0.13 60) 55%,
+    oklch(0.583 0.135 45.5) 78%,
+    oklch(0.46 0.11 42) 100%
+  );
   --chart-1: oklch(0.646 0.222 41.116);
   --chart-2: oklch(0.6 0.118 184.704);
   --chart-3: oklch(0.398 0.07 227.392);
@@ -299,6 +322,196 @@
   }
 }
 
+/* CHECKPOINT C2L (track record glass) — section-local surface for the four
+   Trust/Track Record cards only, deliberately not a shared token or an edit
+   to .glass-panel/.glass-ring: those stay exactly as-is for the header nav
+   and owner workspace. This one sits over a busy photograph rather than a
+   flat page background, so it needs a navy tint to keep photo detail from
+   reading sharply through.
+   CHECKPOINT C2L (regression correction) — the first pass's 0.55-0.65 alpha
+   at only 16px blur read as opaque dark plastic instead of glass. Alpha
+   lowered to 0.30/0.36/0.44 (top/mid/bottom) and blur raised to 22px/155%
+   saturation so background shapes stay visible-but-soft, the way glass-panel
+   itself reads over a flat background. */
+@utility trust-card-glass {
+  background:
+    linear-gradient(
+      165deg,
+      oklch(0.32 0.05 265 / 0.3) 0%,
+      oklch(0.22 0.055 265 / 0.36) 45%,
+      oklch(0.14 0.05 265 / 0.44) 100%
+    );
+  backdrop-filter: blur(22px) saturate(155%);
+  -webkit-backdrop-filter: blur(22px) saturate(155%);
+  box-shadow:
+    inset 0 1px 0 oklch(1 0 0 / 0.2),
+    inset 0 -1px 0 oklch(0.583 0.135 45.5 / 0.1),
+    0 12px 28px -14px oklch(0.05 0.03 265 / 0.6);
+  border: 1px solid oklch(1 0 0 / 0.08);
+  background-clip: padding-box;
+  position: relative;
+  isolation: isolate;
+}
+
+/* Same 1px mixed silver/copper edge technique as .glass-ring, with the
+   white/silver top-left stop softened ~35% (0.55 -> 0.36) and the copper
+   bottom-right stop softened ~25% (0.5 -> 0.375) so it reads as one
+   restrained reflected-light edge over the photo, not two competing
+   outlines. */
+@utility trust-card-ring {
+  &::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1px;
+    background: linear-gradient(
+      140deg,
+      oklch(1 0 0 / 0.36) 0%,
+      oklch(1 0 0 / 0.04) 38%,
+      oklch(0.583 0.135 45.5 / 0.375) 100%
+    );
+    -webkit-mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+}
+
+/* CHECKPOINT C2L (services static + motion refinement) — scoped copy of
+   trust-card-glass/trust-card-ring for the four Services cards, kept as a
+   separate name (not a shared rename) since it's a different section that
+   may need to diverge later; values match exactly for the same restrained
+   premium-glass quality. Sits over a flat navy background here (no photo),
+   so the same tuning reads at least as calm as it does over Trust's photo.
+   CHECKPOINT C2L (readability micro-pass) — DotGrid's moving copper/steel
+   dots sit directly behind these cards (unlike Trust's static photo), so
+   the navy scrim alpha is nudged up one restrained step (+0.08 per stop)
+   to keep dot motion from reducing copy contrast, while blur/saturate/
+   box-shadow/border stay exactly as approved — dots remain subtly visible
+   through the glass, not hidden. */
+@utility service-card-glass {
+  background:
+    linear-gradient(
+      165deg,
+      oklch(0.32 0.05 265 / 0.38) 0%,
+      oklch(0.22 0.055 265 / 0.44) 45%,
+      oklch(0.14 0.05 265 / 0.52) 100%
+    );
+  backdrop-filter: blur(22px) saturate(155%);
+  -webkit-backdrop-filter: blur(22px) saturate(155%);
+  box-shadow:
+    inset 0 1px 0 oklch(1 0 0 / 0.2),
+    inset 0 -1px 0 oklch(0.583 0.135 45.5 / 0.1),
+    0 12px 28px -14px oklch(0.05 0.03 265 / 0.6);
+  border: 1px solid oklch(1 0 0 / 0.08);
+  background-clip: padding-box;
+  position: relative;
+  isolation: isolate;
+}
+
+@utility service-card-ring {
+  &::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1px;
+    background: linear-gradient(
+      140deg,
+      oklch(1 0 0 / 0.36) 0%,
+      oklch(1 0 0 / 0.04) 38%,
+      oklch(0.583 0.135 45.5 / 0.375) 100%
+    );
+    -webkit-mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+}
+
+/* Restrained "truck has passed this card" state: a touch more border
+   presence plus one soft, tightly-clamped outer glow layered onto
+   service-card-glass's own box-shadow (not a replacement) — no solid fill,
+   no scale change, no looping animation; the 500ms transition on the card
+   itself is what makes this read as a crossfade rather than a jump. */
+.service-card-active {
+  border-color: oklch(0.583 0.135 45.5 / 0.45);
+  box-shadow:
+    inset 0 1px 0 oklch(1 0 0 / 0.2),
+    inset 0 -1px 0 oklch(0.583 0.135 45.5 / 0.1),
+    0 12px 28px -14px oklch(0.05 0.03 265 / 0.6),
+    0 0 30px -4px oklch(0.583 0.135 45.5 / 0.34);
+}
+
+/* CHECKPOINT C2Q-FINAL-V2 (quote choice-card matte glass) — scoped copy for
+   Get Quote's intent/material choice cards only (QuoteOptionCard.tsx),
+   deliberately not an edit to .glass-panel: that utility stays exactly as-is
+   for the quote shell/header and the owner workspace. Near-opaque layered
+   navy (vs. glass-panel's much lighter, more translucent gradient) so these
+   cards read as part of the matte quote surface hierarchy at rest, with only
+   a slim 1px top highlight — not glass-panel's full radial ::after shine —
+   and no resting box-shadow glow; the existing selected-state halo already
+   supplies that only once a card is chosen. */
+@utility quote-choice-glass {
+  background: linear-gradient(
+    165deg,
+    oklch(0.24 0.05 265 / 0.97) 0%,
+    oklch(0.195 0.055 265.5 / 0.98) 100%
+  );
+  box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.08);
+  border: 1px solid oklch(1 0 0 / 0.1);
+  background-clip: padding-box;
+  position: relative;
+}
+
+/* CHECKPOINT OWNER/QUOTE MATTE PASS — quote-choice-glass's exact surface
+   (same layered navy + slim top highlight + restrained border), plus one
+   added outer elevation shadow: a floating dialog card needs to read as
+   lifted above its backdrop the way an inline choice tile flush on the page
+   doesn't. Single restrained shadow layer (the first layer .glass-panel
+   already used), never the old second "0 48px 110px" bloom layer that read
+   as an oversized glow. Used by the Get Quote exit-confirmation card only
+   (QuoteExperience.tsx) — a scoped copy, not an edit to .glass-panel or
+   quote-choice-glass, so nothing else changes shape. */
+@utility quote-modal-matte {
+  background: linear-gradient(
+    165deg,
+    oklch(0.24 0.05 265 / 0.97) 0%,
+    oklch(0.195 0.055 265.5 / 0.98) 100%
+  );
+  box-shadow:
+    inset 0 1px 0 oklch(1 0 0 / 0.08),
+    0 18px 40px -16px oklch(0.1 0.04 265 / 0.55);
+  border: 1px solid oklch(1 0 0 / 0.1);
+  background-clip: padding-box;
+  position: relative;
+}
+
+/* CHECKPOINT C2L-V3 — solid fallback for browsers with no backdrop-filter
+   support (the owner workspace now depends on .glass-panel for every major
+   panel, not just the public site's decorative nav, so unsupported-browser
+   readability matters here in a way it didn't before): without this, an
+   unsupported browser would render the panel's own near-transparent
+   gradient with no blur underneath it — nearly illegible over page content.
+   The fallback is simply --card at near-full opacity, the same solid
+   surface color this codebase already uses everywhere glass isn't. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass-panel {
+    background: oklch(0.28 0.058 265 / 0.98);
+  }
+}
+
 @utility text-copper-metal {
   background: var(--gradient-copper);
   background-clip: text;
@@ -460,6 +673,28 @@
 
 .quote-scroll input:autofill {
   background-color: #141628;
+  color: var(--foreground);
+  caret-color: var(--foreground);
+}
+
+/* CHECKPOINT OWNER/QUOTE MATTE PASS — same autofill-proofing technique as
+   the Quote Experience block above (Chrome/Safari's yellow/blue UA autofill
+   background can't be overridden with a plain background-color), scoped to
+   the owner sign-in card specifically now that its email input is the same
+   matte bg-navy-deep/95 recipe as Quote's own inputs. */
+.owner-auth-card input:-webkit-autofill,
+.owner-auth-card input:-webkit-autofill:hover,
+.owner-auth-card input:-webkit-autofill:focus {
+  --tw-inset-shadow: 0 0 0 1000px oklch(0.195 0.055 265.5 / 0.98) inset;
+  -webkit-text-fill-color: var(--foreground);
+  caret-color: var(--foreground);
+  transition:
+    background-color 600000s ease-in-out 0s,
+    color 600000s ease-in-out 0s;
+}
+
+.owner-auth-card input:autofill {
+  background-color: oklch(0.195 0.055 265.5 / 0.98);
   color: var(--foreground);
   caret-color: var(--foreground);
 }

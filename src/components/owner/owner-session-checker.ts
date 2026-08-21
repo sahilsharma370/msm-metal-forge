@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { OWNER_AUTH_BOOTSTRAP_TIMEOUT_MS, OwnerAuthTimeoutError } from "./owner-auth-timeout";
 
 /**
  * CHECKPOINT C2I-A — browser-side client for GET /api/owner/session, the
@@ -31,14 +32,30 @@ const responseSchema = z.union([
 export function createOwnerSessionChecker(fetchImpl: typeof fetch = fetch): OwnerSessionChecker {
   return {
     async check(accessToken) {
+      // A real AbortController, not a race — this fetch is ours to cancel
+      // directly (see owner-auth-timeout.ts's own header comment for why
+      // getAccessToken() can't do the same for the Supabase SDK's call).
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), OWNER_AUTH_BOOTSTRAP_TIMEOUT_MS);
+
       let response: Response;
       try {
         response = await fetchImpl("/api/owner/session", {
           method: "GET",
           headers: { authorization: `Bearer ${accessToken}` },
+          signal: controller.signal,
         });
       } catch {
+        // Timed out (we aborted it ourselves) must reach the caller's
+        // error/Retry state, never be flattened into ok:false — that path
+        // means "session invalid, sign out and go to login", which is
+        // wrong for "we couldn't tell within the time budget". Every other
+        // rejection (genuine network failure, DNS, etc.) keeps its
+        // existing ok:false behaviour, unchanged.
+        if (controller.signal.aborted) throw new OwnerAuthTimeoutError();
         return { ok: false };
+      } finally {
+        clearTimeout(timer);
       }
 
       if (!response.ok) return { ok: false };

@@ -75,23 +75,68 @@ export function OwnerLeadStatusControl({ currentStatus, isSaving, error, onChang
             }}
             disabled={isSaving}
           >
-            <SelectTrigger id="owner-lead-status-select" className="w-56">
+            {/* CHECKPOINT OWNER DESKTOP CORRECTION — matte navy trigger/popover,
+                matching every other operational control now; previously this
+                already used the accessible Select primitive but with no
+                dark styling of its own, which is what still read as a
+                light popup breaking the approved system. */}
+            <SelectTrigger
+              id="owner-lead-status-select"
+              className="w-56 rounded-xl border-white/15 bg-navy-deep/95 hover:border-white/25"
+            >
               <SelectValue />
             </SelectTrigger>
-            <SelectContent>
+            {/* CHECKPOINT OWNER DESKTOP CORRECTION (menu anchoring pass) —
+                diagnosis: with the full 9-item list's natural height
+                (~340px+), Radix's own collision avoidance correctly
+                determined there wasn't enough room below the trigger and
+                flipped the whole popover above it — which then floated far
+                enough up to cover the Contact card. Capping the popover to
+                a modest height (max 260px, still respecting the dynamic
+                --radix-select-content-available-height var for genuinely
+                short viewports via min()) means the list almost always
+                fits below the trigger without needing to flip, and simply
+                scrolls internally for the remaining items — anchored,
+                on-screen, never covering content above it. */}
+            {/* CHECKPOINT OWNER DESKTOP MICRO-POLISH — bg-navy-deep/95 left
+                the popover 95% opaque, letting the Internal note textarea
+                and other content beneath bleed through slightly; the
+                --navy-deep token itself is a solid (non-alpha) colour, so
+                dropping the /95 modifier makes this fully opaque while
+                keeping the same restrained border + the shared primitive's
+                own shadow-md — no glass/blur effect either way. */}
+            <SelectContent
+              sideOffset={4}
+              className="max-h-[min(260px,var(--radix-select-content-available-height))] border-white/10 bg-navy-deep text-foreground"
+            >
               {OWNER_LEAD_STATUS_VALUES.map((status) => (
-                <SelectItem key={status} value={status}>
+                <SelectItem
+                  key={status}
+                  value={status}
+                  className="text-foreground/85 focus:bg-copper/15 focus:text-foreground data-[state=checked]:font-medium data-[state=checked]:text-copper-bright"
+                >
                   {OWNER_LEAD_STATUS_LABELS[status]}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
         </div>
-        <Button type="button" size="sm" disabled={!canSave} onClick={() => void handleSave()} className="gap-1.5">
+        <Button type="button" size="sm" variant="outline" disabled={!canSave} onClick={() => void handleSave()} className="gap-1.5">
           {isSaving ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : null}
-          {isSaving ? "Saving…" : "Save status"}
+          {isSaving ? "Saving…" : "Update status"}
         </Button>
       </div>
+
+      {/* CHECKPOINT C2M-A — status is never auto-saved; a selected-but-not-
+          yet-persisted change always shows this explicit, accessible
+          indicator rather than silently sitting in the dropdown. Archived
+          is called out in plain language here specifically so selecting it
+          never reads as a delete action. */}
+      {hasChange ? (
+        <p role="status" className="text-xs font-medium text-copper-bright">
+          Unsaved status change{pendingStatus === "archived" ? " — Archiving keeps the enquiry, just moves it out of the active Inbox." : "."}
+        </p>
+      ) : null}
 
       {needsReason ? (
         <div className="flex flex-col gap-1.5">

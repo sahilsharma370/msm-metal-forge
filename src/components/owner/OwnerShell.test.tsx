@@ -1,15 +1,33 @@
 // @vitest-environment jsdom
+import type { ReactNode } from "react";
 import { useEffect } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom/vitest";
-import { OwnerShell, type RegisterOwnerShellRefresh } from "./OwnerShell";
+
+/** OwnerShell now renders OwnerNav (real <Link>s to /owner/overview, /owner, /owner/leads/new) — same stub-Link-as-<a> pattern as OwnerLeadInbox.test.tsx, since there is no real router context in this render. */
+vi.mock("@tanstack/react-router", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@tanstack/react-router")>();
+  return {
+    ...actual,
+    Link: ({ to, children, ...props }: { to: string; children: ReactNode }) => (
+      <a href={to} {...props}>
+        {children}
+      </a>
+    ),
+  };
+});
+
+const { OwnerShell } = await import("./OwnerShell");
+import type { RegisterOwnerShellRefresh } from "./OwnerShell";
 import type { OwnerAuthClient } from "./owner-auth-client";
 import type { OwnerSessionChecker } from "./owner-session-checker";
+import { OwnerAuthTimeoutError } from "./owner-auth-timeout";
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
 });
 
 /** Mirrors how a real page (OwnerLeadInbox/OwnerLeadDetailPage's route wrapper) installs a header refresh action. */
@@ -79,6 +97,69 @@ describe("OwnerShell — signed in locally but not authorized server-side", () =
   });
 });
 
+describe("OwnerShell — bootstrap sequence throws (never an indefinite 'checking' spinner)", () => {
+  it("a rejected getAccessToken() lands on a styled, retriable error state instead of hanging on 'checking' forever", async () => {
+    const authClient = fakeAuthClient({ getAccessToken: vi.fn().mockRejectedValue(new Error("network down")) });
+    render(
+      <OwnerShell authClient={authClient} sessionChecker={fakeSessionChecker()} onUnauthorized={vi.fn()}>
+        {() => <p>page content</p>}
+      </OwnerShell>,
+    );
+    expect(await screen.findByRole("alert")).toHaveTextContent(/couldn't verify your session/i);
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
+  it("a rejected signOut() (during an expired-session sign-out) also lands on the error state, never a silent unhandled rejection", async () => {
+    const authClient = fakeAuthClient({
+      getAccessToken: vi.fn().mockResolvedValue("at-1"),
+      signOut: vi.fn().mockRejectedValue(new Error("network down")),
+    });
+    const sessionChecker = fakeSessionChecker({ check: vi.fn().mockResolvedValue({ ok: false }) });
+    const onUnauthorized = vi.fn();
+    render(
+      <OwnerShell authClient={authClient} sessionChecker={sessionChecker} onUnauthorized={onUnauthorized}>
+        {() => <p>page content</p>}
+      </OwnerShell>,
+    );
+    expect(await screen.findByRole("alert")).toHaveTextContent(/couldn't verify your session/i);
+    expect(onUnauthorized).not.toHaveBeenCalled();
+  });
+
+  it("clicking Retry re-runs the bootstrap sequence, and a subsequent success reaches the authorized dashboard", async () => {
+    const user = userEvent.setup();
+    const getAccessToken = vi.fn().mockRejectedValueOnce(new Error("network down")).mockResolvedValueOnce("at-1");
+    const authClient = fakeAuthClient({ getAccessToken });
+    const sessionChecker = fakeSessionChecker({ check: vi.fn().mockResolvedValue({ ok: true, owner: { userId: "u1", role: "owner" } }) });
+    render(
+      <OwnerShell authClient={authClient} sessionChecker={sessionChecker} onUnauthorized={vi.fn()}>
+        {(owner) => <p>signed in as {owner.role}</p>}
+      </OwnerShell>,
+    );
+    const retryButton = await screen.findByRole("button", { name: /retry/i });
+    await user.click(retryButton);
+    await screen.findByText(/signed in as owner/i);
+    expect(getAccessToken).toHaveBeenCalledTimes(2);
+  });
+
+  it("a genuine OwnerAuthTimeoutError (the exact type the real bounded getAccessToken()/check() throw — see owner-auth-client.test.ts / owner-session-checker.test.ts for the timer mechanics proven in isolation) reaches Retry, and a successful retry reaches the authorized dashboard", async () => {
+    const authClient = fakeAuthClient({ getAccessToken: vi.fn().mockRejectedValueOnce(new OwnerAuthTimeoutError()).mockResolvedValueOnce("at-1") });
+    const sessionChecker = fakeSessionChecker({ check: vi.fn().mockResolvedValue({ ok: true, owner: { userId: "u1", role: "owner" } }) });
+    const user = userEvent.setup();
+    render(
+      <OwnerShell authClient={authClient} sessionChecker={sessionChecker} onUnauthorized={vi.fn()}>
+        {(owner) => <p>signed in as {owner.role}</p>}
+      </OwnerShell>,
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/couldn't verify your session/i);
+
+    const retryButton = screen.getByRole("button", { name: /retry/i });
+    await user.click(retryButton);
+    await screen.findByText(/signed in as owner/i);
+    expect(authClient.getAccessToken).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe("OwnerShell — authorized", () => {
   it("renders the persistent workspace header and hands the verified owner identity to its children, with no fabricated lead/dashboard data of its own", async () => {
     const authClient = fakeAuthClient({ getAccessToken: vi.fn().mockResolvedValue("at-1") });
@@ -88,7 +169,8 @@ describe("OwnerShell — authorized", () => {
         {(owner) => <p>signed in as {owner.role}</p>}
       </OwnerShell>,
     );
-    await screen.findByRole("heading", { name: /msm owner workspace/i });
+    await screen.findByAltText(/msm scrap/i);
+    await screen.findByRole("link", { name: /enquiries/i });
     await screen.findByText(/signed in as owner/i);
     expect(screen.queryByText(/\$[0-9]/)).not.toBeInTheDocument();
     expect(screen.queryByText(/total leads/i)).not.toBeInTheDocument();

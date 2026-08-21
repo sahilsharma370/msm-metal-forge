@@ -29,9 +29,9 @@ export function QuoteOptionCard({
       aria-checked={selected}
       onClick={onSelect}
       className={cn(
-        "glass-panel relative flex w-full flex-col items-start gap-2 rounded-2xl border border-white/10 p-5 text-left transition-[border-color,background-color,box-shadow] duration-300 hover:border-copper/45",
+        "quote-choice-glass flex w-full flex-col items-start gap-2 rounded-2xl p-5 text-left transition-[border-color,background-color,box-shadow] duration-300 hover:border-copper/45",
         selected &&
-          "border-copper/70 bg-[oklch(0.583_0.135_45.5/0.12)] shadow-[0_0_0_1px_oklch(0.583_0.135_45.5/0.35)]",
+          "border-copper/70 bg-[oklch(0.583_0.135_45.5/0.12)] shadow-[0_0_0_1px_oklch(0.583_0.135_45.5/0.35),0_0_18px_-6px_oklch(0.583_0.135_45.5/0.5)]",
         className,
       )}
     >

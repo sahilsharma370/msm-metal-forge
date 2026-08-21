@@ -70,6 +70,8 @@ const DEMO_SHAPED_DETAIL_RESPONSE = {
       createdAt: "2026-08-17T14:07:31.952Z",
       submissionCompletedAt: "2026-08-17T14:07:31.952Z",
       fileUploadStatus: "complete",
+      deletedAt: null,
+      updatedAt: "2026-08-17T14:07:31.952Z",
       contact: { name: "Demo Seller (C2J-D1 Local Test)", phone: "+971501112222", email: null, company: null },
       location: { emirate: "sharjah", area: "Industrial Area 12 (Demo)", mapLink: null },
       enquiry: {

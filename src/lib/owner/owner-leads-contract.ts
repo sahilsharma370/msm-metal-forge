@@ -38,6 +38,16 @@ export const OWNER_LEAD_MATERIAL_VALUES = ["copper", "aluminium", "steel_iron", 
 export const OWNER_LEAD_INTENT_VALUES = ["sell", "buy"] as const;
 export const OWNER_NOTIFICATION_SUMMARY_STATUS_VALUES = ["sent", "pending", "attention", "not_required"] as const;
 
+/**
+ * CHECKPOINT C2M-A — the three Enquiries-screen views. "inbox" = owner-
+ * visible, not trashed, status != archived (the default). "archived" =
+ * owner-visible, not trashed, status == archived. "trash" = owner-visible,
+ * deleted_at is not null (any status). Mutually exclusive by construction —
+ * a lead is in exactly one of the three at any moment.
+ */
+export const OWNER_LEAD_VIEW_VALUES = ["inbox", "archived", "trash"] as const;
+export type OwnerLeadView = (typeof OWNER_LEAD_VIEW_VALUES)[number];
+
 export type OwnerLeadStatus = (typeof OWNER_LEAD_STATUS_VALUES)[number];
 export type OwnerLeadCaptureChannel = (typeof OWNER_LEAD_CAPTURE_CHANNEL_VALUES)[number];
 export type OwnerLeadMaterial = (typeof OWNER_LEAD_MATERIAL_VALUES)[number];
@@ -83,6 +93,8 @@ export const ownerLeadListItemSchema = z
       .strict(),
     fileUploadStatus: z.string(),
     notificationStatus: z.enum(OWNER_NOTIFICATION_SUMMARY_STATUS_VALUES),
+    /** Non-null only in the "trash" view — every other view's query excludes trashed rows entirely, so this is always null there. */
+    deletedAt: z.string().nullable(),
   })
   .strict();
 
@@ -138,6 +150,7 @@ export type OwnerLeadListResponseBody = z.infer<typeof ownerLeadListResponseBody
 // ---------------------------------------------------------------------------
 
 export const OWNER_LEAD_LIST_QUERY_PARAMS = [
+  "view",
   "status",
   "intent",
   "material",

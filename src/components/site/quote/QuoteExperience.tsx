@@ -6,19 +6,22 @@ import { X } from "lucide-react";
 import msmLogo from "@/assets/msm-logo.svg";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import type { QuoteInitialContext } from "./quote-search";
-import { buildDefaultQuoteValues, getStepSchema, type QuoteFormValues } from "./quote-schema";
-import { clearQuoteDraft, loadQuoteDraft, loadSubmissionAttempt, saveQuoteDraft } from "./quote-storage";
-import { getReadiness } from "./quote-summary";
-import { QUOTE_TOTAL_STEPS } from "./quote-options";
+import { buildDefaultQuoteValues, getStageSchema, type QuoteFormValues } from "./quote-schema";
+import {
+  clearQuoteDraft,
+  loadQuoteDraft,
+  loadSubmissionAttempt,
+  saveQuoteDraft,
+} from "./quote-storage";
+import { QUOTE_TOTAL_STAGES, STAGE_ENTRY_STEP, stageOf } from "./quote-options";
 import { QuoteProgress } from "./QuoteProgress";
-import { QuoteReadiness } from "./QuoteReadiness";
-import { QuoteNavigation } from "./QuoteNavigation";
+import { QuoteNavigation, quotePrimaryCtaSurface } from "./QuoteNavigation";
+import { cn } from "@/lib/utils";
 import { IntentStep } from "./steps/IntentStep";
-import { MaterialStep } from "./steps/MaterialStep";
-import { DetailsStep } from "./steps/DetailsStep";
+import { MaterialRequirementsStep } from "./steps/MaterialRequirementsStep";
 import { LogisticsStep } from "./steps/LogisticsStep";
 import { ContactEvidenceStep } from "./steps/ContactEvidenceStep";
-import { ReviewStep } from "./steps/ReviewStep";
+import { ReviewStep, ReviewSubmitButton } from "./steps/ReviewStep";
 import { QuoteConfirmation } from "./steps/QuoteConfirmation";
 import { unresolvedFilenames } from "./quote-submission-copy";
 import {
@@ -37,7 +40,9 @@ import {
 /** Public build-time value — safe to expose in the client bundle by design (see QuoteTurnstileWidget's own doc comment). Empty in an environment without it configured, which fails closed: the widget never renders a usable challenge and Submit stays disabled forever, rather than silently skipping verification. */
 const TURNSTILE_SITE_KEY = (import.meta.env["VITE_TURNSTILE_SITE_KEY"] as string | undefined) ?? "";
 
-type TurnstileWidgetComponent = ComponentType<QuoteTurnstileWidgetProps & RefAttributes<QuoteTurnstileWidgetHandle>>;
+type TurnstileWidgetComponent = ComponentType<
+  QuoteTurnstileWidgetProps & RefAttributes<QuoteTurnstileWidgetHandle>
+>;
 
 interface QuoteExperienceProps {
   mode: "overlay" | "standalone";
@@ -62,25 +67,20 @@ interface QuoteExperienceProps {
   turnstileWidget?: TurnstileWidgetComponent;
 }
 
-/** Compact display-only label for the desktop rail so it never wraps at 232px — the underlying readiness key/data is untouched. */
-const RAIL_LABEL_OVERRIDES: Record<string, string> = {
-  destination: "Destination",
-};
-
 function revokeAllPreviews(values: QuoteFormValues) {
   for (const f of [...values.sellerPhotos, ...values.buyerDocuments]) {
     if (f.previewUrl) URL.revokeObjectURL(f.previewUrl);
   }
 }
 
-/** The lowest-numbered step (1-5) whose own schema no longer validates against `values`, or null if every step still passes — used to route a validation_error/server_rejected submission outcome back to the field that actually needs fixing, mirroring handleContinue's own per-step gate. */
-function findFirstInvalidStep(
+/** The lowest-numbered stage (1-4) whose own schema no longer validates against `values`, or null if every stage still passes — used to route a validation_error/server_rejected submission outcome back to the stage that actually needs fixing, mirroring handleContinue's own per-stage gate. Stage 5 (Review) has no schema of its own, so the loop never reaches it. */
+function findFirstInvalidStage(
   values: QuoteFormValues,
   intent: QuoteFormValues["intent"],
 ): number | null {
-  for (let step = 1; step < QUOTE_TOTAL_STEPS; step += 1) {
-    const schema = getStepSchema(step, intent);
-    if (schema && !schema.safeParse(values).success) return step;
+  for (let stage = 1; stage < QUOTE_TOTAL_STAGES; stage += 1) {
+    const schema = getStageSchema(stage, intent);
+    if (schema && !schema.safeParse(values).success) return stage;
   }
   return null;
 }
@@ -107,8 +107,6 @@ export function QuoteExperience({
   const TurnstileWidget = TurnstileWidgetProp ?? QuoteTurnstileWidget;
 
   const [step, setStep] = useState(draft?.step ?? 1);
-  const [furthestStep, setFurthestStep] = useState(draft?.step ?? 1);
-  const [attemptedSteps, setAttemptedSteps] = useState<ReadonlySet<number>>(new Set());
   const [showCloseConfirm, setShowCloseConfirm] = useState(false);
   const [showStartOverConfirm, setShowStartOverConfirm] = useState(false);
   const [showSubmitCloseGuard, setShowSubmitCloseGuard] = useState(false);
@@ -120,6 +118,7 @@ export function QuoteExperience({
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
   const turnstileWidgetRef = useRef<QuoteTurnstileWidgetHandle>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const stepContentRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const startOverButtonRef = useRef<HTMLButtonElement>(null);
   const keepEditingButtonRef = useRef<HTMLButtonElement>(null);
@@ -135,12 +134,11 @@ export function QuoteExperience({
   // closes over setSubmissionPhase, whose identity React guarantees stable
   // across renders, so this one-time construction stays correctly wired for
   // the component's whole lifetime.
-  const [engine] = useState<QuoteSubmissionEngine>(
-    () =>
-      createQuoteSubmissionEngine({
-        transport: transportProp ?? createFetchQuoteTransport(),
-        onProgress: (event) => setSubmissionPhase(event),
-      }),
+  const [engine] = useState<QuoteSubmissionEngine>(() =>
+    createQuoteSubmissionEngine({
+      transport: transportProp ?? createFetchQuoteTransport(),
+      onProgress: (event) => setSubmissionPhase(event),
+    }),
   );
 
   const form = useForm<QuoteFormValues>({
@@ -156,12 +154,10 @@ export function QuoteExperience({
   });
 
   const intent = form.watch("intent");
-  const values = form.watch();
-  const readiness = getReadiness(values, step, furthestStep, attemptedSteps);
+  const stage = confirmation ? QUOTE_TOTAL_STAGES : stageOf(step);
   const restoredFilesNotice =
     !!draft && (intent === "buy" ? draft.hadBuyerDocuments : draft.hadSellerPhotos);
   const hasMeaningfulProgress = !!intent;
-  const step5Name = intent === "buy" ? "Documents & Contact" : "Photos & Contact";
   const unresolvedFiles = submissionOutcome
     ? unresolvedFilenames(
         submissionOutcome,
@@ -173,11 +169,16 @@ export function QuoteExperience({
 
   useEffect(() => {
     saveQuoteDraft(step, form.getValues());
-    setFurthestStep((f) => Math.max(f, step));
   }, [step]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: 0 });
+    // C2L-Q1 — move focus into the new stage's content on every stage
+    // change (Continue/Back/Edit/hydration), so screen-reader/keyboard users
+    // land on the new heading instead of a stale focus target. The stage
+    // container itself (not a specific heading ref threaded through every
+    // step component) is the smallest safe hook available here.
+    stepContentRef.current?.focus();
   }, [step, confirmation]);
 
   useEffect(() => {
@@ -192,19 +193,21 @@ export function QuoteExperience({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /** Applies one step schema's validation issues exactly like handleContinue: sets field errors, marks the step attempted, and best-effort focuses the first invalid registered field. */
-  function applyStepValidationIssues(targetStep: number, values: QuoteFormValues): boolean {
-    const schema = getStepSchema(targetStep, values.intent);
+  /** Applies one stage schema's validation issues exactly like handleContinue: sets field errors, marks the stage attempted, and best-effort focuses the first invalid registered field. Works identically for stage 2's combined (Material+Details) intersection schema — a ZodIntersection failure carries the union of both sides' issues, each with its original field path intact. */
+  function applyStageValidationIssues(targetStage: number, values: QuoteFormValues): boolean {
+    const schema = getStageSchema(targetStage, values.intent);
     if (!schema) return true;
     const result = schema.safeParse(values);
     if (result.success) return true;
-    setAttemptedSteps((prev) => new Set(prev).add(targetStep));
     form.clearErrors();
     let firstField: keyof QuoteFormValues | null = null;
     for (const issue of result.error.issues) {
       const fieldName = issue.path[0];
       if (typeof fieldName === "string") {
-        form.setError(fieldName as keyof QuoteFormValues, { type: "manual", message: issue.message });
+        form.setError(fieldName as keyof QuoteFormValues, {
+          type: "manual",
+          message: issue.message,
+        });
         firstField ??= fieldName as keyof QuoteFormValues;
       }
     }
@@ -213,22 +216,32 @@ export function QuoteExperience({
   }
 
   function handleContinue() {
-    if (applyStepValidationIssues(step, form.getValues())) {
+    const currentStage = stageOf(step);
+    if (applyStageValidationIssues(currentStage, form.getValues())) {
       form.clearErrors();
-      setStep((s) => Math.min(s + 1, QUOTE_TOTAL_STEPS));
+      const nextStage = Math.min(currentStage + 1, QUOTE_TOTAL_STAGES);
+      setStep(STAGE_ENTRY_STEP[nextStage]!);
     }
   }
 
   function handleBack() {
-    setStep((s) => Math.max(s - 1, 1));
+    // C2L-Q (review scroll architecture fix) — Review now has a real Back
+    // button too (the shared footer, not a Review-only affordance), so this
+    // guard — already applied to Edit-section jumps below — now also has to
+    // cover the one stage where a submission can actually be in flight.
+    if (isSubmitting) return;
+    const currentStage = stageOf(step);
+    const prevStage = Math.max(currentStage - 1, 1);
+    setStep(STAGE_ENTRY_STEP[prevStage]!);
   }
 
   const handleTurnstileToken = useCallback((token: string) => setTurnstileToken(token), []);
   const handleTurnstileUnusable = useCallback(() => setTurnstileToken(null), []);
 
+  /** `target` is a STAGE number (1-4) — every ReviewStep section's Edit action and stage-jump target now speak the same 5-stage numbering. */
   function handleEditStep(target: number) {
     if (isSubmitting) return;
-    setStep(target);
+    setStep(STAGE_ENTRY_STEP[target] ?? 1);
   }
 
   function handleStartOver() {
@@ -236,8 +249,6 @@ export function QuoteExperience({
     clearQuoteDraft();
     form.reset(buildDefaultQuoteValues(initialContext));
     setStep(1);
-    setFurthestStep(1);
-    setAttemptedSteps(new Set());
     setConfirmation(null);
     setSubmissionOutcome(null);
     setShowCloseConfirm(false);
@@ -307,10 +318,10 @@ export function QuoteExperience({
       }
       case "validation_error":
       case "server_rejected": {
-        const invalidStep = findFirstInvalidStep(form.getValues(), form.getValues("intent"));
-        if (invalidStep) {
-          applyStepValidationIssues(invalidStep, form.getValues());
-          setStep(invalidStep);
+        const invalidStage = findFirstInvalidStage(form.getValues(), form.getValues("intent"));
+        if (invalidStage) {
+          applyStageValidationIssues(invalidStage, form.getValues());
+          setStep(STAGE_ENTRY_STEP[invalidStage]!);
         }
         setSubmissionOutcome(outcome);
         break;
@@ -353,7 +364,7 @@ export function QuoteExperience({
     onClose();
   }
 
-  const continueDisabled = step === 1 && !intent;
+  const continueDisabled = stage === 1 && !intent;
 
   let stepContent;
   if (confirmation) {
@@ -365,20 +376,17 @@ export function QuoteExperience({
       />
     );
   } else {
-    switch (step) {
+    switch (stage) {
       case 1:
         stepContent = <IntentStep />;
         break;
       case 2:
-        stepContent = <MaterialStep />;
+        stepContent = <MaterialRequirementsStep />;
         break;
       case 3:
-        stepContent = <DetailsStep />;
-        break;
-      case 4:
         stepContent = <LogisticsStep />;
         break;
-      case 5:
+      case 4:
         stepContent = (
           <ContactEvidenceStep
             restoredFilesNotice={restoredFilesNotice}
@@ -391,11 +399,9 @@ export function QuoteExperience({
           <ReviewStep
             values={form.getValues()}
             onEditStep={handleEditStep}
-            onSubmit={handleSubmit}
             isSubmitting={isSubmitting}
             submissionPhase={submissionPhase}
             submissionOutcome={submissionOutcome}
-            turnstileReady={!!turnstileToken}
             turnstileWidget={
               <TurnstileWidget
                 ref={turnstileWidgetRef}
@@ -411,10 +417,26 @@ export function QuoteExperience({
 
   const shell = (
     <FormProvider {...form}>
-      <div className="relative flex h-full min-h-0 flex-1 max-h-[inherit] flex-col md:flex-row">
+      {/* C2L-Q (review scroll architecture fix) — a real 3-row grid: header/
+          progress (auto), the one scrollable body (minmax(0,1fr)), and the
+          action footer (auto) as its static sibling, shared by all 5 stages.
+          The AlertDialog overlays below are absolutely positioned, so grid
+          vs. flex on this container doesn't affect them. */}
+      <div className="relative grid h-full min-h-0 flex-1 max-h-[inherit] grid-rows-[auto_minmax(0,1fr)_auto]">
         {showCloseConfirm && (
           <div className="absolute inset-0 z-20 flex items-center justify-center rounded-[inherit] bg-navy-deep/92 p-6 backdrop-blur-sm">
-            <div className="glass-panel glass-ring w-full max-w-sm rounded-2xl p-6 text-center">
+            {/* CHECKPOINT OWNER/QUOTE MATTE PASS — matte navy card (same
+                surface family as Review/choice cards, see quote-modal-matte),
+                not glass-panel's glossy gradient/shine. Action hierarchy
+                corrected: Keep editing (the safe/default action) is now the
+                primary copper CTA — the exact quotePrimaryCtaSurface used by
+                Continue/Submit — Save & close is the secondary outlined
+                action, Discard and close stays the quiet destructive text
+                action. Only the visual treatment and button order changed;
+                every onClick handler below is unchanged from before this
+                pass, so save-and-close, keep-editing and discard behavior
+                are all identical to what they were. */}
+            <div className="quote-modal-matte w-full max-w-sm rounded-2xl p-6 text-center">
               <p className="font-display text-base font-bold text-foreground">Leave this quote?</p>
               <p className="mt-2 text-sm text-foreground/70">
                 Your progress is saved in this browser for this session.
@@ -422,20 +444,23 @@ export function QuoteExperience({
               <div className="mt-5 flex flex-col gap-2">
                 <button
                   type="button"
-                  onClick={onClose}
-                  className="font-display rounded-full bg-[image:var(--gradient-copper)] px-5 py-2.5 text-xs font-bold tracking-[0.1em] text-[#080A1D] uppercase"
-                >
-                  Save & close
-                </button>
-                <button
-                  type="button"
                   onClick={() => {
                     setShowCloseConfirm(false);
                     closeButtonRef.current?.focus();
                   }}
-                  className="font-display rounded-full border border-white/15 px-5 py-2.5 text-xs font-bold tracking-[0.1em] text-foreground/85 uppercase hover:border-white/35"
+                  className={cn(
+                    "font-display rounded-full px-5 py-2.5 text-xs font-bold tracking-[0.1em] uppercase",
+                    quotePrimaryCtaSurface(false),
+                  )}
                 >
                   Keep editing
+                </button>
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="font-display rounded-full border border-white/15 px-5 py-2.5 text-xs font-bold tracking-[0.1em] text-foreground/85 uppercase transition-colors hover:border-white/35"
+                >
+                  Save & close
                 </button>
                 <button
                   type="button"
@@ -443,7 +468,7 @@ export function QuoteExperience({
                     handleStartOver();
                     onClose();
                   }}
-                  className="text-xs font-semibold text-foreground/45 underline-offset-2 hover:text-destructive hover:underline"
+                  className="rounded text-xs font-semibold text-foreground/45 underline-offset-2 transition-colors hover:text-destructive hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-destructive"
                 >
                   Discard and close
                 </button>
@@ -481,7 +506,12 @@ export function QuoteExperience({
             }}
             className="absolute inset-0 z-20 flex items-center justify-center rounded-[inherit] bg-navy-deep/92 p-6 backdrop-blur-sm outline-none"
           >
-            <div className="glass-panel glass-ring w-full max-w-sm rounded-2xl p-6 text-center">
+            {/* CHECKPOINT OWNER/QUOTE MATTE PASS — same matte card + copper
+                CTA token as the "Leave this quote?" dialog above; this one
+                was missed in that pass (still glass-panel + the old
+                --gradient-copper button), which is exactly why "Start over"
+                looked unchanged. */}
+            <div className="quote-modal-matte w-full max-w-sm rounded-2xl p-6 text-center">
               <AlertDialogPrimitive.Title className="font-display text-base font-bold text-foreground">
                 Start over?
               </AlertDialogPrimitive.Title>
@@ -493,7 +523,10 @@ export function QuoteExperience({
                   <button
                     ref={keepEditingButtonRef}
                     type="button"
-                    className="font-display rounded-full bg-[image:var(--gradient-copper)] px-5 py-2.5 text-xs font-bold tracking-[0.1em] text-[#080A1D] uppercase"
+                    className={cn(
+                      "font-display rounded-full px-5 py-2.5 text-xs font-bold tracking-[0.1em] uppercase",
+                      quotePrimaryCtaSurface(false),
+                    )}
                   >
                     Keep editing
                   </button>
@@ -504,7 +537,7 @@ export function QuoteExperience({
                     handleStartOver();
                     startOverButtonRef.current?.focus();
                   }}
-                  className="text-xs font-semibold text-foreground/45 underline-offset-2 hover:text-destructive hover:underline"
+                  className="rounded text-xs font-semibold text-foreground/45 underline-offset-2 transition-colors hover:text-destructive hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-destructive"
                 >
                   Discard and start over
                 </button>
@@ -539,7 +572,9 @@ export function QuoteExperience({
             }}
             className="absolute inset-0 z-30 flex items-center justify-center rounded-[inherit] bg-navy-deep/92 p-6 backdrop-blur-sm outline-none"
           >
-            <div className="glass-panel glass-ring w-full max-w-sm rounded-2xl p-6 text-center">
+            {/* CHECKPOINT OWNER/QUOTE MATTE PASS — same matte card + copper
+                CTA token as the other two Quote dialogs, for consistency. */}
+            <div className="quote-modal-matte w-full max-w-sm rounded-2xl p-6 text-center">
               <AlertDialogPrimitive.Title className="font-display text-base font-bold text-foreground">
                 Still submitting your request
               </AlertDialogPrimitive.Title>
@@ -552,7 +587,10 @@ export function QuoteExperience({
                   <button
                     ref={continueSubmittingButtonRef}
                     type="button"
-                    className="font-display rounded-full bg-[image:var(--gradient-copper)] px-5 py-2.5 text-xs font-bold tracking-[0.1em] text-[#080A1D] uppercase"
+                    className={cn(
+                      "font-display rounded-full px-5 py-2.5 text-xs font-bold tracking-[0.1em] uppercase",
+                      quotePrimaryCtaSurface(false),
+                    )}
                   >
                     Continue submitting
                   </button>
@@ -560,7 +598,7 @@ export function QuoteExperience({
                 <button
                   type="button"
                   onClick={handleStopAndClose}
-                  className="text-xs font-semibold text-foreground/45 underline-offset-2 hover:text-destructive hover:underline"
+                  className="rounded text-xs font-semibold text-foreground/45 underline-offset-2 transition-colors hover:text-destructive hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-destructive"
                 >
                   Stop and close
                 </button>
@@ -569,100 +607,96 @@ export function QuoteExperience({
           </AlertDialogPrimitive.Content>
         </AlertDialogPrimitive.Root>
 
-        {/* Desktop left rail */}
-        <aside className="hidden h-full w-[232px] shrink-0 flex-col border-r border-white/10 bg-navy-deep/50 px-5 py-6 md:flex">
-          <div className="shrink-0">
-            <div className="flex items-center justify-between">
-              <img src={msmLogo} alt="MSM Scrap" width={1174} height={417} className="h-7 w-auto" />
-              <button
-                ref={closeButtonRef}
-                type="button"
-                onClick={requestClose}
-                aria-label="Close quote experience"
-                className="flex h-10 w-10 items-center justify-center rounded-full text-foreground/60 transition-colors hover:bg-white/10 hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-copper"
-              >
-                <X aria-hidden="true" className="h-4 w-4" />
-              </button>
-            </div>
-          </div>
-
-          <div className="flex min-h-0 flex-1 items-center">
-            <div className="w-full space-y-8">
-              <QuoteProgress
-                step={confirmation ? QUOTE_TOTAL_STEPS : step}
-                stepNameOverride={step === 5 && !confirmation ? step5Name : undefined}
-              />
-              <QuoteReadiness items={readiness} labelOverrides={RAIL_LABEL_OVERRIDES} />
-            </div>
-          </div>
-
-          <div className="shrink-0">
+        {/* Row 1 — header/progress, auto height. C2L-Q3: leaner top header,
+            just logo + close; "Start over" lives in the footer beside Back;
+            the progress row no longer repeats the current stage name on
+            desktop (QuoteProgress's own label row already shows it). */}
+        <div
+          className="border-b border-white/10 bg-navy-deep/50 px-5 py-2.5 sm:px-8"
+          style={{ paddingTop: "max(0.625rem, env(safe-area-inset-top))" }}
+        >
+          <div className="flex items-center justify-between gap-4">
+            <img
+              src={msmLogo}
+              alt="MSM Scrap"
+              width={1174}
+              height={417}
+              className="h-6 w-auto shrink-0"
+            />
             <button
-              ref={startOverButtonRef}
+              ref={closeButtonRef}
               type="button"
-              onClick={requestStartOver}
-              disabled={isSubmitting}
-              aria-disabled={isSubmitting}
-              className="rounded text-xs font-semibold text-foreground/60 underline-offset-2 hover:text-foreground/85 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-copper disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:no-underline"
+              onClick={requestClose}
+              aria-label="Close quote experience"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-foreground/60 transition-colors hover:bg-white/10 hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-copper"
             >
-              Start over
+              <X aria-hidden="true" className="h-4 w-4" />
             </button>
           </div>
-        </aside>
-
-        {/* Mobile sticky header */}
-        <div
-          className="flex shrink-0 items-center justify-between gap-4 border-b border-white/10 px-5 py-3.5 md:hidden"
-          style={{ paddingTop: "max(0.875rem, env(safe-area-inset-top))" }}
-        >
-          <img
-            src={msmLogo}
-            alt="MSM Scrap"
-            width={1174}
-            height={417}
-            className="h-6 w-auto shrink-0"
-          />
-          <div className="min-w-0 flex-1">
-            <QuoteProgress
-              step={confirmation ? QUOTE_TOTAL_STEPS : step}
-              stepNameOverride={step === 5 && !confirmation ? step5Name : undefined}
-              compact
-            />
+          <div className="mt-2">
+            <QuoteProgress step={stage} />
           </div>
-          <button
-            type="button"
-            onClick={requestClose}
-            aria-label="Close quote experience"
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-foreground/60 hover:bg-white/10 hover:text-foreground"
-          >
-            <X aria-hidden="true" className="h-4 w-4" />
-          </button>
         </div>
 
-        {/* Main column */}
-        <div className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col bg-[#080A1D]">
+        {/* Row 2 — the ONE scrollable region (minmax(0,1fr)): min-h-0 lets
+            the grid track shrink below its content's natural height so
+            overflow-y-auto actually engages instead of the row growing to
+            fit everything; overscroll-contain stops scroll chaining to the
+            page behind the shell. */}
+        <div
+          ref={scrollRef}
+          className="quote-scroll min-h-0 min-w-0 overflow-y-auto overscroll-contain bg-[#080A1D] px-5 py-6 sm:px-8 lg:px-12"
+        >
           <div
-            ref={scrollRef}
-            className="quote-scroll relative min-h-0 flex-1 overflow-y-auto px-5 py-6 sm:px-8 sm:py-8 md:px-12 md:py-10"
+            ref={stepContentRef}
+            tabIndex={-1}
+            className={`mx-auto w-full max-w-2xl outline-none lg:max-w-[1140px] ${
+              // C2L-Q5 — Request (stage 1) is the one short stage whose
+              // content never overflows the viewport, so vertically
+              // centering it here is safe (no risk of scrolling past the
+              // top of taller content, which this is deliberately never
+              // applied to). Every other stage keeps its normal top-
+              // aligned flow — shell/header/footer geometry is untouched.
+              !confirmation && stage === 1 ? "flex min-h-full flex-col justify-center" : ""
+            }`}
           >
-            <div className="mb-6 md:hidden">
-              <QuoteReadiness items={readiness} compact />
-            </div>
             {stepContent}
           </div>
-          {!confirmation && step < QUOTE_TOTAL_STEPS && (
-            <div className="shrink-0" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
-              <QuoteNavigation
-                step={step}
-                totalSteps={QUOTE_TOTAL_STEPS}
-                onBack={handleBack}
-                onContinue={handleContinue}
-                continueLabel={step === 5 ? "Review Request" : undefined}
-                continueDisabled={continueDisabled}
-              />
-            </div>
-          )}
         </div>
+
+        {/* Row 3 — action footer, auto height, a plain static sibling of
+            the scroll body (never sticky/fixed/absolute). C2L-Q (review
+            scroll architecture fix): this is now the ONE shared footer for
+            all 5 stages, not just 1-4 — Review's primary action renders
+            here via primaryAction instead of Review owning its own second,
+            sticky footer inside the scroll body. */}
+        {!confirmation && (
+          <div style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
+            <QuoteNavigation
+              step={stage}
+              totalSteps={QUOTE_TOTAL_STAGES}
+              onBack={handleBack}
+              onContinue={handleContinue}
+              continueLabel={stage === 4 ? "Review Request" : undefined}
+              continueDisabled={continueDisabled}
+              onStartOver={requestStartOver}
+              showStartOver={hasMeaningfulProgress}
+              startOverDisabled={isSubmitting}
+              startOverButtonRef={startOverButtonRef}
+              primaryAction={
+                stage === QUOTE_TOTAL_STAGES ? (
+                  <ReviewSubmitButton
+                    values={form.getValues()}
+                    onSubmit={handleSubmit}
+                    isSubmitting={isSubmitting}
+                    submissionOutcome={submissionOutcome}
+                    turnstileReady={!!turnstileToken}
+                  />
+                ) : undefined
+              }
+            />
+          </div>
+        )}
       </div>
     </FormProvider>
   );
@@ -674,7 +708,7 @@ export function QuoteExperience({
         <p className="sr-only">
           Guided multi-step form to request a quote to sell or buy metal scrap.
         </p>
-        <div className="glass-panel glass-ring flex h-dvh flex-col overflow-hidden rounded-none md:h-[min(78dvh,620px)] md:w-[min(94vw,1280px)] md:rounded-3xl">
+        <div className="glass-panel glass-ring flex h-dvh flex-col overflow-hidden rounded-none md:h-[min(74dvh,620px)] md:w-[min(86vw,1360px)] md:rounded-3xl">
           {shell}
         </div>
       </div>
@@ -691,7 +725,7 @@ export function QuoteExperience({
     >
       <DialogContent
         overlayClassName="bg-[#080A1D]/95 backdrop-blur-sm"
-        className="flex h-dvh max-h-dvh w-full max-w-none flex-col gap-0 rounded-none border-0 bg-transparent p-0 shadow-none md:h-[min(78dvh,620px)] md:max-h-[min(78dvh,620px)] md:w-[min(94vw,1280px)] md:max-w-[min(94vw,1280px)] md:rounded-3xl [&>button]:hidden"
+        className="flex h-dvh max-h-dvh w-full max-w-none flex-col gap-0 rounded-none border-0 bg-transparent p-0 shadow-none md:h-[min(74dvh,620px)] md:max-h-[min(74dvh,620px)] md:w-[min(86vw,1360px)] md:max-w-[min(86vw,1360px)] md:rounded-3xl [&>button]:hidden"
       >
         <DialogTitle className="sr-only">Get a Quote — MSM Scrap</DialogTitle>
         <DialogDescription className="sr-only">

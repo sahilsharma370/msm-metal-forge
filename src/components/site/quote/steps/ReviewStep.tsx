@@ -1,5 +1,5 @@
-import type { ReactNode } from "react";
-import { ArrowRight, Loader2, MessageCircle, Paperclip, Pencil } from "lucide-react";
+import { useEffect, useRef, type ReactNode } from "react";
+import { ArrowRight, Loader2, Paperclip, Pencil } from "lucide-react";
 import { isValidMapLink, type QuoteFormValues, type QuoteLocalFile } from "../quote-schema";
 import {
   CONDITION_LABELS,
@@ -8,35 +8,81 @@ import {
   PICKUP_CHOICE_LABELS,
   PREFERRED_CONTACT_LABELS,
   PREFERRED_PORT_LABELS,
-  QUOTE_WHATSAPP_NUMBER_PROVISIONAL,
   TRADE_REQUIREMENT_LABELS,
   UNIT_LABELS,
   getMaterialLabel,
+  getStageEyebrow,
   getSubtypeLabel,
 } from "../quote-options";
 import {
-  buildSmartBrief,
-  buildWhatsAppMessage,
-  buildWhatsAppUrl,
+  buildReviewHeadline,
   formatDateForDisplay,
   formatPhoneForDisplay,
   isReadyForReview,
 } from "../quote-summary";
+import { quotePrimaryCtaSurface } from "../QuoteNavigation";
 import { outcomeBanner, progressPhaseText } from "../quote-submission-copy";
-import type { QuoteSubmissionOutcome, QuoteSubmissionProgressEvent } from "../quote-submission-engine";
+import type {
+  QuoteSubmissionOutcome,
+  QuoteSubmissionProgressEvent,
+} from "../quote-submission-engine";
 import { cn } from "@/lib/utils";
 
 interface ReviewStepProps {
   values: QuoteFormValues;
   onEditStep: (step: number) => void;
-  onSubmit: () => void;
   isSubmitting: boolean;
   submissionPhase: QuoteSubmissionProgressEvent | null;
   submissionOutcome: QuoteSubmissionOutcome | null;
-  /** CHECKPOINT C2G — whether a fresh, as-yet-unconsumed Turnstile token is currently held; Submit stays disabled until this is true. */
-  turnstileReady: boolean;
   /** CHECKPOINT C2G — the rendered Turnstile widget itself, owned and wired by QuoteExperience so this component stays widget-implementation-agnostic. */
   turnstileWidget: ReactNode;
+}
+
+interface ReviewSubmitButtonProps {
+  values: QuoteFormValues;
+  onSubmit: () => void;
+  isSubmitting: boolean;
+  submissionOutcome: QuoteSubmissionOutcome | null;
+  /** CHECKPOINT C2G — whether a fresh, as-yet-unconsumed Turnstile token is currently held; Submit stays disabled until this is true. */
+  turnstileReady: boolean;
+}
+
+/** C2L-Q (review scroll architecture fix) — the single primary CTA, rendered
+ * by QuoteExperience through the same static QuoteNavigation footer shared
+ * by every other stage (never a second, Review-owned sticky footer). Kept
+ * in this file, not QuoteExperience.tsx, so it stays next to the exact
+ * banner/ready/disabled logic it depends on. */
+export function ReviewSubmitButton({
+  values,
+  onSubmit,
+  isSubmitting,
+  submissionOutcome,
+  turnstileReady,
+}: ReviewSubmitButtonProps) {
+  const ready = isReadyForReview(values);
+  const banner = submissionOutcome ? outcomeBanner(submissionOutcome) : null;
+  const submitDisabled = !ready || isSubmitting || !turnstileReady;
+
+  return (
+    <button
+      type="button"
+      onClick={onSubmit}
+      disabled={submitDisabled}
+      aria-disabled={submitDisabled}
+      aria-busy={isSubmitting}
+      className={cn(
+        "font-display inline-flex items-center justify-center gap-2 rounded-full px-6 py-3 text-xs font-bold tracking-[0.1em] whitespace-nowrap uppercase",
+        quotePrimaryCtaSurface(submitDisabled),
+      )}
+    >
+      {isSubmitting ? (
+        <Loader2 aria-hidden="true" className="h-3.5 w-3.5 animate-spin" />
+      ) : (
+        <ArrowRight aria-hidden="true" className="h-3.5 w-3.5" />
+      )}
+      {isSubmitting ? "Submitting…" : banner?.showRetry ? "Retry Submission" : "Submit Request"}
+    </button>
+  );
 }
 
 interface ReviewRow {
@@ -82,12 +128,12 @@ function compactQuantity(
 
 function buildSellerSections(v: QuoteFormValues): ReviewSection[] {
   return [
-    { step: 1, title: "Enquiry Type", rows: [{ label: "Type", value: "Sell to MSM" }] },
-    { step: 2, title: "Material", rows: [{ label: "Material", value: materialAndSubtype(v) }] },
+    { step: 1, title: "Request", rows: [{ label: "Type", value: "Sell to MSM" }] },
     {
-      step: 3,
-      title: "Material Details",
+      step: 2,
+      title: "Material",
       rows: [
+        { label: "Material", value: materialAndSubtype(v) },
         {
           label: "Quantity",
           value: v.sellerQuantityUnsure
@@ -106,8 +152,8 @@ function buildSellerSections(v: QuoteFormValues): ReviewSection[] {
       ],
     },
     {
-      step: 4,
-      title: "Location & Logistics",
+      step: 3,
+      title: "Logistics",
       rows: [
         {
           label: "Location",
@@ -133,8 +179,8 @@ function buildSellerSections(v: QuoteFormValues): ReviewSection[] {
       ],
     },
     {
-      step: 5,
-      title: "Photos & Contact",
+      step: 4,
+      title: "Contact",
       files: v.sellerPhotos,
       rows: [
         { label: "Name", value: v.sellerName },
@@ -227,19 +273,13 @@ function buyerDestinationRows(v: QuoteFormValues): ReviewRow[] {
 
 function buildBuyerSections(v: QuoteFormValues): ReviewSection[] {
   return [
-    { step: 1, title: "Enquiry Type", rows: [{ label: "Type", value: "Buy from MSM" }] },
+    { step: 1, title: "Request", rows: [{ label: "Type", value: "Buy from MSM" }] },
     {
       step: 2,
       title: "Material",
       rows: [
         { label: "Material", value: materialAndSubtype(v) },
         { label: "Specification", value: v.materialSpec },
-      ],
-    },
-    {
-      step: 3,
-      title: "Material Details",
-      rows: [
         {
           label: "Required quantity",
           value: compactQuantity(
@@ -249,7 +289,7 @@ function buildBuyerSections(v: QuoteFormValues): ReviewSection[] {
           ),
         },
         {
-          label: "Trade route",
+          label: "Supply route",
           value: v.buyerTradeRequirement
             ? TRADE_REQUIREMENT_LABELS[v.buyerTradeRequirement]
             : undefined,
@@ -258,10 +298,10 @@ function buildBuyerSections(v: QuoteFormValues): ReviewSection[] {
         { label: "Additional requirements", value: v.buyerAdditionalSpec },
       ],
     },
-    { step: 4, title: "Location & Logistics", rows: buyerDestinationRows(v) },
+    { step: 3, title: "Logistics", rows: buyerDestinationRows(v) },
     {
-      step: 5,
-      title: "Documents & Contact",
+      step: 4,
+      title: "Contact",
       files: v.buyerDocuments,
       rows: [
         { label: "Contact person", value: v.buyerContactPerson },
@@ -323,40 +363,46 @@ function FileThumbnails({ files }: { files: QuoteLocalFile[] }) {
 export function ReviewStep({
   values,
   onEditStep,
-  onSubmit,
   isSubmitting,
   submissionPhase,
   submissionOutcome,
-  turnstileReady,
   turnstileWidget,
 }: ReviewStepProps) {
   const sections =
     values.intent === "buy" ? buildBuyerSections(values) : buildSellerSections(values);
-  const ready = isReadyForReview(values);
-  const whatsappUrl = buildWhatsAppUrl(
-    QUOTE_WHATSAPP_NUMBER_PROVISIONAL,
-    buildWhatsAppMessage(values),
-  );
   const banner = submissionOutcome ? outcomeBanner(submissionOutcome) : null;
   const statusText = isSubmitting ? progressPhaseText(submissionPhase) : (banner?.message ?? "");
-  const submitDisabled = !ready || isSubmitting || !turnstileReady;
+  const isErrorTone = banner?.tone === "terminal" || banner?.tone === "conflict";
+  const statusRef = useRef<HTMLDivElement>(null);
+
+  // C2L (review scroll architecture fix) — after a failed submission, move
+  // focus (and therefore scroll) onto the inline error. The scroll body is
+  // now the ONLY scrollable region and the action footer is a plain static
+  // sibling of it (never sticky/fixed/absolute), so bringing this element
+  // into view can no longer land it behind anything.
+  useEffect(() => {
+    if (isErrorTone) {
+      statusRef.current?.focus();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [submissionOutcome]);
 
   return (
-    <div>
-      <p className="label-eyebrow text-copper-bright">Review Request</p>
+    <div className="pb-8">
+      <p className="label-eyebrow text-copper-bright">{getStageEyebrow(5, values.intent)}</p>
       <h2 className="font-display mt-3 text-2xl font-bold text-foreground sm:text-3xl">
-        Review your request
+        Review and send your request
       </h2>
 
-      <p className="font-display mt-4 rounded-2xl border border-copper/25 bg-[oklch(0.583_0.135_45.5/0.08)] px-5 py-4 text-sm font-semibold text-foreground/90">
-        {buildSmartBrief(values)}
+      <p className="font-display mt-4 rounded-2xl border border-copper/25 bg-[oklch(0.583_0.135_45.5/0.08)] px-5 py-3.5 text-sm font-semibold text-foreground/90">
+        {buildReviewHeadline(values)}
       </p>
 
-      <div className="mt-6 space-y-3">
+      <div className="mt-5 grid gap-3 lg:grid-cols-2">
         {sections.map((section) => (
           <div
             key={section.step}
-            className="glass-panel rounded-xl border border-white/10 px-4 py-3.5"
+            className="rounded-xl border border-white/10 bg-navy-deep/95 px-4 py-3.5"
           >
             <div className="flex items-center justify-between">
               <p className="text-[0.8rem] font-bold tracking-[0.02em] text-foreground/85">
@@ -411,50 +457,43 @@ export function ReviewStep({
         weight or quantity, condition and logistics.
       </p>
 
+      {/* C2L-Q (review scroll architecture fix) — Turnstile verification,
+          plain document flow: no absolute/fixed/sticky positioning,
+          negative margins or transforms over the summary cards above. This
+          is the required Review order: banner -> cards -> price disclaimer
+          -> Turnstile -> inline error/status; the single primary CTA lives
+          in the shared static QuoteNavigation footer below the scroll body
+          (see ReviewSubmitButton, rendered by QuoteExperience), not here.
+          "Continue on WhatsApp" is deliberately absent here (C2L-Q1) — it
+          must never appear as an equal, pre-submission alternative to
+          actually submitting (it sends nothing to MSM's system and can't
+          carry attachments). WhatsApp is offered again only after a
+          genuine success, on QuoteConfirmation, using the server's own
+          reference. */}
       <div className="mt-6">{turnstileWidget}</div>
 
-      <div className="mt-4 flex flex-col gap-3 sm:flex-row">
-        <a
-          href={whatsappUrl}
-          target="_blank"
-          rel="noreferrer"
-          className="font-display inline-flex flex-1 items-center justify-center gap-2 rounded-full border border-[#25D366]/50 px-6 py-3 text-xs font-bold tracking-[0.1em] text-[#25D366] uppercase transition-colors hover:border-[#25D366] hover:bg-[#25D366]/10"
-        >
-          <MessageCircle aria-hidden="true" className="h-4 w-4" />
-          Continue on WhatsApp
-        </a>
-
-        <button
-          type="button"
-          onClick={onSubmit}
-          disabled={submitDisabled}
-          aria-disabled={submitDisabled}
-          aria-busy={isSubmitting}
-          className={cn(
-            "font-display inline-flex flex-1 items-center justify-center gap-2 rounded-full px-6 py-3 text-xs font-bold tracking-[0.1em] whitespace-nowrap uppercase transition-transform",
-            submitDisabled
-              ? "cursor-not-allowed bg-white/8 text-foreground/35"
-              : "bg-[image:var(--gradient-copper)] text-[#080A1D] shadow-[0_10px_30px_-10px_oklch(0.583_0.135_45.5/0.9)] hover:scale-[1.02]",
-          )}
-        >
-          {isSubmitting ? (
-            <Loader2 aria-hidden="true" className="h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <ArrowRight aria-hidden="true" className="h-3.5 w-3.5" />
-          )}
-          {isSubmitting ? "Submitting…" : banner?.showRetry ? "Retry Submission" : "Submit Request"}
-        </button>
-      </div>
-
-      {/* Truthful, screen-reader-announced status: progress while submitting, or the
-          last outcome's customer-safe message once settled. Always mounted (never
-          conditionally rendered in/out) so assistive tech reliably picks up updates. */}
-      <div role="status" aria-live="polite" aria-atomic="true" className="mt-3 min-h-[1.25rem]">
+      {/* Inline error/status — also plain flow. Errors use role="alert"/
+          aria-live="assertive" so they interrupt assistive tech immediately
+          and are moved into focus (see the effect above), not left
+          off-screen; benign progress/success messages stay role="status"/
+          "polite" so they announce without stealing focus. Always mounted
+          (never conditionally rendered in/out) so assistive tech reliably
+          picks up updates. Nothing here can end up behind the header or
+          footer: both are static grid rows, and the scroll body between
+          them is the only element that ever scrolls. */}
+      <div
+        ref={statusRef}
+        role={isErrorTone ? "alert" : "status"}
+        aria-live={isErrorTone ? "assertive" : "polite"}
+        aria-atomic="true"
+        tabIndex={-1}
+        className="mt-3 min-h-[1.25rem] outline-none"
+      >
         {statusText && (
           <p
             className={cn(
               "rounded-xl border px-4 py-2.5 text-xs leading-relaxed",
-              banner?.tone === "terminal" || banner?.tone === "conflict"
+              isErrorTone
                 ? "border-destructive/30 bg-destructive/10 text-foreground/85"
                 : "border-copper/25 bg-[oklch(0.583_0.135_45.5/0.08)] text-foreground/75",
             )}
@@ -463,13 +502,6 @@ export function ReviewStep({
           </p>
         )}
       </div>
-
-      {values.sellerPhotos.length > 0 || values.buyerDocuments.length > 0 ? (
-        <p className="mt-3 text-xs leading-relaxed text-foreground/50">
-          WhatsApp can't carry your attached files automatically — please attach them again inside
-          the chat.
-        </p>
-      ) : null}
     </div>
   );
 }

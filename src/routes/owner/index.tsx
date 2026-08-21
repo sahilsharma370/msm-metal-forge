@@ -3,6 +3,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { OwnerShell, type RegisterOwnerShellRefresh } from "@/components/owner/OwnerShell";
 import { OwnerLeadInbox } from "@/components/owner/OwnerLeadInbox";
 import { useOwnerLeadList } from "@/components/owner/use-owner-lead-list";
+import { useOwnerLeadExport } from "@/components/owner/use-owner-lead-export";
 import { createOwnerAuthClient } from "@/components/owner/owner-auth-client";
 import type { OwnerLeadsTransportDeps } from "@/components/owner/owner-leads-transport";
 
@@ -63,6 +64,7 @@ export function OwnerInboxBody({
   // log — the browser rejected the call before dispatching it at all.
   const deps = useMemo<OwnerLeadsTransportDeps>(() => ({ authClient: createOwnerAuthClient(), fetchImpl: fetch.bind(globalThis) }), []);
   const list = useOwnerLeadList(deps);
+  const exportCsvHook = useOwnerLeadExport(deps, onUnauthorized);
 
   useEffect(() => {
     if (list.state.unauthorized) onUnauthorized();
@@ -75,5 +77,5 @@ export function OwnerInboxBody({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [list.refresh, list.state.isRefreshing]);
 
-  return <OwnerLeadInbox {...list} />;
+  return <OwnerLeadInbox {...list} exportState={exportCsvHook.state} onExportCsv={exportCsvHook.exportCsv} onClearExportError={exportCsvHook.clearError} />;
 }

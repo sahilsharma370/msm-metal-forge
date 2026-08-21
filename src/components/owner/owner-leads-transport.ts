@@ -6,6 +6,7 @@ import {
   type OwnerLeadIntent,
   type OwnerLeadMaterial,
   type OwnerLeadCaptureChannel,
+  type OwnerLeadView,
 } from "@/lib/owner/owner-leads-contract";
 import {
   ownerLeadDetailSuccessBodySchema,
@@ -16,6 +17,13 @@ import {
   type OwnerLeadStatusChangeSuccessBody,
   ownerLeadNoteCreateSuccessBodySchema,
   type OwnerLeadNoteCreateSuccessBody,
+  ownerLeadTrashSuccessBodySchema,
+  type OwnerLeadTrashSuccessBody,
+  ownerLeadRestoreSuccessBodySchema,
+  type OwnerLeadRestoreSuccessBody,
+  ownerLeadEditSuccessBodySchema,
+  type OwnerLeadEditSuccessBody,
+  type OwnerLeadEditRequest,
 } from "@/lib/owner/owner-lead-detail-contract";
 import {
   ownerLeadQuickAddSuccessBodySchema,
@@ -143,6 +151,7 @@ function withJsonBody(method: "POST", body: unknown, signal: AbortSignal | undef
 // ---------------------------------------------------------------------------
 
 export interface OwnerLeadListQuery {
+  readonly view?: OwnerLeadView;
   readonly status?: OwnerLeadStatus;
   readonly intent?: OwnerLeadIntent;
   readonly material?: OwnerLeadMaterial;
@@ -156,6 +165,7 @@ export interface OwnerLeadListQuery {
 
 function buildListSearchParams(query: OwnerLeadListQuery): URLSearchParams {
   const params = new URLSearchParams();
+  if (query.view) params.set("view", query.view);
   if (query.status) params.set("status", query.status);
   if (query.intent) params.set("intent", query.intent);
   if (query.material) params.set("material", query.material);
@@ -269,6 +279,26 @@ export async function addOwnerLeadNote(
 }
 
 // ---------------------------------------------------------------------------
+// Owner "Edit enquiry" (POST .../details)
+// ---------------------------------------------------------------------------
+
+/** A 409 (kind: "error", status: 409) covers both a stale expectedUpdatedAt and a NOT_EDITABLE (archived/trashed) rejection — the response body's own already-sanitized message distinguishes them for display; callers should re-fetch detail on either to pick up the lead's real current state. */
+export async function updateOwnerLeadDetails(
+  leadId: string,
+  request: OwnerLeadEditRequest,
+  deps: OwnerLeadsTransportDeps,
+  signal?: AbortSignal,
+): Promise<OwnerApiResult<OwnerLeadEditSuccessBody["data"]>> {
+  const result = await callOwnerApi(
+    `/api/owner/leads/${encodeURIComponent(leadId)}/details`,
+    ownerLeadEditSuccessBodySchema,
+    deps,
+    withJsonBody("POST", request, signal),
+  );
+  return mapOk(result);
+}
+
+// ---------------------------------------------------------------------------
 // CHECKPOINT C2J-F — owner Quick Add
 // ---------------------------------------------------------------------------
 
@@ -301,4 +331,117 @@ export async function fetchOwnerLeadOverview(
     withMethod("GET", signal),
   );
   return mapOk(result);
+}
+
+// ---------------------------------------------------------------------------
+// CHECKPOINT C2M-A — Trash / Restore
+// ---------------------------------------------------------------------------
+
+export async function trashOwnerLead(
+  leadId: string,
+  deps: OwnerLeadsTransportDeps,
+  signal?: AbortSignal,
+): Promise<OwnerApiResult<OwnerLeadTrashSuccessBody["data"]>> {
+  const result = await callOwnerApi(
+    `/api/owner/leads/${encodeURIComponent(leadId)}/trash`,
+    ownerLeadTrashSuccessBodySchema,
+    deps,
+    withMethod("POST", signal),
+  );
+  return mapOk(result);
+}
+
+export async function restoreOwnerLead(
+  leadId: string,
+  deps: OwnerLeadsTransportDeps,
+  signal?: AbortSignal,
+): Promise<OwnerApiResult<OwnerLeadRestoreSuccessBody["data"]>> {
+  const result = await callOwnerApi(
+    `/api/owner/leads/${encodeURIComponent(leadId)}/restore`,
+    ownerLeadRestoreSuccessBodySchema,
+    deps,
+    withMethod("POST", signal),
+  );
+  return mapOk(result);
+}
+
+// ---------------------------------------------------------------------------
+// CHECKPOINT C2M-A — CSV export. Not JSON, so this bypasses callOwnerApi
+// entirely and handles the response as a Blob — the same 401 -> signOut and
+// generic-error-message posture is preserved by hand below.
+// ---------------------------------------------------------------------------
+
+export interface OwnerLeadExportQuery {
+  readonly view: "inbox" | "archived";
+  readonly status?: OwnerLeadStatus;
+  readonly intent?: OwnerLeadIntent;
+  readonly material?: OwnerLeadMaterial;
+  readonly captureChannel?: OwnerLeadCaptureChannel;
+  readonly q?: string;
+}
+
+export type OwnerLeadExportResult =
+  | { readonly kind: "ok"; readonly blob: Blob; readonly filename: string }
+  | { readonly kind: "unauthorized" }
+  | { readonly kind: "error"; readonly message: string }
+  | { readonly kind: "aborted" };
+
+const EXPORT_GENERIC_ERROR_MESSAGE = "Couldn't export the CSV. Please try again.";
+
+/** Extracts the filename from a `Content-Disposition: attachment; filename="..."` header, falling back to a safe default when absent/malformed — never trusts it blindly for anything beyond a suggested download name. */
+function filenameFromContentDisposition(header: string | null): string {
+  const match = header?.match(/filename="([^"]+)"/);
+  return match?.[1] ?? "enquiries.csv";
+}
+
+export async function exportOwnerLeadsCsv(
+  query: OwnerLeadExportQuery,
+  deps: OwnerLeadsTransportDeps,
+  signal?: AbortSignal,
+): Promise<OwnerLeadExportResult> {
+  const token = await deps.authClient.getAccessToken();
+  if (!token) {
+    return { kind: "unauthorized" };
+  }
+
+  const params = new URLSearchParams();
+  params.set("view", query.view);
+  if (query.status) params.set("status", query.status);
+  if (query.intent) params.set("intent", query.intent);
+  if (query.material) params.set("material", query.material);
+  if (query.captureChannel) params.set("captureChannel", query.captureChannel);
+  if (query.q) params.set("q", query.q);
+
+  let response: Response;
+  try {
+    response = await deps.fetchImpl(`/api/owner/leads/export?${params.toString()}`, {
+      method: "GET",
+      headers: { authorization: `Bearer ${token}` },
+      ...(signal ? { signal } : {}),
+    });
+  } catch (err) {
+    if (signal?.aborted || (err instanceof DOMException && err.name === "AbortError")) {
+      return { kind: "aborted" };
+    }
+    return { kind: "error", message: EXPORT_GENERIC_ERROR_MESSAGE };
+  }
+
+  if (response.status === 401) {
+    await deps.authClient.signOut();
+    return { kind: "unauthorized" };
+  }
+
+  if (!response.ok) {
+    let message = EXPORT_GENERIC_ERROR_MESSAGE;
+    try {
+      const body = looseErrorBodySchema.safeParse(await response.json());
+      if (body.success) message = body.data.error.message;
+    } catch {
+      // Non-JSON error body — keep the generic message.
+    }
+    return { kind: "error", message };
+  }
+
+  const blob = await response.blob();
+  return { kind: "ok", blob, filename: filenameFromContentDisposition(response.headers.get("content-disposition")) };
 }

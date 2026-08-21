@@ -67,6 +67,24 @@ describe("parseOwnerLeadListQuery — valid input", () => {
   });
 });
 
+describe("parseOwnerLeadListQuery — view (CHECKPOINT C2M-A)", () => {
+  it("defaults view to 'inbox' when omitted", () => {
+    const result = parseOwnerLeadListQuery(params({}));
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.query.view).toBe("inbox");
+  });
+
+  it.each(["inbox", "archived", "trash"])("accepts view=%s", (view) => {
+    const result = parseOwnerLeadListQuery(params({ view }));
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.query.view).toBe(view);
+  });
+
+  it("rejects an unrecognized view value", () => {
+    expect(parseOwnerLeadListQuery(params({ view: "recycled" })).ok).toBe(false);
+  });
+});
+
 describe("parseOwnerLeadListQuery — invalid input rejected", () => {
   it("rejects an unrecognized status value", () => {
     expect(parseOwnerLeadListQuery(params({ status: "won" })).ok).toBe(false);
@@ -259,6 +277,7 @@ function fakeLeadRow(overrides: Partial<LeadRow> = {}): LeadRow {
     created_at: "2026-01-01T00:00:00.000Z",
     submission_completed_at: "2026-01-01T00:05:00.000Z",
     file_upload_status: "complete",
+    deleted_at: null,
     seller_name: "Ahmed Seller",
     seller_phone: "+971501234567",
     seller_emirate: "dubai",
@@ -286,7 +305,7 @@ describe("listOwnerLeads — seller/buyer branch mapping", () => {
   it("maps a sell lead's contact/location/quantity from seller fields", async () => {
     const row = fakeLeadRow();
     const deps = fakeDeps([row]);
-    const result = await listOwnerLeads({ limit: 20 }, deps);
+    const result = await listOwnerLeads({ view: "inbox", limit: 20 }, deps);
     expect(result.leads[0]).toMatchObject({
       contact: { name: "Ahmed Seller", phone: "+971501234567" },
       location: { emirate: "dubai", area: "Al Quoz" },
@@ -311,7 +330,7 @@ describe("listOwnerLeads — seller/buyer branch mapping", () => {
       buyer_quantity_unit: "kg",
     });
     const deps = fakeDeps([row]);
-    const result = await listOwnerLeads({ limit: 20 }, deps);
+    const result = await listOwnerLeads({ view: "inbox", limit: 20 }, deps);
     expect(result.leads[0]).toMatchObject({
       contact: { name: "Fatima Buyer", phone: "+971509999999" },
       location: { emirate: "sharjah", area: "Industrial 3" },
@@ -322,7 +341,7 @@ describe("listOwnerLeads — seller/buyer branch mapping", () => {
   it("never invents a buyer quantity when none exists (e.g. an import-route buyer lead with no structured quantity)", async () => {
     const row = fakeLeadRow({ intent: "buy", buyer_quantity_value: null, buyer_quantity_unit: null, buyer_contact_person: "X", buyer_phone: "+971500000000" });
     const deps = fakeDeps([row]);
-    const result = await listOwnerLeads({ limit: 20 }, deps);
+    const result = await listOwnerLeads({ view: "inbox", limit: 20 }, deps);
     expect(result.leads[0]?.quantity).toEqual({ value: null, unit: null });
   });
 });
@@ -330,7 +349,7 @@ describe("listOwnerLeads — seller/buyer branch mapping", () => {
 describe("listOwnerLeads — pagination (limit+1 trick)", () => {
   it("hasMore:false and nextCursor:null when fewer rows than limit are returned", async () => {
     const deps = fakeDeps([fakeLeadRow()]);
-    const result = await listOwnerLeads({ limit: 20 }, deps);
+    const result = await listOwnerLeads({ view: "inbox", limit: 20 }, deps);
     expect(result.hasMore).toBe(false);
     expect(result.nextCursor).toBeNull();
     expect(result.leads).toHaveLength(1);
@@ -343,7 +362,7 @@ describe("listOwnerLeads — pagination (limit+1 trick)", () => {
       fakeLeadRow({ id: "33333333-3333-3333-3333-333333333333" }),
     ];
     const deps = fakeDeps(rows);
-    const result = await listOwnerLeads({ limit: 2 }, deps);
+    const result = await listOwnerLeads({ view: "inbox", limit: 2 }, deps);
     expect(result.leads).toHaveLength(2);
     expect(result.hasMore).toBe(true);
     expect(result.nextCursor).not.toBeNull();
@@ -366,28 +385,28 @@ describe("listOwnerLeads — notification status merge", () => {
       // 33333333... deliberately has no row at all
     ]);
     const deps = fakeDeps(rows, statuses);
-    const result = await listOwnerLeads({ limit: 20 }, deps);
+    const result = await listOwnerLeads({ view: "inbox", limit: 20 }, deps);
     expect(result.leads.map((l) => l.notificationStatus)).toEqual(["sent", "attention", "attention"]);
   });
 
   it("queries notification statuses only for the returned page's lead ids", async () => {
     const rows = [fakeLeadRow({ id: "11111111-1111-1111-1111-111111111111" })];
     const deps = fakeDeps(rows);
-    await listOwnerLeads({ limit: 20 }, deps);
+    await listOwnerLeads({ view: "inbox", limit: 20 }, deps);
     expect(deps.queryNotificationStatuses).toHaveBeenCalledWith(["11111111-1111-1111-1111-111111111111"]);
   });
 
   it("a completed Quick Add (non-website) lead missing its notification row shows not_required, never attention", async () => {
     const rows = [fakeLeadRow({ id: "11111111-1111-1111-1111-111111111111", capture_channel: "phone" })];
     const deps = fakeDeps(rows); // no notification row for this lead
-    const result = await listOwnerLeads({ limit: 20 }, deps);
+    const result = await listOwnerLeads({ view: "inbox", limit: 20 }, deps);
     expect(result.leads[0]?.notificationStatus).toBe("not_required");
   });
 
   it("a completed website lead missing its notification row still shows attention (a genuine anomaly)", async () => {
     const rows = [fakeLeadRow({ id: "11111111-1111-1111-1111-111111111111", capture_channel: "website" })];
     const deps = fakeDeps(rows); // no notification row for this lead
-    const result = await listOwnerLeads({ limit: 20 }, deps);
+    const result = await listOwnerLeads({ view: "inbox", limit: 20 }, deps);
     expect(result.leads[0]?.notificationStatus).toBe("attention");
   });
 });
@@ -395,7 +414,7 @@ describe("listOwnerLeads — notification status merge", () => {
 describe("listOwnerLeads — serialized shape never leaks forbidden fields", () => {
   it("the returned item never contains storage_path, submission_snapshot, payload_hash, idempotency_key, checksum, or any snake_case column name", async () => {
     const deps = fakeDeps([fakeLeadRow()]);
-    const result = await listOwnerLeads({ limit: 20 }, deps);
+    const result = await listOwnerLeads({ view: "inbox", limit: 20 }, deps);
     const serialized = JSON.stringify(result.leads);
     expect(serialized).not.toMatch(/storage_path|submission_snapshot|payload_hash|idempotency_key|checksum|claim_token|provider_message_id/i);
   });

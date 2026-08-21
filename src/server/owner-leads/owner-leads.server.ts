@@ -31,9 +31,11 @@ import {
   OWNER_LEAD_MATERIAL_VALUES,
   OWNER_LEAD_INTENT_VALUES,
   OWNER_LEAD_LIST_QUERY_PARAMS,
+  OWNER_LEAD_VIEW_VALUES,
   type OwnerLeadListItem,
   type OwnerNotificationSummaryStatus,
   type OwnerLeadCaptureChannel,
+  type OwnerLeadView,
 } from "@/lib/owner/owner-leads-contract";
 
 // ---------------------------------------------------------------------------
@@ -108,6 +110,7 @@ export function classifySearchTerm(trimmed: string): SearchClassification | null
 }
 
 const queryParamsSchema = z.object({
+  view: z.enum(OWNER_LEAD_VIEW_VALUES).optional(),
   status: z.enum(OWNER_LEAD_STATUS_VALUES).optional(),
   intent: z.enum(OWNER_LEAD_INTENT_VALUES).optional(),
   material: z.enum(OWNER_LEAD_MATERIAL_VALUES).optional(),
@@ -153,6 +156,8 @@ export const DEFAULT_OWNER_LEAD_LIST_LIMIT = 20;
 export const MAX_OWNER_LEAD_LIST_LIMIT = 50;
 
 export interface ParsedOwnerLeadListQuery {
+  /** Defaults to "inbox" when the caller omits it — see OWNER_LEAD_VIEW_VALUES's own doc comment for what each value means. */
+  readonly view: OwnerLeadView;
   readonly status?: string;
   readonly intent?: "sell" | "buy";
   readonly material?: string;
@@ -175,6 +180,7 @@ export function parseOwnerLeadListQuery(searchParams: URLSearchParams): ParseOwn
   }
 
   const parsed = queryParamsSchema.safeParse({
+    view: searchParams.get("view") ?? undefined,
     status: searchParams.get("status") ?? undefined,
     intent: searchParams.get("intent") ?? undefined,
     material: searchParams.get("material") ?? undefined,
@@ -211,6 +217,7 @@ export function parseOwnerLeadListQuery(searchParams: URLSearchParams): ParseOwn
   return {
     ok: true,
     query: {
+      view: parsed.data.view ?? "inbox",
       ...(parsed.data.status ? { status: parsed.data.status } : {}),
       ...(parsed.data.intent ? { intent: parsed.data.intent } : {}),
       ...(parsed.data.material ? { material: parsed.data.material } : {}),
@@ -267,7 +274,7 @@ export function decodeCursor(cursor: string): DecodedCursor | null {
  * name searches only ever touch `seller_name`/`buyer_contact_person`. Notes,
  * descriptions, and `submission_snapshot` are never searched.
  */
-function buildSearchFilter(search: SearchClassification): string {
+export function buildSearchFilter(search: SearchClassification): string {
   switch (search.kind) {
     case "reference":
       return `reference.ilike.${search.value}%`;
@@ -296,7 +303,7 @@ function buildCursorFilter(cursor: DecodedCursor): string {
 
 const LEADS_SELECT_COLUMNS = [
   "id", "reference", "status", "intent", "capture_channel", "material", "material_subtype",
-  "created_at", "submission_completed_at", "file_upload_status",
+  "created_at", "submission_completed_at", "file_upload_status", "deleted_at",
   "seller_name", "seller_phone", "seller_emirate", "seller_area", "seller_quantity_value", "seller_quantity_unit",
   "buyer_contact_person", "buyer_phone", "buyer_destination_emirate", "buyer_destination_area",
   "buyer_quantity_value", "buyer_quantity_unit",
@@ -313,6 +320,7 @@ const leadRowSchema = z.object({
   created_at: z.string(),
   submission_completed_at: z.string(),
   file_upload_status: z.string(),
+  deleted_at: z.string().nullable(),
   seller_name: z.string().nullable(),
   seller_phone: z.string().nullable(),
   seller_emirate: z.string().nullable(),
@@ -361,12 +369,32 @@ export function createProductionOwnerLeadsServiceDeps(): OwnerLeadsServiceDeps {
         .select(LEADS_SELECT_COLUMNS)
         .not("submission_completed_at", "is", null);
 
-      if (query.status) builder = builder.eq("status", query.status);
-      if (query.intent) builder = builder.eq("intent", query.intent);
-      if (query.material) builder = builder.eq("material", query.material);
-      if (query.captureChannel) builder = builder.eq("capture_channel", query.captureChannel);
-      if (query.submittedFrom) builder = builder.gte("submission_completed_at", query.submittedFrom);
-      if (query.submittedTo) builder = builder.lte("submission_completed_at", query.submittedTo);
+      // CHECKPOINT C2M-A — view drives the trash/archived split; every
+      // other filter below composes on top of it unchanged. "trash" is the
+      // only view that includes deleted_at IS NOT NULL rows; the other two
+      // both require deleted_at IS NULL and differ only by status.
+      //
+      // Deliberately routed through the single generic .filter(column,
+      // operator, value) escape hatch (which every one of .eq/.neq/.is/.not
+      // delegates to internally) rather than branching between those
+      // differently-overloaded convenience methods — branching between
+      // them here previously pushed this builder's cumulative chained-call
+      // type past TypeScript's instantiation-depth limit ("Type
+      // instantiation is excessively deep and possibly infinite"), because
+      // each convenience method resolves to its own overload shape. Calling
+      // the same generic method with a computed operator string keeps every
+      // branch structurally identical to TypeScript.
+      builder = query.view === "trash" ? builder.filter("deleted_at", "not.is", null) : builder.filter("deleted_at", "is", null);
+      if (query.view !== "trash") {
+        builder = builder.filter("status", query.view === "archived" ? "eq" : "neq", "archived");
+      }
+
+      if (query.status) builder = builder.filter("status", "eq", query.status);
+      if (query.intent) builder = builder.filter("intent", "eq", query.intent);
+      if (query.material) builder = builder.filter("material", "eq", query.material);
+      if (query.captureChannel) builder = builder.filter("capture_channel", "eq", query.captureChannel);
+      if (query.submittedFrom) builder = builder.filter("submission_completed_at", "gte", query.submittedFrom);
+      if (query.submittedTo) builder = builder.filter("submission_completed_at", "lte", query.submittedTo);
       if (query.search) builder = builder.or(buildSearchFilter(query.search));
       if (query.cursor) builder = builder.or(buildCursorFilter(query.cursor));
 
@@ -459,6 +487,7 @@ function mapLeadRow(row: LeadRow, notificationStatus: OwnerNotificationSummarySt
     },
     fileUploadStatus: row.file_upload_status,
     notificationStatus,
+    deletedAt: row.deleted_at,
   };
 }
 

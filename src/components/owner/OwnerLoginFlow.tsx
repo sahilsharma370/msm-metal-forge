@@ -1,10 +1,11 @@
-import { useId, useState, type FormEvent } from "react";
-import { Button } from "@/components/ui/button";
+import { useEffect, useId, useRef, useState, type FormEvent } from "react";
+import { ArrowLeft, Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
 import { createOwnerLoginTransport, type OwnerLoginTransport } from "./owner-login-transport";
 import { createOwnerAuthClient, type OwnerAuthClient } from "./owner-auth-client";
+import { cn } from "@/lib/utils";
 
 /**
  * CHECKPOINT C2I-A — the owner passwordless (six-digit email OTP) login
@@ -13,7 +14,7 @@ import { createOwnerAuthClient, type OwnerAuthClient } from "./owner-auth-client
  * owner-login-transport.ts / owner-login.server.ts) — this component never
  * branches its own UI on whether the email turned out to be
  * registered/authorized, so there is nothing here that could leak that
- * distinction either.
+ * distinction either. Never a password field, never implies one.
  *
  * `transport`/`authClient` are injectable (defaulting to the real
  * fetch/Supabase-backed implementations) purely so tests can exercise this
@@ -31,6 +32,33 @@ type Status = "idle" | "submitting";
 
 const RATE_LIMITED_MESSAGE = "Too many attempts. Please wait a moment and try again.";
 
+/**
+ * Purely a client-side courtesy against accidental double-taps — NOT a
+ * security control. The real rate limit is server-side and authoritative
+ * (RATE_LIMIT_RETRY_AFTER_SECONDS = 60, RATE_LIMITER_OWNER_LOGIN_REQUEST_CODE
+ * = 5/60s — see rate-limit.server.ts / wrangler.jsonc); if this cooldown
+ * ever drifts from that, a real over-limit attempt still gets the exact
+ * same generic RATE_LIMITED_MESSAGE via the outcome.kind === "rate_limited"
+ * branch below, unaffected by this local timer.
+ */
+const RESEND_COOLDOWN_SECONDS = 30;
+
+const OTP_SLOT_CLASS_NAME = "border-white/15 bg-navy-deep/95";
+
+/** CHECKPOINT OWNER/QUOTE MATTE PASS — the exact copper CTA token used by
+ * Continue/Get quote (--gradient-copper-cta, styles.css), reused directly
+ * as a design token rather than importing QuoteNavigation's own
+ * quotePrimaryCtaSurface helper — this checkpoint's own instruction is not
+ * to tightly couple Owner components to the Quote directory, so the token
+ * is duplicated here (a few lines), not the component. */
+const OWNER_PRIMARY_CTA_ENABLED =
+  "bg-[image:var(--gradient-copper-cta)] text-[#080A1D] transition-[color,filter,transform] duration-200 hover:text-[#EDE8D0] hover:[text-shadow:0_1px_2px_rgba(8,10,29,0.65)] hover:brightness-110 focus-visible:text-[#EDE8D0] focus-visible:[text-shadow:0_1px_2px_rgba(8,10,29,0.65)] focus-visible:brightness-110 motion-safe:hover:scale-[1.02] motion-safe:focus-visible:scale-[1.02]";
+const OWNER_PRIMARY_CTA_DISABLED = "cursor-not-allowed bg-white/8 text-foreground/35";
+
+function ownerPrimaryCtaSurface(disabled: boolean) {
+  return disabled ? OWNER_PRIMARY_CTA_DISABLED : OWNER_PRIMARY_CTA_ENABLED;
+}
+
 export function OwnerLoginFlow({ transport, authClient, onAuthenticated }: OwnerLoginFlowProps) {
   const [ownerTransport] = useState<OwnerLoginTransport>(() => transport ?? createOwnerLoginTransport());
   const [ownerAuthClient] = useState<OwnerAuthClient>(() => authClient ?? createOwnerAuthClient());
@@ -41,11 +69,33 @@ export function OwnerLoginFlow({ transport, authClient, onAuthenticated }: Owner
   const [code, setCode] = useState("");
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [resendCooldown, setResendCooldown] = useState(0);
 
   const emailFieldId = useId();
   const statusRegionId = useId();
+  const cooldownIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const busy = status === "submitting";
+
+  function startResendCooldown() {
+    if (cooldownIntervalRef.current) clearInterval(cooldownIntervalRef.current);
+    setResendCooldown(RESEND_COOLDOWN_SECONDS);
+    cooldownIntervalRef.current = setInterval(() => {
+      setResendCooldown((previous) => {
+        if (previous <= 1) {
+          if (cooldownIntervalRef.current) clearInterval(cooldownIntervalRef.current);
+          return 0;
+        }
+        return previous - 1;
+      });
+    }, 1000);
+  }
+
+  useEffect(() => {
+    return () => {
+      if (cooldownIntervalRef.current) clearInterval(cooldownIntervalRef.current);
+    };
+  }, []);
 
   async function submitRequestCode(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -72,6 +122,7 @@ export function OwnerLoginFlow({ transport, authClient, onAuthenticated }: Owner
     setInfoMessage(outcome.message);
     setCode("");
     setStep("verify");
+    startResendCooldown();
   }
 
   async function submitVerifyCode(event: FormEvent<HTMLFormElement>) {
@@ -107,7 +158,7 @@ export function OwnerLoginFlow({ transport, authClient, onAuthenticated }: Owner
   }
 
   async function handleResend() {
-    if (busy) return;
+    if (busy || resendCooldown > 0) return;
     setStatus("submitting");
     setErrorMessage(null);
     setInfoMessage(null);
@@ -125,6 +176,7 @@ export function OwnerLoginFlow({ transport, authClient, onAuthenticated }: Owner
     }
     setInfoMessage(outcome.message);
     setCode("");
+    startResendCooldown();
   }
 
   function handleUseDifferentEmail() {
@@ -132,6 +184,8 @@ export function OwnerLoginFlow({ transport, authClient, onAuthenticated }: Owner
     setCode("");
     setErrorMessage(null);
     setInfoMessage(null);
+    if (cooldownIntervalRef.current) clearInterval(cooldownIntervalRef.current);
+    setResendCooldown(0);
   }
 
   return (
@@ -159,23 +213,33 @@ export function OwnerLoginFlow({ transport, authClient, onAuthenticated }: Owner
               disabled={busy}
               onChange={(event) => setEmail(event.target.value)}
               placeholder="owner@example.com"
+              className="h-11 rounded-xl border-white/15 bg-navy-deep/95"
             />
           </div>
-          <Button type="submit" className="mt-4 w-full" disabled={busy || email.trim().length === 0} aria-busy={busy}>
+          <button
+            type="submit"
+            disabled={busy || email.trim().length === 0}
+            aria-busy={busy}
+            className={cn(
+              "font-display mt-4 inline-flex w-full items-center justify-center gap-1.5 rounded-full px-5 py-3 text-xs font-bold tracking-[0.1em] uppercase",
+              ownerPrimaryCtaSurface(busy || email.trim().length === 0),
+            )}
+          >
+            {busy ? <Loader2 className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : null}
             {busy ? "Sending…" : "Send sign-in code"}
-          </Button>
+          </button>
         </form>
       )}
 
       {step === "verify" && (
         <form onSubmit={submitVerifyCode} noValidate aria-label="Enter your sign-in code">
           {infoMessage && (
-            <p className="mb-4 text-sm text-muted-foreground" aria-hidden="true">
+            <p className="mb-4 text-sm text-foreground/70" aria-hidden="true">
               {infoMessage}
             </p>
           )}
           <fieldset disabled={busy}>
-            <legend className="text-sm font-medium leading-none">6-digit code</legend>
+            <legend className="text-sm font-medium text-foreground">6-digit code</legend>
             <div className="mt-2">
               <InputOTP
                 maxLength={6}
@@ -183,36 +247,47 @@ export function OwnerLoginFlow({ transport, authClient, onAuthenticated }: Owner
                 onChange={(value) => setCode(value.replace(/[^0-9]/g, ""))}
                 aria-label="6-digit sign-in code"
                 inputMode="numeric"
+                autoComplete="one-time-code"
               >
                 <InputOTPGroup>
-                  <InputOTPSlot index={0} />
-                  <InputOTPSlot index={1} />
-                  <InputOTPSlot index={2} />
-                  <InputOTPSlot index={3} />
-                  <InputOTPSlot index={4} />
-                  <InputOTPSlot index={5} />
+                  <InputOTPSlot index={0} className={OTP_SLOT_CLASS_NAME} />
+                  <InputOTPSlot index={1} className={OTP_SLOT_CLASS_NAME} />
+                  <InputOTPSlot index={2} className={OTP_SLOT_CLASS_NAME} />
+                  <InputOTPSlot index={3} className={OTP_SLOT_CLASS_NAME} />
+                  <InputOTPSlot index={4} className={OTP_SLOT_CLASS_NAME} />
+                  <InputOTPSlot index={5} className={OTP_SLOT_CLASS_NAME} />
                 </InputOTPGroup>
               </InputOTP>
             </div>
           </fieldset>
-          <Button type="submit" className="mt-4 w-full" disabled={busy || code.length !== 6} aria-busy={busy}>
+          <button
+            type="submit"
+            disabled={busy || code.length !== 6}
+            aria-busy={busy}
+            className={cn(
+              "font-display mt-4 inline-flex w-full items-center justify-center gap-1.5 rounded-full px-5 py-3 text-xs font-bold tracking-[0.1em] uppercase",
+              ownerPrimaryCtaSurface(busy || code.length !== 6),
+            )}
+          >
+            {busy ? <Loader2 className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : null}
             {busy ? "Verifying…" : "Verify code"}
-          </Button>
+          </button>
           <div className="mt-3 flex items-center justify-between text-sm">
             <button
               type="button"
-              className="text-muted-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-              onClick={handleResend}
-              disabled={busy}
+              className="text-foreground/70 underline-offset-4 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:no-underline"
+              onClick={() => void handleResend()}
+              disabled={busy || resendCooldown > 0}
             >
-              Resend code
+              {resendCooldown > 0 ? `Resend code (${resendCooldown}s)` : "Resend code"}
             </button>
             <button
               type="button"
-              className="text-muted-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              className="inline-flex items-center gap-1 text-foreground/70 underline-offset-4 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
               onClick={handleUseDifferentEmail}
               disabled={busy}
             >
+              <ArrowLeft className="size-3.5" aria-hidden="true" />
               Use a different email
             </button>
           </div>

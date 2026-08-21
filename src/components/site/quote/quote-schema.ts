@@ -584,6 +584,52 @@ export function getStepSchema(
   }
 }
 
+/**
+ * C2L-Q1 — Stage 2 ("Material & Requirements") merges the former steps 2
+ * (Material) and 3 (Material Details) into one screen with one Continue
+ * gate: an intersection schema that requires BOTH sides to pass. Zod's
+ * `.and()` runs both schemas (including their own `superRefine` checks) and
+ * merges every issue from both sides into one ZodError, each with its
+ * original field `path` intact — `applyStageValidationIssues` in
+ * QuoteExperience relies on that to set errors and focus the first invalid
+ * field regardless of which of the two original steps it came from.
+ */
+export function getStage2Schema(intent: QuoteIntent | undefined) {
+  return materialStepSchema.and(
+    intent === "sell" ? sellerDetailsStepSchema : buyerDetailsStepSchema,
+  );
+}
+
+export type QuoteStageSchema = QuoteStepSchema | ReturnType<typeof getStage2Schema>;
+
+/**
+ * C2L-Q1 — the single canonical resolver for the 5-stage presentation:
+ * stage 1 = Enquiry Type, stage 2 = Material & Requirements (combined),
+ * stage 3 = Location & Logistics, stage 4 = Contact & Evidence, stage 5 =
+ * Review & Submit (no schema of its own — it only ever re-validates the
+ * other four). Both the per-stage Continue gate and the submission-error
+ * routing (`findFirstInvalidStage`) share this one function so they can
+ * never disagree about what a given stage requires.
+ */
+export function getStageSchema(
+  stage: number,
+  intent: QuoteIntent | undefined,
+): QuoteStageSchema | null {
+  const isSeller = intent === "sell";
+  switch (stage) {
+    case 1:
+      return enquiryTypeStepSchema;
+    case 2:
+      return getStage2Schema(intent);
+    case 3:
+      return isSeller ? sellerLogisticsStepSchema : buyerLogisticsStepSchema;
+    case 4:
+      return isSeller ? sellerContactStepSchema : buyerContactStepSchema;
+    default:
+      return null;
+  }
+}
+
 /* ------------------------------------------------------------------------ *
  * Fix 3: readiness completeness predicates. Wherever a row maps 1:1 onto a
  * step schema, completeness is derived by parsing against that EXACT schema

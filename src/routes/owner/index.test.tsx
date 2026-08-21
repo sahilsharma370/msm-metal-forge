@@ -164,7 +164,10 @@ describe("OwnerInboxBody — dependency-identity stability", () => {
     expect(fetchOwnerLeadListMock).toHaveBeenCalledTimes(2);
   });
 
-  it("applying a filter causes exactly one additional (replacement) request", async () => {
+  // CHECKPOINT OWNER DESKTOP CORRECTION (compact filters pass) — there is no
+  // Apply button any more; typing in the search box applies automatically
+  // after a short debounce (see OwnerLeadFilters.tsx's own SEARCH_DEBOUNCE_MS).
+  it("typing in the search box causes exactly one additional (debounced) request", async () => {
     fetchOwnerLeadListMock.mockResolvedValue({ kind: "ok", data: { leads: [], page: { nextCursor: null, hasMore: false } } });
     const { OwnerInboxBody } = await import("./index");
     const user = userEvent.setup();
@@ -174,9 +177,8 @@ describe("OwnerInboxBody — dependency-identity stability", () => {
     await waitFor(() => expect(fetchOwnerLeadListMock).toHaveBeenCalledTimes(1));
 
     await user.type(screen.getByLabelText(/search/i), "Ahmed");
-    await user.click(screen.getByRole("button", { name: /apply/i }));
 
-    await waitFor(() => expect(fetchOwnerLeadListMock).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(fetchOwnerLeadListMock).toHaveBeenCalledTimes(2), { timeout: 2000 });
     await flush();
     expect(fetchOwnerLeadListMock).toHaveBeenCalledTimes(2);
   });

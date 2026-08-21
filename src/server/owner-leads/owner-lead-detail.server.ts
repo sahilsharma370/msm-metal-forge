@@ -54,7 +54,7 @@ export function isValidUuid(value: string): boolean {
 const LEAD_DETAIL_SELECT_COLUMNS = [
   "id", "reference", "status", "intent", "capture_channel", "material",
   "material_subtype", "material_subtype_other_text", "material_other_text", "material_spec",
-  "created_at", "submission_completed_at", "file_upload_status",
+  "created_at", "submission_completed_at", "file_upload_status", "deleted_at", "updated_at",
   "seller_quantity_value", "seller_quantity_unit", "seller_quantity_unit_other", "seller_quantity_unsure",
   "seller_condition", "seller_description", "seller_emirate", "seller_area", "seller_map_link",
   "seller_pickup_required", "seller_pickup_date", "seller_access_note",
@@ -81,6 +81,8 @@ const leadDetailRowSchema = z.object({
   created_at: z.string(),
   submission_completed_at: z.string().nullable(),
   file_upload_status: z.string(),
+  deleted_at: z.string().nullable(),
+  updated_at: z.string(),
   seller_quantity_value: z.number().nullable(),
   seller_quantity_unit: z.enum(OWNER_LEAD_QUANTITY_UNIT_VALUES).nullable(),
   seller_quantity_unit_other: z.string().nullable(),
@@ -261,6 +263,8 @@ function mapLeadDetailRow(row: LeadDetailRow): OwnerLeadDetail {
     createdAt: row.created_at,
     submissionCompletedAt: row.submission_completed_at as string,
     fileUploadStatus: row.file_upload_status,
+    deletedAt: row.deleted_at,
+    updatedAt: row.updated_at,
   };
 
   if (row.intent === "sell") {
@@ -339,6 +343,12 @@ function extractNoteBody(metadata: Record<string, unknown>): string | null {
   return typeof note === "string" ? note : null;
 }
 
+/** Malformed/unexpected metadata shape never throws — matching extractStatusChange's own defensive posture. */
+function extractChangedFields(metadata: Record<string, unknown>): string[] | null {
+  const parsed = z.array(z.string()).safeParse(metadata["changedFields"]);
+  return parsed.success ? parsed.data : null;
+}
+
 function mapLeadActivityRow(row: LeadActivityRow): OwnerLeadDetailActivity {
   return {
     id: row.id,
@@ -347,6 +357,7 @@ function mapLeadActivityRow(row: LeadActivityRow): OwnerLeadDetailActivity {
     createdAt: row.created_at,
     statusChange: row.event_type === "status_changed" ? extractStatusChange(row.metadata) : null,
     noteBody: row.event_type === "note_added" ? extractNoteBody(row.metadata) : null,
+    changedFields: row.event_type === "lead_details_updated" ? extractChangedFields(row.metadata) : null,
   };
 }
 

@@ -1,12 +1,19 @@
-import { ArrowRight } from "lucide-react";
+import { ArrowLeft, ArrowRight } from "lucide-react";
+import { Link } from "@tanstack/react-router";
 import { DotGrid } from "./DotGrid";
 
 const COPPER = "oklch(0.583 0.135 45.5)";
 const NAVY = "#080A1D";
 
-function MonogramMark() {
+/**
+ * Also reused by the /about page's owner-note portrait placeholder — that
+ * call site passes no `className`, so it keeps its exact current size
+ * (`relative h-9 w-9`) untouched; only this file's own placeholder overrides
+ * it.
+ */
+export function MonogramMark({ className = "relative h-9 w-9" }: { className?: string }) {
   return (
-    <svg viewBox="0 0 85 81" className="relative h-9 w-9" aria-hidden="true">
+    <svg viewBox="0 0 85 81" className={className} aria-hidden="true">
       <path
         fillRule="evenodd"
         clipRule="evenodd"
@@ -14,6 +21,56 @@ function MonogramMark() {
         fill={COPPER}
       />
     </svg>
+  );
+}
+
+/**
+ * The circular arrow-link CTA treatment (originally "Read Our Full Story"),
+ * extracted so every arrow-button link on the site — including the /about
+ * hero's "Back to Home" — shares one implementation instead of a second
+ * copy of the same styling. Default: copper-outline circle, copper arrow,
+ * warm-neutral (#EDE8D0) label. Hover/focus-visible: circle fills copper,
+ * arrow turns deep navy, label turns copper. The whole group shifts 2px and
+ * the arrow itself an extra 3px in `direction`; both are full literal
+ * Tailwind class strings per branch (not string-interpolated) so the JIT
+ * scanner can see them. `motion-reduce` disables both translations while
+ * leaving the colour transitions untouched.
+ */
+export function ArrowLinkCTA({
+  to,
+  label,
+  direction = "right",
+  className = "",
+}: {
+  to: string;
+  label: string;
+  direction?: "left" | "right";
+  className?: string;
+}) {
+  const ArrowIcon = direction === "left" ? ArrowLeft : ArrowRight;
+  const groupShift =
+    direction === "left"
+      ? "hover:-translate-x-[2px] focus-visible:-translate-x-[2px]"
+      : "hover:translate-x-[2px] focus-visible:translate-x-[2px]";
+  const arrowShift =
+    direction === "left"
+      ? "group-hover:-translate-x-[3px] group-focus-visible:-translate-x-[3px]"
+      : "group-hover:translate-x-[3px] group-focus-visible:translate-x-[3px]";
+
+  return (
+    <Link
+      to={to}
+      className={`group flex items-center gap-3 outline-none transition-transform duration-[320ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:hover:translate-x-0 motion-reduce:focus-visible:translate-x-0 ${groupShift} ${className}`}
+    >
+      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[oklch(0.583_0.135_45.5)]/60 text-[oklch(0.583_0.135_45.5)] transition-[background-color,border-color] duration-[320ms] ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:border-[oklch(0.583_0.135_45.5)] group-hover:bg-[oklch(0.583_0.135_45.5)] group-focus-visible:border-[oklch(0.583_0.135_45.5)] group-focus-visible:bg-[oklch(0.583_0.135_45.5)]">
+        <ArrowIcon
+          className={`h-4 w-4 text-[oklch(0.583_0.135_45.5)] transition-[color,transform] duration-[320ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:group-hover:translate-x-0 motion-reduce:group-focus-visible:translate-x-0 group-hover:text-[#080A1D] group-focus-visible:text-[#080A1D] ${arrowShift}`}
+        />
+      </span>
+      <span className="font-display text-sm font-semibold tracking-[0.14em] text-[#EDE8D0] uppercase transition-colors duration-[320ms] ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:text-[oklch(0.583_0.135_45.5)] group-focus-visible:text-[oklch(0.583_0.135_45.5)]">
+        {label}
+      </span>
+    </Link>
   );
 }
 
@@ -80,16 +137,20 @@ export function AboutTeaser() {
           }}
         >
           <DotGrid glow={0} interactive={false} className="z-0" />
+          {/* Owner portrait placeholder — plain solid navy, no internal dot
+              layer. Restore a real photograph here once one is approved. */}
           <div
             aria-hidden="true"
             className="relative z-10 flex h-full w-full items-center justify-center overflow-hidden border"
             style={{
-              backgroundColor: "#EDE8D0",
-              borderColor: "oklch(0.583 0.135 45.5 / 0.3)",
+              backgroundColor: "oklch(0.195 0.055 265.5)",
+              borderColor: "oklch(0.583 0.135 45.5 / 0.45)",
             }}
           >
-            <DotGrid glow={0} interactive={false} />
-            <MonogramMark />
+            <div className="relative z-10 flex flex-col items-center gap-2">
+              <MonogramMark className="h-[42px] w-[42px]" />
+              <p className="label-eyebrow text-[0.6rem] text-[#EDE8D0]/40">Owner Portrait</p>
+            </div>
           </div>
           <div className="relative z-10 flex flex-col">
             <div className="flex items-center gap-4">
@@ -101,11 +162,11 @@ export function AboutTeaser() {
             </div>
 
             <blockquote
-              className="mt-8 text-2xl leading-snug font-medium text-[#EDE8D0] italic sm:text-3xl"
+              className="mt-8 text-2xl leading-snug font-semibold text-[#EDE8D0] italic sm:text-3xl"
               style={{ fontFamily: '"Baskerville", "Baskerville Old Face", Georgia, serif' }}
             >
-              “Every load is weighed in front of the customer. That is how we built fourteen years
-              of trust in this trade.”
+              “In this trade, trust is earned at the scale—through fair weights, clear dealing and
+              every commitment kept.”
             </blockquote>
 
             <div className="mt-8 flex items-start gap-4">
@@ -119,17 +180,12 @@ export function AboutTeaser() {
               </div>
             </div>
 
-            <a
-              href="#contact"
-              className="group mt-8 flex items-center gap-3 self-end transition-transform duration-[320ms] ease-[cubic-bezier(0.22,1,0.36,1)] hover:translate-x-[2px] motion-reduce:hover:translate-x-0"
-            >
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[oklch(0.583_0.135_45.5)]/60 text-[oklch(0.583_0.135_45.5)] transition-[background-color,border-color] duration-[320ms] ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:border-[oklch(0.583_0.135_45.5)] group-hover:bg-[oklch(0.583_0.135_45.5)]">
-                <ArrowRight className="h-4 w-4 transition-[color,transform] duration-[320ms] ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:translate-x-[3px] group-hover:text-[#080A1D] motion-reduce:group-hover:translate-x-0" />
-              </span>
-              <span className="font-display text-sm font-semibold tracking-[0.14em] text-[#EDE8D0] uppercase transition-colors duration-[320ms] ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:text-[oklch(0.583_0.135_45.5)]">
-                Read Our Full Story
-              </span>
-            </a>
+            <ArrowLinkCTA
+              to="/about"
+              label="Read Our Full Story"
+              direction="right"
+              className="mt-8 self-end"
+            />
           </div>
         </div>
       </div>

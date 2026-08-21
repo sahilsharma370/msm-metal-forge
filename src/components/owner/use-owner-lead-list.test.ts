@@ -32,6 +32,7 @@ function leadItem(id: string) {
     quantity: { value: 100, unit: "kg" as const },
     fileUploadStatus: "complete",
     notificationStatus: "sent" as const,
+    deletedAt: null,
   };
 }
 
@@ -138,6 +139,37 @@ describe("useOwnerLeadList — refresh preserves content while loading", () => {
 
     act(() => pending.resolve({ kind: "ok", data: { leads: [leadItem("a"), leadItem("b")], page: { nextCursor: null, hasMore: false } } }));
     await waitFor(() => expect(result.current.state.items).toHaveLength(2));
+  });
+});
+
+describe("useOwnerLeadList — view (CHECKPOINT C2M-A)", () => {
+  it("defaults to the 'inbox' view and sends it on the initial fetch", async () => {
+    fetchOwnerLeadListMock.mockResolvedValue({ kind: "ok", data: { leads: [], page: { nextCursor: null, hasMore: false } } });
+    const deps = { authClient: fakeAuthClient(), fetchImpl: fetch };
+    const { result } = renderHook(() => useOwnerLeadList(deps));
+    await waitFor(() => expect(result.current.state.isInitialLoading).toBe(false));
+    expect(result.current.state.view).toBe("inbox");
+    expect(fetchOwnerLeadListMock).toHaveBeenCalledWith(expect.objectContaining({ view: "inbox" }), deps, expect.anything());
+  });
+
+  it("setView refetches from scratch with the new view, clearing accumulated items, and preserves the applied filters", async () => {
+    fetchOwnerLeadListMock.mockResolvedValueOnce({ kind: "ok", data: { leads: [leadItem("a")], page: { nextCursor: null, hasMore: false } } });
+    const deps = { authClient: fakeAuthClient(), fetchImpl: fetch };
+    const { result } = renderHook(() => useOwnerLeadList(deps));
+    await waitFor(() => expect(result.current.state.items).toHaveLength(1));
+
+    fetchOwnerLeadListMock.mockResolvedValueOnce({ kind: "ok", data: { leads: [leadItem("b")], page: { nextCursor: null, hasMore: false } } });
+    act(() => result.current.setDraftFilters(() => ({ status: "contacted" })));
+    act(() => result.current.applyFilters());
+    await waitFor(() => expect(result.current.state.items.map((item) => item.id)).toEqual(["b"]));
+
+    fetchOwnerLeadListMock.mockResolvedValueOnce({ kind: "ok", data: { leads: [leadItem("t")], page: { nextCursor: null, hasMore: false } } });
+    act(() => result.current.setView("trash"));
+
+    await waitFor(() => expect(result.current.state.items.map((item) => item.id)).toEqual(["t"]));
+    expect(result.current.state.view).toBe("trash");
+    const [query] = fetchOwnerLeadListMock.mock.calls[2]!;
+    expect(query).toEqual(expect.objectContaining({ view: "trash", status: "contacted" }));
   });
 });
 

@@ -105,7 +105,7 @@ export function OwnerLeadFileViewer({ leadId, file, deps, onUnauthorized }: Owne
 
   return (
     <>
-      <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-card/50 px-3 py-2">
+      <div className="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-[#080A1D]/50 px-3 py-2">
         <div className="flex min-w-0 items-center gap-2">
           <FileText className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
           <div className="min-w-0">

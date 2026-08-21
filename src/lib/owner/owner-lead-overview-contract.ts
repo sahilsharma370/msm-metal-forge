@@ -63,6 +63,9 @@ const ownerOverviewStaleLeadSchema = z
     id: z.string().uuid(),
     reference: z.string(),
     status: z.enum(OWNER_LEAD_STATUS_VALUES),
+    /** Presentation-only — the seller_name/buyer_contact_person value for this lead's intent, exactly like OwnerLeadListItem's own contact.name. Never re-derived; display formatting (capitalization) stays purely client-side. */
+    contactName: z.string().nullable(),
+    material: z.enum(OWNER_LEAD_MATERIAL_VALUES),
     /** ISO timestamp of the lead's most recent known activity (or submissionCompletedAt if it has none yet). */
     lastActivityAt: z.string(),
     hoursSinceActivity: z.number().nonnegative(),

@@ -1,5 +1,5 @@
 import { useId, useRef, useState } from "react";
-import { Paperclip, Plus, UploadCloud, X } from "lucide-react";
+import { Paperclip, Plus, X } from "lucide-react";
 import type { QuoteLocalFile } from "./quote-schema";
 
 const ACCEPTED_TYPES = ["image/jpeg", "image/png", "image/webp"];
@@ -115,46 +115,77 @@ export function QuotePhotoPicker({
 
   return (
     <div>
-      <div className="flex items-center justify-between">
-        <span className="text-xs text-foreground/50">
-          {files.length} of {maxFiles} {countLabel}
-        </span>
-      </div>
+      <span className="text-xs text-foreground/50">
+        {files.length} of {maxFiles} {countLabel}
+      </span>
 
-      {!atCapacity && (
-        <label
-          htmlFor={inputId}
-          onDragOver={(e) => {
-            e.preventDefault();
-            setDragActive(true);
-          }}
-          onDragLeave={() => setDragActive(false)}
-          onDrop={(e) => {
-            e.preventDefault();
-            setDragActive(false);
-            handleFiles(e.dataTransfer.files);
-          }}
-          className={`mt-2 flex w-full cursor-pointer flex-col items-center gap-2 rounded-2xl border border-dashed text-center transition-colors ${
-            dragActive
-              ? "border-copper bg-[oklch(0.583_0.135_45.5/0.06)]"
-              : "border-white/20 hover:border-copper/50"
-          } ${hasFiles ? "px-4 py-4" : "px-6 py-8"}`}
-        >
-          {hasFiles ? (
-            <span className="flex items-center gap-2 text-xs font-semibold text-foreground/70">
-              <Plus aria-hidden="true" className="h-3.5 w-3.5" />
-              Add more
+      {/* C2L (surgical contact photo fix) — the upload affordance is now one
+          fixed ~128px square tile, with thumbnails continuing beside it in
+          the same row, replacing the previous full-width oversized dropzone
+          (large icon/title/browseLabel/acceptLine stack). browseLabel and
+          acceptLine move to quiet helper text below the row instead of
+          living inside the tile itself. */}
+      <div className="mt-2 flex flex-wrap items-start gap-3">
+        {!atCapacity && (
+          <label
+            htmlFor={inputId}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setDragActive(true);
+            }}
+            onDragLeave={() => setDragActive(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDragActive(false);
+              handleFiles(e.dataTransfer.files);
+            }}
+            className={`flex h-32 w-32 shrink-0 cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed px-2 text-center transition-colors ${
+              dragActive
+                ? "border-copper bg-[oklch(0.583_0.135_45.5/0.06)]"
+                : "border-white/20 hover:border-copper/50"
+            }`}
+          >
+            <Plus aria-hidden="true" className="h-4 w-4 text-foreground/50" />
+            <span className="line-clamp-2 text-xs font-semibold text-foreground/80">
+              {hasFiles ? "Add more" : title}
             </span>
-          ) : (
-            <>
-              <UploadCloud aria-hidden="true" className="h-6 w-6 text-foreground/50" />
-              <span className="font-display text-sm font-bold text-foreground">{title}</span>
-              <span className="text-xs text-foreground/60">{browseLabel}</span>
-              <span className="text-[0.7rem] text-foreground/40">{acceptLine}</span>
-            </>
-          )}
-        </label>
-      )}
+          </label>
+        )}
+
+        {files.length > 0 && (
+          <ul className="contents">
+            {files.map((f) => (
+              <li
+                key={f.id}
+                className="relative h-32 w-32 shrink-0 overflow-hidden rounded-xl border border-white/12 bg-white/5"
+              >
+                {f.previewUrl ? (
+                  <img
+                    src={f.previewUrl}
+                    alt={`Preview of ${f.name}`}
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  <div className="flex h-full w-full flex-col items-center justify-center gap-1 px-1 text-center">
+                    <Paperclip aria-hidden="true" className="h-4 w-4 text-foreground/50" />
+                    <span className="line-clamp-2 text-[0.6rem] text-foreground/60" title={f.name}>
+                      {f.name}
+                    </span>
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={() => removeFile(f.id)}
+                  aria-label={`Remove ${f.name}`}
+                  className="absolute top-1 right-1 flex h-6 w-6 items-center justify-center rounded-full bg-[#080A1D]/85 text-foreground/90 transition-colors hover:bg-[#080A1D] focus-visible:outline focus-visible:outline-2 focus-visible:outline-copper"
+                >
+                  <X aria-hidden="true" className="h-3.5 w-3.5" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
 
       <input
         ref={inputRef}
@@ -168,44 +199,16 @@ export function QuotePhotoPicker({
         onChange={(e) => handleFiles(e.target.files)}
       />
 
+      {!atCapacity && (
+        <p className="mt-2 text-[0.7rem] text-foreground/40">
+          {browseLabel} · {acceptLine}
+        </p>
+      )}
+
       {error && (
         <p role="alert" className="mt-2 text-[0.8rem] font-medium text-destructive">
           {error}
         </p>
-      )}
-
-      {files.length > 0 && (
-        <ul className="mt-4 grid grid-cols-3 gap-3 sm:grid-cols-4">
-          {files.map((f) => (
-            <li
-              key={f.id}
-              className="relative aspect-square overflow-hidden rounded-xl border border-white/12 bg-white/5"
-            >
-              {f.previewUrl ? (
-                <img
-                  src={f.previewUrl}
-                  alt={`Preview of ${f.name}`}
-                  className="h-full w-full object-cover"
-                />
-              ) : (
-                <div className="flex h-full w-full flex-col items-center justify-center gap-1 px-1 text-center">
-                  <Paperclip aria-hidden="true" className="h-4 w-4 text-foreground/50" />
-                  <span className="line-clamp-2 text-[0.6rem] text-foreground/60" title={f.name}>
-                    {f.name}
-                  </span>
-                </div>
-              )}
-              <button
-                type="button"
-                onClick={() => removeFile(f.id)}
-                aria-label={`Remove ${f.name}`}
-                className="absolute top-1 right-1 flex h-6 w-6 items-center justify-center rounded-full bg-[#080A1D]/85 text-foreground/90 transition-colors hover:bg-[#080A1D] focus-visible:outline focus-visible:outline-2 focus-visible:outline-copper"
-              >
-                <X aria-hidden="true" className="h-3.5 w-3.5" />
-              </button>
-            </li>
-          ))}
-        </ul>
       )}
     </div>
   );

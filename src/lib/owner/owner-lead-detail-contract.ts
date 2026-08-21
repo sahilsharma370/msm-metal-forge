@@ -23,6 +23,8 @@ import {
   OWNER_LEAD_MATERIAL_VALUES,
   OWNER_NOTIFICATION_SUMMARY_STATUS_VALUES,
 } from "./owner-leads-contract";
+import { QUOTE_UNITS, EMIRATES } from "@/components/site/quote/quote-options";
+import { isValidPhoneNumber } from "@/components/site/quote/quote-schema";
 
 // ---------------------------------------------------------------------------
 // Shared vocabularies specific to the detail/file surfaces — mirrored
@@ -67,6 +69,10 @@ const ownerLeadDetailCommonFields = {
   createdAt: z.string(),
   submissionCompletedAt: z.string(),
   fileUploadStatus: z.string(),
+  /** CHECKPOINT C2M-A — non-null exactly when this lead is currently in Trash. The detail endpoint returns a trashed lead's full data (unlike the list/overview, which exclude it by default) so the Trash view's own detail page — read-only content + a Restore action — has something to render. */
+  deletedAt: z.string().nullable(),
+  /** Owner "Edit enquiry" — the row's last-modified timestamp (leads.updated_at, already maintained by the existing set_updated_at trigger), reused unchanged as the stale-update concurrency token: the edit form resends its last-known value as expectedUpdatedAt, and a server-side mismatch means someone else changed the lead first. Not previously exposed to the browser because nothing before this feature needed it. */
+  updatedAt: z.string(),
 };
 
 const sellLeadDetailSchema = z
@@ -195,6 +201,8 @@ export const ownerLeadDetailActivitySchema = z
     createdAt: z.string(),
     statusChange: ownerLeadDetailActivityStatusChangeSchema.nullable(),
     noteBody: z.string().nullable(),
+    /** Owner "Edit enquiry" — populated only for eventType 'lead_details_updated', a narrow allowlisted projection of the field LABELS that changed (e.g. "Material", "Quantity") — never the old/new values themselves, matching update_lead_details_v1's own "never duplicate sensitive values unnecessarily" posture. */
+    changedFields: z.array(z.string()).nullable(),
   })
   .strict();
 export type OwnerLeadDetailActivity = z.infer<typeof ownerLeadDetailActivitySchema>;
@@ -264,7 +272,15 @@ export type OwnerLeadDetailResponseBody = z.infer<typeof ownerLeadDetailResponse
 // own RPC logic (see change-lead-status.server.ts / add-lead-note.server.ts).
 // ---------------------------------------------------------------------------
 
-export const OWNER_LEAD_MUTATION_ERROR_CODES = ["VALIDATION_ERROR", "NOT_FOUND", "UNAUTHORIZED", "CONFLICT", "INTERNAL_ERROR"] as const;
+export const OWNER_LEAD_MUTATION_ERROR_CODES = [
+  "VALIDATION_ERROR",
+  "NOT_FOUND",
+  "UNAUTHORIZED",
+  "CONFLICT",
+  /** Owner "Edit enquiry" only — a trashed or archived lead, which stays read-only until restored/reopened. */
+  "NOT_EDITABLE",
+  "INTERNAL_ERROR",
+] as const;
 export type OwnerLeadMutationErrorCode = (typeof OWNER_LEAD_MUTATION_ERROR_CODES)[number];
 
 export const ownerLeadMutationErrorBodySchema = z
@@ -352,6 +368,126 @@ export type OwnerLeadNoteCreateSuccessBody = z.infer<typeof ownerLeadNoteCreateS
 
 export const ownerLeadNoteCreateResponseBodySchema = z.union([ownerLeadNoteCreateSuccessBodySchema, ownerLeadMutationErrorBodySchema]);
 export type OwnerLeadNoteCreateResponseBody = z.infer<typeof ownerLeadNoteCreateResponseBodySchema>;
+
+// ---------------------------------------------------------------------------
+// CHECKPOINT C2M-A — Move to Trash (POST .../trash) and Restore
+// (POST .../restore). Neither request carries an owner identity — the
+// server sources it exclusively from the verified session, matching the
+// status-change/note-creation requests above. Reuses
+// OWNER_LEAD_MUTATION_ERROR_CODES — trash/restore have no stale-expected-
+// value concept, but NOT_FOUND/UNAUTHORIZED/INTERNAL_ERROR all still apply.
+// ---------------------------------------------------------------------------
+
+export const ownerLeadTrashSuccessBodySchema = z
+  .object({
+    ok: z.literal(true),
+    data: z
+      .object({
+        trashed: z.boolean(),
+        deletedAt: z.string().nullable(),
+        status: z.enum(OWNER_LEAD_STATUS_VALUES),
+      })
+      .strict(),
+  })
+  .strict();
+export type OwnerLeadTrashSuccessBody = z.infer<typeof ownerLeadTrashSuccessBodySchema>;
+
+export const ownerLeadTrashResponseBodySchema = z.union([ownerLeadTrashSuccessBodySchema, ownerLeadMutationErrorBodySchema]);
+export type OwnerLeadTrashResponseBody = z.infer<typeof ownerLeadTrashResponseBodySchema>;
+
+export const ownerLeadRestoreSuccessBodySchema = z
+  .object({
+    ok: z.literal(true),
+    data: z
+      .object({
+        restored: z.boolean(),
+        status: z.enum(OWNER_LEAD_STATUS_VALUES),
+      })
+      .strict(),
+  })
+  .strict();
+export type OwnerLeadRestoreSuccessBody = z.infer<typeof ownerLeadRestoreSuccessBodySchema>;
+
+export const ownerLeadRestoreResponseBodySchema = z.union([ownerLeadRestoreSuccessBodySchema, ownerLeadMutationErrorBodySchema]);
+export type OwnerLeadRestoreResponseBody = z.infer<typeof ownerLeadRestoreResponseBodySchema>;
+
+// ---------------------------------------------------------------------------
+// Owner "Edit enquiry" (POST .../details) — the ONE field set for both
+// seller and buyer leads (see update_lead_details_v1's own header comment
+// for why buyer-branch destination location is excluded, matching Quick
+// Add's own established precedent). Vocabulary reused, never re-invented:
+// material from owner-leads-contract.ts, quantity-unit/emirate from the
+// Quote Experience's own quote-options.ts — the same closed sets
+// leads.seller_quantity_unit / leads.seller_emirate already enforce at the
+// DB layer, matching owner-lead-quick-add-contract.ts's own precedent
+// exactly.
+// ---------------------------------------------------------------------------
+
+export const OWNER_LEAD_EDIT_QUANTITY_UNIT_VALUES = QUOTE_UNITS;
+export const OWNER_LEAD_EDIT_EMIRATE_VALUES = EMIRATES;
+
+export const OWNER_LEAD_EDIT_CONTACT_NAME_MAX_LENGTH = 120;
+export const OWNER_LEAD_EDIT_MATERIAL_OTHER_TEXT_MAX_LENGTH = 200;
+export const OWNER_LEAD_EDIT_QUANTITY_UNIT_OTHER_MAX_LENGTH = 60;
+export const OWNER_LEAD_EDIT_AREA_MAX_LENGTH = 150;
+export const OWNER_LEAD_EDIT_NOTES_MAX_LENGTH = 2000;
+
+const ownerLeadEditFieldsShape = {
+  contactName: z.string().trim().min(1, "Enter a contact name.").max(OWNER_LEAD_EDIT_CONTACT_NAME_MAX_LENGTH, "Name is too long."),
+  contactPhone: z.string().trim().min(1, "Enter a phone number.").refine((val) => isValidPhoneNumber(val), "Enter a valid phone number."),
+  material: z.enum(OWNER_LEAD_MATERIAL_VALUES),
+  materialOtherText: z.string().trim().max(OWNER_LEAD_EDIT_MATERIAL_OTHER_TEXT_MAX_LENGTH).optional(),
+  quantityValue: z.number().positive().optional(),
+  quantityUnit: z.enum(OWNER_LEAD_EDIT_QUANTITY_UNIT_VALUES).optional(),
+  quantityUnitOther: z.string().trim().max(OWNER_LEAD_EDIT_QUANTITY_UNIT_OTHER_MAX_LENGTH).optional(),
+  /** Seller-branch only — see this section's own header comment. The server rejects a non-null value here for a buyer lead. */
+  emirate: z.enum(OWNER_LEAD_EDIT_EMIRATE_VALUES).optional(),
+  area: z.string().trim().max(OWNER_LEAD_EDIT_AREA_MAX_LENGTH).optional(),
+  notes: z.string().trim().max(OWNER_LEAD_EDIT_NOTES_MAX_LENGTH, "Note is too long.").optional(),
+};
+
+function refineOwnerLeadEditFields(value: z.infer<z.ZodObject<typeof ownerLeadEditFieldsShape>>, ctx: z.RefinementCtx): void {
+  if (value.material === "other" && !value.materialOtherText) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["materialOtherText"], message: "Describe the material." });
+  }
+  if (value.quantityUnit === "other" && !value.quantityUnitOther) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["quantityUnitOther"], message: "Describe the unit." });
+  }
+  if (value.quantityUnitOther && value.quantityUnit !== "other") {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["quantityUnit"], message: 'Only valid when unit is "other".' });
+  }
+}
+
+/** The form's own field set, with no expectedUpdatedAt — used client-side (e.g. to gate the Save button) independent of the concurrency token. */
+export const ownerLeadEditFormValuesSchema = z.object(ownerLeadEditFieldsShape).strict().superRefine(refineOwnerLeadEditFields);
+export type OwnerLeadEditFormValues = z.infer<typeof ownerLeadEditFormValuesSchema>;
+
+export const ownerLeadEditRequestSchema = z
+  .object({
+    ...ownerLeadEditFieldsShape,
+    /** The lead's last-known updatedAt (from the detail this form was prefilled from) — the stale-update concurrency anchor, resent unchanged; see update_lead_details_v1's own header comment. */
+    expectedUpdatedAt: z.string(),
+  })
+  .strict()
+  .superRefine(refineOwnerLeadEditFields);
+export type OwnerLeadEditRequest = z.infer<typeof ownerLeadEditRequestSchema>;
+
+export const ownerLeadEditSuccessBodySchema = z
+  .object({
+    ok: z.literal(true),
+    data: z
+      .object({
+        updated: z.boolean(),
+        updatedAt: z.string(),
+        changedFields: z.array(z.string()),
+      })
+      .strict(),
+  })
+  .strict();
+export type OwnerLeadEditSuccessBody = z.infer<typeof ownerLeadEditSuccessBodySchema>;
+
+export const ownerLeadEditResponseBodySchema = z.union([ownerLeadEditSuccessBodySchema, ownerLeadMutationErrorBodySchema]);
+export type OwnerLeadEditResponseBody = z.infer<typeof ownerLeadEditResponseBodySchema>;
 
 // ---------------------------------------------------------------------------
 // File-access response — deliberately minimal: only what a browser needs to

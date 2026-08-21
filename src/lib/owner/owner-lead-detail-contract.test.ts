@@ -10,6 +10,8 @@ import {
   ownerLeadStatusChangeSuccessBodySchema,
   ownerLeadNoteCreateRequestSchema,
   ownerLeadNoteCreateSuccessBodySchema,
+  ownerLeadEditRequestSchema,
+  ownerLeadEditSuccessBodySchema,
   OWNER_LEAD_FILE_ACCESS_SIGNED_URL_TTL_SECONDS,
   OWNER_LEAD_NOTE_MAX_LENGTH,
 } from "./owner-lead-detail-contract";
@@ -27,6 +29,8 @@ const VALID_SELL_LEAD = {
   createdAt: "2026-01-01T00:00:00.000Z",
   submissionCompletedAt: "2026-01-01T00:05:00.000Z",
   fileUploadStatus: "complete",
+  deletedAt: null,
+  updatedAt: "2026-01-01T00:05:00.000Z",
   contact: { name: "Ahmed Seller", phone: "+971501234567", email: null, company: null },
   location: { emirate: "dubai", area: "Al Quoz", mapLink: null },
   enquiry: {
@@ -57,6 +61,8 @@ const VALID_BUY_LEAD = {
   createdAt: "2026-01-01T00:00:00.000Z",
   submissionCompletedAt: "2026-01-01T00:05:00.000Z",
   fileUploadStatus: "none",
+  deletedAt: null,
+  updatedAt: "2026-01-01T00:05:00.000Z",
   contact: { name: "Fatima Buyer", phone: "+971509999999", email: null, company: null },
   location: { emirate: "sharjah", area: "Industrial 3", mapLink: null },
   enquiry: {
@@ -153,10 +159,21 @@ describe("ownerLeadDetailActivitySchema", () => {
     createdAt: "2026-01-01T00:00:00.000Z",
     statusChange: null,
     noteBody: null,
+    changedFields: null,
   };
 
-  it("accepts a valid activity item with statusChange/noteBody both null", () => {
+  it("accepts a valid activity item with statusChange/noteBody/changedFields all null", () => {
     expect(ownerLeadDetailActivitySchema.safeParse(BASE_ACTIVITY).success).toBe(true);
+  });
+
+  it("accepts a lead_details_updated activity with a populated changedFields", () => {
+    const activity = { ...BASE_ACTIVITY, eventType: "lead_details_updated", changedFields: ["Material", "Quantity"] };
+    expect(ownerLeadDetailActivitySchema.safeParse(activity).success).toBe(true);
+  });
+
+  it("rejects a missing changedFields (not optional — every activity must carry it, even as null)", () => {
+    const { changedFields: _changedFields, ...withoutChangedFields } = BASE_ACTIVITY;
+    expect(ownerLeadDetailActivitySchema.safeParse(withoutChangedFields).success).toBe(false);
   });
 
   it("rejects a raw metadata field leaking through", () => {
@@ -338,5 +355,93 @@ describe("ownerLeadNoteCreateSuccessBodySchema", () => {
   it("accepts a well-formed response", () => {
     const body = { ok: true, data: { activityId: "44444444-4444-4444-4444-444444444444", note: "hello", createdAt: "2026-01-01T00:00:00.000Z" } };
     expect(ownerLeadNoteCreateSuccessBodySchema.safeParse(body).success).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Owner "Edit enquiry"
+// ---------------------------------------------------------------------------
+
+describe("ownerLeadEditRequestSchema", () => {
+  const BASE = {
+    contactName: "Ahmed Seller",
+    contactPhone: "+971501234567",
+    material: "copper",
+    expectedUpdatedAt: "2026-01-01T00:05:00.000Z",
+  };
+
+  it("accepts the minimal required set with every optional field omitted", () => {
+    expect(ownerLeadEditRequestSchema.safeParse(BASE).success).toBe(true);
+  });
+
+  it("accepts the full field set, including seller-only emirate/area", () => {
+    const body = {
+      ...BASE,
+      quantityValue: 100,
+      quantityUnit: "kg",
+      notes: "Clean copper wire, ready for pickup.",
+      emirate: "dubai",
+      area: "Al Quoz",
+    };
+    expect(ownerLeadEditRequestSchema.safeParse(body).success).toBe(true);
+  });
+
+  it("rejects an empty contact name", () => {
+    expect(ownerLeadEditRequestSchema.safeParse({ ...BASE, contactName: "" }).success).toBe(false);
+  });
+
+  it("rejects an invalid phone number", () => {
+    expect(ownerLeadEditRequestSchema.safeParse({ ...BASE, contactPhone: "not-a-phone" }).success).toBe(false);
+  });
+
+  it("normalizes a UAE local-format phone number to canonical E.164 via the shared validator", () => {
+    expect(ownerLeadEditRequestSchema.safeParse({ ...BASE, contactPhone: "0501234567" }).success).toBe(true);
+  });
+
+  it("rejects material: 'other' with no materialOtherText", () => {
+    expect(ownerLeadEditRequestSchema.safeParse({ ...BASE, material: "other" }).success).toBe(false);
+  });
+
+  it("accepts material: 'other' with materialOtherText", () => {
+    expect(ownerLeadEditRequestSchema.safeParse({ ...BASE, material: "other", materialOtherText: "Brass fittings" }).success).toBe(true);
+  });
+
+  it("rejects quantityUnit: 'other' with no quantityUnitOther", () => {
+    expect(ownerLeadEditRequestSchema.safeParse({ ...BASE, quantityUnit: "other" }).success).toBe(false);
+  });
+
+  it("rejects a quantityUnitOther when the unit is not 'other'", () => {
+    expect(ownerLeadEditRequestSchema.safeParse({ ...BASE, quantityUnit: "kg", quantityUnitOther: "drums" }).success).toBe(false);
+  });
+
+  it("rejects a non-positive quantityValue", () => {
+    expect(ownerLeadEditRequestSchema.safeParse({ ...BASE, quantityValue: 0 }).success).toBe(false);
+    expect(ownerLeadEditRequestSchema.safeParse({ ...BASE, quantityValue: -5 }).success).toBe(false);
+  });
+
+  it("rejects an emirate outside the canonical seven-emirate vocabulary", () => {
+    expect(ownerLeadEditRequestSchema.safeParse({ ...BASE, emirate: "dubai_marina" }).success).toBe(false);
+  });
+
+  it("rejects a missing expectedUpdatedAt", () => {
+    const { expectedUpdatedAt: _expectedUpdatedAt, ...withoutExpectedUpdatedAt } = BASE;
+    expect(ownerLeadEditRequestSchema.safeParse(withoutExpectedUpdatedAt).success).toBe(false);
+  });
+
+  it("rejects an unknown key (e.g. a client-supplied leadId, status or intent)", () => {
+    expect(ownerLeadEditRequestSchema.safeParse({ ...BASE, status: "completed" }).success).toBe(false);
+    expect(ownerLeadEditRequestSchema.safeParse({ ...BASE, intent: "buy" }).success).toBe(false);
+  });
+});
+
+describe("ownerLeadEditSuccessBodySchema", () => {
+  it("accepts a real-update response", () => {
+    const body = { ok: true, data: { updated: true, updatedAt: "2026-01-01T00:10:00.000Z", changedFields: ["Material"] } };
+    expect(ownerLeadEditSuccessBodySchema.safeParse(body).success).toBe(true);
+  });
+
+  it("accepts a no-op response (updated: false, changedFields: [])", () => {
+    const body = { ok: true, data: { updated: false, updatedAt: "2026-01-01T00:05:00.000Z", changedFields: [] } };
+    expect(ownerLeadEditSuccessBodySchema.safeParse(body).success).toBe(true);
   });
 });

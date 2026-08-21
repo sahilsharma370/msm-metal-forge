@@ -20,10 +20,14 @@ interface QuoteConfirmationProps {
  * availability or response-time promise beyond what the existing Review
  * step already states, and no claim about which files were uploaded.
  */
-export function QuoteConfirmation({ values, reference, onReturnToWebsite }: QuoteConfirmationProps) {
+export function QuoteConfirmation({
+  values,
+  reference,
+  onReturnToWebsite,
+}: QuoteConfirmationProps) {
   const whatsappUrl = buildWhatsAppUrl(
     QUOTE_WHATSAPP_NUMBER_PROVISIONAL,
-    buildWhatsAppMessage(values),
+    buildWhatsAppMessage(values, reference),
   );
 
   return (
@@ -37,7 +41,7 @@ export function QuoteConfirmation({ values, reference, onReturnToWebsite }: Quot
       <h2 className="font-display mt-3 text-2xl font-bold text-foreground sm:text-3xl">
         Thanks — your enquiry is in
       </h2>
-      <p className="font-display mt-4 rounded-2xl border border-white/10 bg-white/[0.03] px-5 py-4 text-sm font-semibold text-foreground/90">
+      <p className="font-display mt-4 rounded-2xl border border-white/10 bg-navy-deep/95 px-5 py-4 text-sm font-semibold text-foreground/90">
         {buildSmartBrief(values)}
       </p>
 

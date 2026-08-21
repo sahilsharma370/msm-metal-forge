@@ -35,6 +35,18 @@ export function ScrollStack({ heroWrapperRef, heroRef, trustBarRef }: Props) {
   useEffect(() => {
     if (!heroWrapperRef || !heroRef || !trustBarRef) return;
 
+    // CHECKPOINT C2L (trust composition lock) — reduced-motion users never
+    // get the fixed/slide/scrub treatment at all: no ScrollTrigger is ever
+    // created, so there is nothing to set up or tear down. TrustBar is left
+    // exactly as its own component authors it (position: relative,
+    // min-h-screen, no transform) — normal document flow, fully visible.
+    // Hero is likewise left untouched (its own default absolute/inset-0
+    // layout is unrelated to this scroll-stack effect). Normal users below
+    // this check are completely unaffected.
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      return;
+    }
+
     gsap.registerPlugin(ScrollTrigger);
 
     const heroWrapper = heroWrapperRef.current;
@@ -50,7 +62,13 @@ export function ScrollStack({ heroWrapperRef, heroRef, trustBarRef }: Props) {
     gsap.set(hero, { zIndex: 1 });
     gsap.set(trustBar, { zIndex: 2 });
 
-    gsap.set(trustBar, { y: "100vh" });
+    // CHECKPOINT C2L (verified seam fix) — yPercent is a live CSS %
+    // transform resolved against the element's OWN current box (not a
+    // one-time px snapshot the way GSAP resolves "100vh" strings), so it
+    // stays correct after activateTrustBarFixed below resizes TrustBar to
+    // height:calc(100% + 4px) for its own anti-gap buffer. y:0 keeps the
+    // plain-px y channel at zero so there's no competing "vh"/px value.
+    gsap.set(trustBar, { yPercent: 100, y: 0 });
 
     const activateHeroFixed = () => gsap.set(hero, { position: "fixed", top: 0, left: 0, width: "100%" });
     const releaseHeroFixed = () =>
@@ -81,7 +99,7 @@ export function ScrollStack({ heroWrapperRef, heroRef, trustBarRef }: Props) {
         y: 0,
       });
 
-    const slideTween = gsap.to(trustBar, { y: "0vh", ease: "none" });
+    const slideTween = gsap.to(trustBar, { yPercent: 0, y: 0, ease: "none" });
 
     const stageA = ScrollTrigger.create({
       trigger: heroWrapper,

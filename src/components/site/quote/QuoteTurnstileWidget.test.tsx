@@ -3,7 +3,11 @@ import { createRef } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
-import { QuoteTurnstileWidget, TURNSTILE_ACTION, type QuoteTurnstileWidgetHandle } from "./QuoteTurnstileWidget";
+import {
+  QuoteTurnstileWidget,
+  TURNSTILE_ACTION,
+  type QuoteTurnstileWidgetHandle,
+} from "./QuoteTurnstileWidget";
 
 interface CapturedRenderOptions {
   sitekey: string;
@@ -15,7 +19,9 @@ interface CapturedRenderOptions {
 }
 
 function installFakeTurnstile() {
-  const renderMock = vi.fn<(container: HTMLElement, options: CapturedRenderOptions) => string>().mockReturnValue("widget-1");
+  const renderMock = vi
+    .fn<(container: HTMLElement, options: CapturedRenderOptions) => string>()
+    .mockReturnValue("widget-1");
   const resetMock = vi.fn();
   const removeMock = vi.fn();
   window.turnstile = { render: renderMock, reset: resetMock, remove: removeMock };
@@ -87,6 +93,20 @@ describe("QuoteTurnstileWidget — rendered widget lifecycle", () => {
     expect(options?.action).toBe("quote_submit");
   });
 
+  // C2L-Q4 — the Quote Experience is permanently dark-navy, so the widget
+  // requests Cloudflare's own "dark" theme rather than "auto" (which would
+  // otherwise follow the visitor's OS/browser colour-scheme and could
+  // render a jarring white box). Purely a visual-skin parameter passed to
+  // the real Turnstile API — not a change to verification behaviour.
+  it("requests Cloudflare's dark theme, matching the permanently dark shell", async () => {
+    const { renderMock } = installFakeTurnstile();
+    render(<QuoteTurnstileWidget siteKey="my-site-key" onToken={vi.fn()} onUnusable={vi.fn()} />);
+
+    await waitFor(() => expect(renderMock).toHaveBeenCalledTimes(1));
+    const options = renderMock.mock.calls[0]?.[1] as { theme?: string };
+    expect(options.theme).toBe("dark");
+  });
+
   it("forwards a completed challenge's token to onToken, verbatim", async () => {
     const { renderMock } = installFakeTurnstile();
     const onToken = vi.fn();
@@ -128,7 +148,9 @@ describe("QuoteTurnstileWidget — rendered widget lifecycle", () => {
 
   it("removes the widget on unmount so a stale, already-consumed challenge is never left behind", async () => {
     const { renderMock, removeMock } = installFakeTurnstile();
-    const { unmount } = render(<QuoteTurnstileWidget siteKey="k" onToken={vi.fn()} onUnusable={vi.fn()} />);
+    const { unmount } = render(
+      <QuoteTurnstileWidget siteKey="k" onToken={vi.fn()} onUnusable={vi.fn()} />,
+    );
 
     await waitFor(() => expect(renderMock).toHaveBeenCalledTimes(1));
     unmount();
@@ -138,7 +160,9 @@ describe("QuoteTurnstileWidget — rendered widget lifecycle", () => {
 
   it("never renders the token anywhere in the DOM — only ever hands it to onToken", async () => {
     const { renderMock } = installFakeTurnstile();
-    const { container } = render(<QuoteTurnstileWidget siteKey="k" onToken={vi.fn()} onUnusable={vi.fn()} />);
+    const { container } = render(
+      <QuoteTurnstileWidget siteKey="k" onToken={vi.fn()} onUnusable={vi.fn()} />,
+    );
 
     await waitFor(() => expect(renderMock).toHaveBeenCalledTimes(1));
     const options = renderMock.mock.calls[0]?.[1];

@@ -4,22 +4,32 @@ import {
   EMIRATES,
   EMIRATE_LABELS,
   FULFILMENT_CHOICES,
-  FULFILMENT_LABELS,
+  FULFILMENT_DISPLAY_EXPORT,
+  FULFILMENT_DISPLAY_LOCAL_IMPORT,
   PICKUP_CHOICES,
-  PICKUP_CHOICE_LABELS,
   PREFERRED_PORTS,
   PREFERRED_PORT_LABELS,
+  getStageEyebrow,
 } from "../quote-options";
 import { QuotePillGroup } from "../QuotePillGroup";
+import { QuoteOptionalSection } from "../QuoteOptionalSection";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 
 const EMIRATE_OPTIONS = EMIRATES.map((e) => ({ value: e, label: EMIRATE_LABELS[e] }));
-const PICKUP_OPTIONS = PICKUP_CHOICES.map((p) => ({ value: p, label: PICKUP_CHOICE_LABELS[p] }));
-const FULFILMENT_OPTIONS = FULFILMENT_CHOICES.map((f) => ({
+const PICKUP_OPTIONS: { value: (typeof PICKUP_CHOICES)[number]; label: string }[] = [
+  { value: "yes", label: "Yes" },
+  { value: "no", label: "No" },
+  { value: "not_sure", label: "Not sure" },
+];
+const FULFILMENT_LOCAL_IMPORT_OPTIONS = FULFILMENT_CHOICES.map((f) => ({
   value: f,
-  label: FULFILMENT_LABELS[f],
+  label: FULFILMENT_DISPLAY_LOCAL_IMPORT[f],
+}));
+const FULFILMENT_EXPORT_OPTIONS = FULFILMENT_CHOICES.map((f) => ({
+  value: f,
+  label: FULFILMENT_DISPLAY_EXPORT[f],
 }));
 const PORT_OPTIONS = PREFERRED_PORTS.map((p) => ({ value: p, label: PREFERRED_PORT_LABELS[p] }));
 
@@ -43,7 +53,7 @@ export function LogisticsStep() {
     if (tradeRequirement === "import") {
       return (
         <div>
-          <p className="label-eyebrow text-copper-bright">Import Requirements</p>
+          <p className="label-eyebrow text-copper-bright">{getStageEyebrow(3, intent)}</p>
           <h2 className="font-display mt-3 text-2xl font-bold text-foreground sm:text-3xl">
             Where should the imported material arrive?
           </h2>
@@ -57,14 +67,12 @@ export function LogisticsStep() {
                 form.setValue(
                   "buyerDestinationEmirate",
                   v as QuoteFormValues["buyerDestinationEmirate"],
-                  {
-                    shouldValidate: true,
-                    shouldDirty: true,
-                  },
+                  { shouldValidate: true, shouldDirty: true },
                 );
                 form.clearErrors("buyerDestinationEmirate");
               }}
               error={errors.buyerDestinationEmirate?.message}
+              columnsClassName="grid-cols-4 sm:grid-cols-7"
             />
 
             <QuotePillGroup
@@ -90,7 +98,7 @@ export function LogisticsStep() {
                 </Label>
                 <Input
                   id="buyerPreferredPortOther"
-                  className="mt-2 h-11 rounded-xl border-white/15 bg-white/5"
+                  className="mt-2 h-11 rounded-xl border-white/15 bg-navy-deep/95"
                   placeholder="e.g. Hamriyah Port"
                   aria-invalid={!!errors.buyerPreferredPortOther}
                   aria-describedby={
@@ -110,22 +118,22 @@ export function LogisticsStep() {
             <div className="max-w-md">
               <Label
                 htmlFor="buyerOriginCountryPreference"
-                className="text-sm font-semibold text-foreground/90"
+                className="text-xs font-medium text-foreground/60"
               >
                 Origin country preference{" "}
                 <span className="font-normal text-foreground/50">(optional)</span>
               </Label>
               <Input
                 id="buyerOriginCountryPreference"
-                className="mt-2 h-11 rounded-xl border-white/15 bg-white/5"
+                className="mt-2 h-11 rounded-xl border-white/15 bg-navy-deep/95"
                 placeholder="e.g. China, Germany — leave blank if open"
                 {...form.register("buyerOriginCountryPreference")}
               />
             </div>
 
             <QuotePillGroup
-              label="Logistics requirement"
-              options={FULFILMENT_OPTIONS}
+              label="Logistics"
+              options={FULFILMENT_LOCAL_IMPORT_OPTIONS}
               value={form.watch("buyerLogisticsRequirement")}
               onChange={(v) => {
                 form.setValue(
@@ -138,20 +146,23 @@ export function LogisticsStep() {
               error={errors.buyerLogisticsRequirement?.message}
             />
 
-            <div>
+            <QuoteOptionalSection
+              label="Add logistics details (optional)"
+              defaultOpen={!!form.watch("buyerLogisticsNote")}
+            >
               <Label
                 htmlFor="buyerLogisticsNote"
                 className="text-sm font-semibold text-foreground/90"
               >
-                Logistics note <span className="font-normal text-foreground/50">(optional)</span>
+                Logistics note
               </Label>
               <Textarea
                 id="buyerLogisticsNote"
-                className="mt-2 min-h-20 rounded-xl border-white/15 bg-white/5"
+                className="mt-2 min-h-20 rounded-xl border-white/15 bg-navy-deep/95"
                 placeholder="Incoterm, container preference, target sailing date or delivery requirement"
                 {...form.register("buyerLogisticsNote")}
               />
-            </div>
+            </QuoteOptionalSection>
           </div>
         </div>
       );
@@ -160,9 +171,9 @@ export function LogisticsStep() {
     if (tradeRequirement === "export") {
       return (
         <div>
-          <p className="label-eyebrow text-copper-bright">Export Requirements</p>
+          <p className="label-eyebrow text-copper-bright">{getStageEyebrow(3, intent)}</p>
           <h2 className="font-display mt-3 text-2xl font-bold text-foreground sm:text-3xl">
-            Where should we export the material?
+            Where should MSM export the material?
           </h2>
 
           <div className="mt-8 space-y-6">
@@ -176,7 +187,7 @@ export function LogisticsStep() {
                 </Label>
                 <Input
                   id="buyerDestinationCountry"
-                  className="mt-2 h-11 rounded-xl border-white/15 bg-white/5"
+                  className="mt-2 h-11 rounded-xl border-white/15 bg-navy-deep/95"
                   placeholder="e.g. Vietnam"
                   aria-invalid={!!errors.buyerDestinationCountry}
                   aria-describedby={
@@ -200,7 +211,7 @@ export function LogisticsStep() {
                 </Label>
                 <Input
                   id="buyerDestinationCityPort"
-                  className="mt-2 h-11 rounded-xl border-white/15 bg-white/5"
+                  className="mt-2 h-11 rounded-xl border-white/15 bg-navy-deep/95"
                   placeholder="e.g. Nhava Sheva"
                   aria-invalid={!!errors.buyerDestinationCityPort}
                   aria-describedby={
@@ -218,8 +229,8 @@ export function LogisticsStep() {
             </div>
 
             <QuotePillGroup
-              label="Logistics requirement"
-              options={FULFILMENT_OPTIONS}
+              label="Logistics"
+              options={FULFILMENT_EXPORT_OPTIONS}
               value={form.watch("buyerLogisticsRequirement")}
               onChange={(v) => {
                 form.setValue(
@@ -232,20 +243,23 @@ export function LogisticsStep() {
               error={errors.buyerLogisticsRequirement?.message}
             />
 
-            <div>
+            <QuoteOptionalSection
+              label="Add shipping details (optional)"
+              defaultOpen={!!form.watch("buyerLogisticsNote")}
+            >
               <Label
                 htmlFor="buyerLogisticsNote"
                 className="text-sm font-semibold text-foreground/90"
               >
-                Logistics note <span className="font-normal text-foreground/50">(optional)</span>
+                Logistics note
               </Label>
               <Textarea
                 id="buyerLogisticsNote"
-                className="mt-2 min-h-20 rounded-xl border-white/15 bg-white/5"
+                className="mt-2 min-h-20 rounded-xl border-white/15 bg-navy-deep/95"
                 placeholder="Incoterm, container preference, target sailing date or delivery requirement"
                 {...form.register("buyerLogisticsNote")}
               />
-            </div>
+            </QuoteOptionalSection>
           </div>
         </div>
       );
@@ -253,7 +267,7 @@ export function LogisticsStep() {
 
     return (
       <div>
-        <p className="label-eyebrow text-copper-bright">Location & Logistics</p>
+        <p className="label-eyebrow text-copper-bright">{getStageEyebrow(3, intent)}</p>
         <h2 className="font-display mt-3 text-2xl font-bold text-foreground sm:text-3xl">
           Where should the material go?
         </h2>
@@ -268,12 +282,8 @@ export function LogisticsStep() {
               form.setValue(
                 "buyerDestinationEmirate",
                 v as QuoteFormValues["buyerDestinationEmirate"],
-                {
-                  shouldValidate: true,
-                  shouldDirty: true,
-                },
+                { shouldValidate: true, shouldDirty: true },
               );
-              // C-02/D-10: an Emirate change invalidates any Area/Maps link entered for the previous one.
               if (prev && prev !== v) {
                 form.setValue("buyerDestinationArea", undefined);
                 form.setValue("buyerDestinationMapLink", undefined);
@@ -281,8 +291,10 @@ export function LogisticsStep() {
               form.clearErrors(["buyerDestinationEmirate", "buyerDestinationArea"]);
             }}
             error={errors.buyerDestinationEmirate?.message}
+            columnsClassName="grid-cols-4 sm:grid-cols-7"
           />
-          <div className="grid gap-6 sm:grid-cols-2">
+
+          <div className="grid gap-6 lg:grid-cols-2">
             <div>
               <Label
                 htmlFor="buyerDestinationArea"
@@ -292,7 +304,7 @@ export function LogisticsStep() {
               </Label>
               <Input
                 id="buyerDestinationArea"
-                className="mt-2 h-11 rounded-xl border-white/15 bg-white/5"
+                className="mt-2 h-11 rounded-xl border-white/15 bg-navy-deep/95"
                 placeholder="e.g. Al Quoz Industrial"
                 aria-invalid={!!errors.buyerDestinationArea}
                 aria-describedby={
@@ -307,47 +319,49 @@ export function LogisticsStep() {
                 message={errors.buyerDestinationArea?.message}
               />
             </div>
-            <div>
-              <Label
-                htmlFor="buyerDestinationMapLink"
-                className="text-sm font-semibold text-foreground/90"
-              >
-                Google Maps link
-              </Label>
-              <Input
-                id="buyerDestinationMapLink"
-                className="mt-2 h-11 rounded-xl border-white/15 bg-white/5"
-                placeholder="Paste a maps link"
-                aria-invalid={!!errors.buyerDestinationMapLink}
-                aria-describedby={
-                  errors.buyerDestinationMapLink ? "buyerDestinationMapLink-error" : undefined
-                }
-                {...form.register("buyerDestinationMapLink", {
-                  onChange: () => form.clearErrors("buyerDestinationMapLink"),
-                })}
-              />
-              <p className="mt-1.5 text-xs text-foreground/50">
-                Optional — paste the shared location link from Google Maps.
-              </p>
-              <FieldError
-                id="buyerDestinationMapLink-error"
-                message={errors.buyerDestinationMapLink?.message}
-              />
-            </div>
+
+            <QuotePillGroup
+              label="Fulfilment"
+              options={FULFILMENT_LOCAL_IMPORT_OPTIONS}
+              value={form.watch("buyerFulfilment")}
+              onChange={(v) => {
+                form.setValue("buyerFulfilment", v as QuoteFormValues["buyerFulfilment"], {
+                  shouldValidate: true,
+                  shouldDirty: true,
+                });
+                form.clearErrors("buyerFulfilment");
+              }}
+              error={errors.buyerFulfilment?.message}
+            />
           </div>
-          <QuotePillGroup
-            label="Fulfilment"
-            options={FULFILMENT_OPTIONS}
-            value={form.watch("buyerFulfilment")}
-            onChange={(v) => {
-              form.setValue("buyerFulfilment", v as QuoteFormValues["buyerFulfilment"], {
-                shouldValidate: true,
-                shouldDirty: true,
-              });
-              form.clearErrors("buyerFulfilment");
-            }}
-            error={errors.buyerFulfilment?.message}
-          />
+
+          <QuoteOptionalSection
+            label="Add precise map location (optional)"
+            defaultOpen={!!form.watch("buyerDestinationMapLink")}
+          >
+            <Label
+              htmlFor="buyerDestinationMapLink"
+              className="text-sm font-semibold text-foreground/90"
+            >
+              Google Maps link
+            </Label>
+            <Input
+              id="buyerDestinationMapLink"
+              className="mt-2 h-11 max-w-md rounded-xl border-white/15 bg-navy-deep/95"
+              placeholder="Paste a maps link"
+              aria-invalid={!!errors.buyerDestinationMapLink}
+              aria-describedby={
+                errors.buyerDestinationMapLink ? "buyerDestinationMapLink-error" : undefined
+              }
+              {...form.register("buyerDestinationMapLink", {
+                onChange: () => form.clearErrors("buyerDestinationMapLink"),
+              })}
+            />
+            <FieldError
+              id="buyerDestinationMapLink-error"
+              message={errors.buyerDestinationMapLink?.message}
+            />
+          </QuoteOptionalSection>
         </div>
       </div>
     );
@@ -357,7 +371,7 @@ export function LogisticsStep() {
 
   return (
     <div>
-      <p className="label-eyebrow text-copper-bright">Location & Logistics</p>
+      <p className="label-eyebrow text-copper-bright">{getStageEyebrow(3, intent)}</p>
       <h2 className="font-display mt-3 text-2xl font-bold text-foreground sm:text-3xl">
         Where is the material located?
       </h2>
@@ -373,7 +387,6 @@ export function LogisticsStep() {
               shouldValidate: true,
               shouldDirty: true,
             });
-            // C-02: an Emirate change invalidates any Area/Maps link entered for the previous one.
             if (prev && prev !== v) {
               form.setValue("sellerArea", undefined);
               form.setValue("sellerMapLink", undefined);
@@ -381,16 +394,17 @@ export function LogisticsStep() {
             form.clearErrors(["sellerEmirate", "sellerArea"]);
           }}
           error={errors.sellerEmirate?.message}
+          columnsClassName="grid-cols-4 sm:grid-cols-7"
         />
 
-        <div className="grid gap-6 sm:grid-cols-2">
+        <div className="grid gap-6 lg:grid-cols-2">
           <div>
             <Label htmlFor="sellerArea" className="text-sm font-semibold text-foreground/90">
               Area
             </Label>
             <Input
               id="sellerArea"
-              className="mt-2 h-11 rounded-xl border-white/15 bg-white/5"
+              className="mt-2 h-11 rounded-xl border-white/15 bg-navy-deep/95"
               placeholder="e.g. Industrial Area 10"
               aria-invalid={!!errors.sellerArea}
               aria-describedby={errors.sellerArea ? "sellerArea-error" : undefined}
@@ -398,48 +412,28 @@ export function LogisticsStep() {
             />
             <FieldError id="sellerArea-error" message={errors.sellerArea?.message} />
           </div>
-          <div>
-            <Label htmlFor="sellerMapLink" className="text-sm font-semibold text-foreground/90">
-              Google Maps link
-            </Label>
-            <Input
-              id="sellerMapLink"
-              className="mt-2 h-11 rounded-xl border-white/15 bg-white/5"
-              placeholder="Paste a maps link"
-              aria-invalid={!!errors.sellerMapLink}
-              aria-describedby={errors.sellerMapLink ? "sellerMapLink-error" : undefined}
-              {...form.register("sellerMapLink", {
-                onChange: () => form.clearErrors("sellerMapLink"),
-              })}
-            />
-            <p className="mt-1.5 text-xs text-foreground/50">
-              Optional — paste the shared location link from Google Maps.
-            </p>
-            <FieldError id="sellerMapLink-error" message={errors.sellerMapLink?.message} />
-          </div>
+
+          <QuotePillGroup
+            label="Do you need MSM to collect the material?"
+            options={PICKUP_OPTIONS}
+            value={pickupRequired}
+            onChange={(v) => {
+              form.setValue("sellerPickupRequired", v as QuoteFormValues["sellerPickupRequired"], {
+                shouldValidate: true,
+                shouldDirty: true,
+              });
+              if (v !== "yes") {
+                form.setValue("sellerPickupDate", undefined);
+                form.setValue("sellerAccessNote", undefined);
+              }
+              form.clearErrors(["sellerPickupRequired", "sellerPickupDate"]);
+            }}
+            error={errors.sellerPickupRequired?.message}
+          />
         </div>
 
-        <QuotePillGroup
-          label="Pickup required"
-          options={PICKUP_OPTIONS}
-          value={pickupRequired}
-          onChange={(v) => {
-            form.setValue("sellerPickupRequired", v as QuoteFormValues["sellerPickupRequired"], {
-              shouldValidate: true,
-              shouldDirty: true,
-            });
-            // C-09: Yes-only fields can't silently survive a switch to No/Not sure.
-            if (v !== "yes") {
-              form.setValue("sellerPickupDate", undefined);
-              form.setValue("sellerAccessNote", undefined);
-            }
-            form.clearErrors(["sellerPickupRequired", "sellerPickupDate"]);
-          }}
-          error={errors.sellerPickupRequired?.message}
-        />
-
         {pickupRequired === "yes" && (
-          <div className="grid gap-6 rounded-2xl border border-white/10 bg-white/[0.03] p-5 sm:grid-cols-2">
+          <div className="grid gap-6 rounded-2xl border border-white/10 bg-navy-deep/95 p-5 sm:grid-cols-2">
             <div>
               <Label
                 htmlFor="sellerPickupDate"
@@ -451,14 +445,14 @@ export function LogisticsStep() {
               <Input
                 id="sellerPickupDate"
                 type="date"
-                className="mt-2 h-11 rounded-xl border-white/15 bg-white/5"
+                className="mt-2 h-11 rounded-xl border-white/15 bg-navy-deep/95"
                 aria-invalid={!!errors.sellerPickupDate}
                 aria-describedby={errors.sellerPickupDate ? "sellerPickupDate-error" : undefined}
                 {...form.register("sellerPickupDate", {
                   onChange: () => form.clearErrors("sellerPickupDate"),
                 })}
               />
-              <p className="mt-1.5 text-xs text-foreground/50">Subject to MSM confirmation.</p>
+              <p className="mt-1.5 text-xs text-foreground/60">Subject to MSM confirmation.</p>
               <FieldError id="sellerPickupDate-error" message={errors.sellerPickupDate?.message} />
             </div>
             <div>
@@ -471,13 +465,33 @@ export function LogisticsStep() {
               </Label>
               <Input
                 id="sellerAccessNote"
-                className="mt-2 h-11 rounded-xl border-white/15 bg-white/5"
+                className="mt-2 h-11 rounded-xl border-white/15 bg-navy-deep/95"
                 placeholder="Gate access, equipment needed, timing or site restrictions"
                 {...form.register("sellerAccessNote")}
               />
             </div>
           </div>
         )}
+
+        <QuoteOptionalSection
+          label="Add precise map location (optional)"
+          defaultOpen={!!form.watch("sellerMapLink")}
+        >
+          <Label htmlFor="sellerMapLink" className="text-sm font-semibold text-foreground/90">
+            Google Maps link
+          </Label>
+          <Input
+            id="sellerMapLink"
+            className="mt-2 h-11 max-w-md rounded-xl border-white/15 bg-navy-deep/95"
+            placeholder="Paste a maps link"
+            aria-invalid={!!errors.sellerMapLink}
+            aria-describedby={errors.sellerMapLink ? "sellerMapLink-error" : undefined}
+            {...form.register("sellerMapLink", {
+              onChange: () => form.clearErrors("sellerMapLink"),
+            })}
+          />
+          <FieldError id="sellerMapLink-error" message={errors.sellerMapLink?.message} />
+        </QuoteOptionalSection>
       </div>
     </div>
   );

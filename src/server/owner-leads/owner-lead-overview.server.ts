@@ -47,6 +47,13 @@ const overviewLeadRowSchema = z.object({
   material: z.enum(OWNER_LEAD_MATERIAL_VALUES),
   created_at: z.string(),
   submission_completed_at: z.string(),
+  // CHECKPOINT OWNER DESKTOP CORRECTION (Follow-ups row) — same
+  // per-intent contact-name split as owner-leads.server.ts's own
+  // LEADS_SELECT_COLUMNS/mapLeadRow (there is no single unified
+  // "contact_name" column). Only selected/threaded into attentionLeads
+  // below — every other aggregate in this file is unaffected.
+  seller_name: z.string().nullable(),
+  buyer_contact_person: z.string().nullable(),
 });
 export type OverviewLeadRow = z.infer<typeof overviewLeadRowSchema>;
 
@@ -80,10 +87,17 @@ export function createProductionOwnerLeadOverviewServiceDeps(): OwnerLeadOvervie
   const admin: SupabaseClient = createSupabaseAdminClient();
   return {
     async queryOwnerVisibleLeads() {
+      // CHECKPOINT C2M-A — trashed leads are excluded from every Overview
+      // aggregate by default (totals, breakdowns, daily counts, stale/
+      // attention detection); archived leads remain fully included, since
+      // Archived is a legitimate closed workflow outcome, not a removal.
       const { data, error } = await admin
         .from("leads")
-        .select("id, reference, status, intent, capture_channel, material, created_at, submission_completed_at")
-        .not("submission_completed_at", "is", null);
+        .select(
+          "id, reference, status, intent, capture_channel, material, created_at, submission_completed_at, seller_name, buyer_contact_person",
+        )
+        .not("submission_completed_at", "is", null)
+        .is("deleted_at", null);
 
       if (error) throw new OwnerLeadOverviewQueryError();
 
@@ -212,6 +226,8 @@ export function computeOwnerLeadOverview(
     readonly id: string;
     readonly reference: string;
     readonly status: OwnerLeadStatus;
+    readonly contactName: string | null;
+    readonly material: OwnerLeadMaterial;
     readonly lastActivityAt: string;
     readonly hoursSinceActivity: number;
     readonly reasons: OwnerOverviewAttentionReason[];
@@ -253,6 +269,9 @@ export function computeOwnerLeadOverview(
         id: row.id,
         reference: row.reference,
         status: row.status,
+        // Same per-intent contact-name split as owner-leads.server.ts's own mapLeadRow.
+        contactName: row.intent === "sell" ? row.seller_name : row.buyer_contact_person,
+        material: row.material,
         lastActivityAt,
         hoursSinceActivity,
         reasons,

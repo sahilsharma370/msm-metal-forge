@@ -2,6 +2,8 @@ import { useCallback, useRef, useState } from "react";
 import {
   changeOwnerLeadStatus as changeOwnerLeadStatusTransport,
   addOwnerLeadNote as addOwnerLeadNoteTransport,
+  trashOwnerLead as trashOwnerLeadTransport,
+  restoreOwnerLead as restoreOwnerLeadTransport,
   type OwnerLeadStatusChangeInput,
   type OwnerLeadsTransportDeps,
 } from "./owner-leads-transport";
@@ -40,6 +42,10 @@ export interface OwnerLeadMutationsState {
   readonly statusError: string | null;
   readonly isAddingNote: boolean;
   readonly noteError: string | null;
+  readonly isTrashing: boolean;
+  readonly trashError: string | null;
+  readonly isRestoring: boolean;
+  readonly restoreError: string | null;
 }
 
 export type OwnerLeadMutationOutcome = { readonly ok: true } | { readonly ok: false; readonly conflict: boolean; readonly message: string };
@@ -48,13 +54,19 @@ export interface UseOwnerLeadMutationsResult {
   readonly state: OwnerLeadMutationsState;
   readonly changeStatus: (input: OwnerLeadStatusChangeInput) => Promise<OwnerLeadMutationOutcome>;
   readonly addNote: (body: string) => Promise<OwnerLeadMutationOutcome>;
+  readonly trashLead: () => Promise<OwnerLeadMutationOutcome>;
+  readonly restoreLead: () => Promise<OwnerLeadMutationOutcome>;
   readonly clearStatusError: () => void;
   readonly clearNoteError: () => void;
+  readonly clearTrashError: () => void;
+  readonly clearRestoreError: () => void;
 }
 
 const SESSION_EXPIRED_MESSAGE = "Your session has expired. Please sign in again.";
 const ALREADY_IN_PROGRESS_STATUS_MESSAGE = "A status change is already in progress.";
 const ALREADY_IN_PROGRESS_NOTE_MESSAGE = "This note is already being saved.";
+const ALREADY_IN_PROGRESS_TRASH_MESSAGE = "This enquiry is already being moved to Trash.";
+const ALREADY_IN_PROGRESS_RESTORE_MESSAGE = "This enquiry is already being restored.";
 
 export function useOwnerLeadMutations(
   leadId: string,
@@ -67,10 +79,16 @@ export function useOwnerLeadMutations(
     statusError: null,
     isAddingNote: false,
     noteError: null,
+    isTrashing: false,
+    trashError: null,
+    isRestoring: false,
+    restoreError: null,
   });
 
   const statusPendingRef = useRef(false);
   const notePendingRef = useRef(false);
+  const trashPendingRef = useRef(false);
+  const restorePendingRef = useRef(false);
   const lastNoteAttemptRef = useRef<{ requestId: string; body: string } | null>(null);
 
   const changeStatus = useCallback(
@@ -138,8 +156,63 @@ export function useOwnerLeadMutations(
     [leadId, deps, onMutated, onUnauthorized],
   );
 
+  /** CHECKPOINT C2M-A — Move to Trash. No confirmation logic lives here (the caller's own confirmation dialog handles that) — this is purely the mutation, matching changeStatus/addNote's own separation of concerns. */
+  const trashLead = useCallback(async (): Promise<OwnerLeadMutationOutcome> => {
+    if (trashPendingRef.current) {
+      return { ok: false, conflict: false, message: ALREADY_IN_PROGRESS_TRASH_MESSAGE };
+    }
+    trashPendingRef.current = true;
+    setState((previous) => ({ ...previous, isTrashing: true, trashError: null }));
+
+    const result = await trashOwnerLeadTransport(leadId, deps);
+    trashPendingRef.current = false;
+
+    if (result.kind === "unauthorized") {
+      setState((previous) => ({ ...previous, isTrashing: false }));
+      onUnauthorized();
+      return { ok: false, conflict: false, message: SESSION_EXPIRED_MESSAGE };
+    }
+    if (result.kind === "error" || result.kind === "aborted") {
+      const message = result.kind === "error" ? result.message : "Something went wrong. Please try again.";
+      setState((previous) => ({ ...previous, isTrashing: false, trashError: message }));
+      return { ok: false, conflict: false, message };
+    }
+
+    setState((previous) => ({ ...previous, isTrashing: false, trashError: null }));
+    onMutated();
+    return { ok: true };
+  }, [leadId, deps, onMutated, onUnauthorized]);
+
+  const restoreLead = useCallback(async (): Promise<OwnerLeadMutationOutcome> => {
+    if (restorePendingRef.current) {
+      return { ok: false, conflict: false, message: ALREADY_IN_PROGRESS_RESTORE_MESSAGE };
+    }
+    restorePendingRef.current = true;
+    setState((previous) => ({ ...previous, isRestoring: true, restoreError: null }));
+
+    const result = await restoreOwnerLeadTransport(leadId, deps);
+    restorePendingRef.current = false;
+
+    if (result.kind === "unauthorized") {
+      setState((previous) => ({ ...previous, isRestoring: false }));
+      onUnauthorized();
+      return { ok: false, conflict: false, message: SESSION_EXPIRED_MESSAGE };
+    }
+    if (result.kind === "error" || result.kind === "aborted") {
+      const message = result.kind === "error" ? result.message : "Something went wrong. Please try again.";
+      setState((previous) => ({ ...previous, isRestoring: false, restoreError: message }));
+      return { ok: false, conflict: false, message };
+    }
+
+    setState((previous) => ({ ...previous, isRestoring: false, restoreError: null }));
+    onMutated();
+    return { ok: true };
+  }, [leadId, deps, onMutated, onUnauthorized]);
+
   const clearStatusError = useCallback(() => setState((previous) => ({ ...previous, statusError: null })), []);
   const clearNoteError = useCallback(() => setState((previous) => ({ ...previous, noteError: null })), []);
+  const clearTrashError = useCallback(() => setState((previous) => ({ ...previous, trashError: null })), []);
+  const clearRestoreError = useCallback(() => setState((previous) => ({ ...previous, restoreError: null })), []);
 
-  return { state, changeStatus, addNote, clearStatusError, clearNoteError };
+  return { state, changeStatus, addNote, trashLead, restoreLead, clearStatusError, clearNoteError, clearTrashError, clearRestoreError };
 }

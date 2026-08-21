@@ -52,7 +52,9 @@ function loadTurnstileScript(): Promise<void> {
   if (turnstileScriptPromise) return turnstileScriptPromise;
 
   turnstileScriptPromise = new Promise<void>((resolve, reject) => {
-    const existing = document.querySelector<HTMLScriptElement>(`script[src="${TURNSTILE_SCRIPT_SRC}"]`);
+    const existing = document.querySelector<HTMLScriptElement>(
+      `script[src="${TURNSTILE_SCRIPT_SRC}"]`,
+    );
     if (existing) {
       existing.addEventListener("load", () => resolve());
       existing.addEventListener("error", () => reject(new Error("turnstile_script_failed")));
@@ -83,55 +85,62 @@ export interface QuoteTurnstileWidgetProps {
   onUnusable: () => void;
 }
 
-export const QuoteTurnstileWidget = forwardRef<QuoteTurnstileWidgetHandle, QuoteTurnstileWidgetProps>(
-  function QuoteTurnstileWidget({ siteKey, onToken, onUnusable }, ref) {
-    const containerRef = useRef<HTMLDivElement>(null);
-    const widgetIdRef = useRef<string | null>(null);
-    const onTokenRef = useRef(onToken);
-    const onUnusableRef = useRef(onUnusable);
-    onTokenRef.current = onToken;
-    onUnusableRef.current = onUnusable;
+export const QuoteTurnstileWidget = forwardRef<
+  QuoteTurnstileWidgetHandle,
+  QuoteTurnstileWidgetProps
+>(function QuoteTurnstileWidget({ siteKey, onToken, onUnusable }, ref) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const widgetIdRef = useRef<string | null>(null);
+  const onTokenRef = useRef(onToken);
+  const onUnusableRef = useRef(onUnusable);
+  onTokenRef.current = onToken;
+  onUnusableRef.current = onUnusable;
 
-    useImperativeHandle(
-      ref,
-      () => ({
-        reset() {
-          if (widgetIdRef.current && window.turnstile) {
-            window.turnstile.reset(widgetIdRef.current);
-          }
-        },
-      }),
-      [],
-    );
-
-    useEffect(() => {
-      let cancelled = false;
-
-      loadTurnstileScript()
-        .then(() => {
-          if (cancelled || !containerRef.current || !window.turnstile) return;
-          widgetIdRef.current = window.turnstile.render(containerRef.current, {
-            sitekey: siteKey,
-            action: TURNSTILE_ACTION,
-            theme: "auto",
-            callback: (token) => onTokenRef.current(token),
-            "error-callback": () => onUnusableRef.current(),
-            "expired-callback": () => onUnusableRef.current(),
-            "timeout-callback": () => onUnusableRef.current(),
-          });
-        })
-        .catch(() => onUnusableRef.current());
-
-      return () => {
-        cancelled = true;
+  useImperativeHandle(
+    ref,
+    () => ({
+      reset() {
         if (widgetIdRef.current && window.turnstile) {
-          window.turnstile.remove(widgetIdRef.current);
+          window.turnstile.reset(widgetIdRef.current);
         }
-        widgetIdRef.current = null;
-      };
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [siteKey]);
+      },
+    }),
+    [],
+  );
 
-    return <div ref={containerRef} data-testid="quote-turnstile-widget" />;
-  },
-);
+  useEffect(() => {
+    let cancelled = false;
+
+    loadTurnstileScript()
+      .then(() => {
+        if (cancelled || !containerRef.current || !window.turnstile) return;
+        widgetIdRef.current = window.turnstile.render(containerRef.current, {
+          sitekey: siteKey,
+          action: TURNSTILE_ACTION,
+          // C2L-Q4 — the Quote Experience is permanently dark-navy (never
+          // a light theme), so "auto" (which follows the visitor's OS/
+          // browser colour-scheme preference) could render a jarring
+          // white Turnstile box. "dark" is an officially supported
+          // Turnstile theme value — this only changes which of
+          // Cloudflare's own pre-built widget skins renders, not
+          // verification behaviour.
+          theme: "dark",
+          callback: (token) => onTokenRef.current(token),
+          "error-callback": () => onUnusableRef.current(),
+          "expired-callback": () => onUnusableRef.current(),
+          "timeout-callback": () => onUnusableRef.current(),
+        });
+      })
+      .catch(() => onUnusableRef.current());
+
+    return () => {
+      cancelled = true;
+      if (widgetIdRef.current && window.turnstile) {
+        window.turnstile.remove(widgetIdRef.current);
+      }
+      widgetIdRef.current = null;
+    };
+  }, [siteKey]);
+
+  return <div ref={containerRef} data-testid="quote-turnstile-widget" />;
+});

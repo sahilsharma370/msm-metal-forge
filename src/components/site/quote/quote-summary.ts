@@ -12,7 +12,6 @@ import {
   buyerDetailsStepSchema,
   isBuyerContactComplete,
   isBuyerDestinationComplete,
-  isBuyerQuantityComplete,
   isMaterialComplete,
   isSellerContactComplete,
   isSellerLocationComplete,
@@ -22,229 +21,6 @@ import {
   parseDateOnly,
   type QuoteFormValues,
 } from "./quote-schema";
-
-export type ReadinessState =
-  "complete" | "required" | "needs_attention" | "not_added_yet" | "recommended";
-
-export interface ReadinessItem {
-  key: string;
-  label: string;
-  state: ReadinessState;
-  /** The step this field lives on — used to tell "not yet visited" apart from "visited but incomplete". */
-  step: number;
-  /** Overrides the generic state label with an evidence count, e.g. "3 added". */
-  stateLabelOverride?: string | undefined;
-}
-
-type RawReadiness = "complete" | "incomplete" | "recommended";
-
-interface RawReadinessItem {
-  key: string;
-  label: string;
-  step: number;
-  raw: RawReadiness;
-  /** True if the user has entered *something* for this item, even if it's invalid — distinguishes "empty" from "wrong". */
-  hasValue: boolean;
-  count?: number;
-  countUnit?: "added" | "attached";
-}
-
-/**
- * A5/A6/A7/A8 readiness-state contract:
- * - complete/recommended pass straight through.
- * - a field that HAS a value but fails validation is always "needs attention",
- *   regardless of timing (covers restored invalid drafts — F-08).
- * - an empty field on a step beyond the furthest one reached is "not added yet".
- * - an empty field on a step already attempted-and-failed is "needs attention".
- * - an empty field on the current step, never attempted, is "required" (neutral, not an error).
- */
-function resolveState(
-  item: RawReadinessItem,
-  currentStep: number,
-  furthestStepReached: number,
-  attemptedSteps: ReadonlySet<number>,
-): ReadinessState {
-  if (item.raw === "complete") return "complete";
-  if (item.raw === "recommended") return "recommended";
-  if (item.hasValue) return "needs_attention";
-  if (item.step > furthestStepReached) return "not_added_yet";
-  if (attemptedSteps.has(item.step)) return "needs_attention";
-  if (item.step === currentStep) return "required";
-  return "needs_attention";
-}
-
-function buyerDestinationHasValue(values: QuoteFormValues): boolean {
-  if (values.buyerTradeRequirement === "local") {
-    return (
-      !!values.buyerDestinationEmirate ||
-      !!values.buyerDestinationArea?.trim() ||
-      !!values.buyerFulfilment
-    );
-  }
-  if (values.buyerTradeRequirement === "import") {
-    return (
-      !!values.buyerDestinationEmirate ||
-      !!values.buyerPreferredPort ||
-      !!values.buyerOriginCountryPreference?.trim() ||
-      !!values.buyerLogisticsRequirement
-    );
-  }
-  if (values.buyerTradeRequirement === "export") {
-    return (
-      !!values.buyerDestinationCountry?.trim() ||
-      !!values.buyerDestinationCityPort?.trim() ||
-      !!values.buyerLogisticsRequirement
-    );
-  }
-  return false;
-}
-
-function getSellerReadinessRaw(values: QuoteFormValues): RawReadinessItem[] {
-  return [
-    {
-      key: "enquiryType",
-      label: "Enquiry type",
-      step: 1,
-      raw: values.intent === "sell" ? "complete" : "incomplete",
-      hasValue: false,
-    },
-    {
-      key: "material",
-      label: "Material",
-      step: 2,
-      raw: isMaterialComplete(values) ? "complete" : "incomplete",
-      hasValue: !!values.material || !!values.subtype,
-    },
-    {
-      key: "materialDetails",
-      label: "Material details",
-      step: 3,
-      raw: isSellerMaterialDetailsComplete(values) ? "complete" : "incomplete",
-      hasValue:
-        !!values.sellerQuantityValue?.trim() ||
-        !!values.sellerQuantityUnsure ||
-        !!values.sellerQuantityUnit ||
-        !!values.sellerCondition,
-    },
-    {
-      key: "location",
-      label: "Location",
-      step: 4,
-      raw: isSellerLocationComplete(values) ? "complete" : "incomplete",
-      hasValue:
-        !!values.sellerEmirate || !!values.sellerArea?.trim() || !!values.sellerMapLink?.trim(),
-    },
-    {
-      key: "pickup",
-      label: "Pickup",
-      step: 4,
-      raw: isSellerPickupComplete(values) ? "complete" : "incomplete",
-      hasValue: !!values.sellerPickupRequired,
-    },
-    {
-      key: "contact",
-      label: "Contact details",
-      step: 5,
-      raw: isSellerContactComplete(values) ? "complete" : "incomplete",
-      hasValue:
-        !!values.sellerName?.trim() || !!values.sellerPhone?.trim() || !!values.sellerEmail?.trim(),
-    },
-    {
-      key: "photos",
-      label: "Photos",
-      step: 5,
-      raw: values.sellerPhotos.length > 0 ? "complete" : "recommended",
-      hasValue: false,
-      count: values.sellerPhotos.length,
-      countUnit: "added",
-    },
-  ];
-}
-
-function getBuyerReadinessRaw(values: QuoteFormValues): RawReadinessItem[] {
-  return [
-    {
-      key: "enquiryType",
-      label: "Enquiry type",
-      step: 1,
-      raw: values.intent === "buy" ? "complete" : "incomplete",
-      hasValue: false,
-    },
-    {
-      key: "material",
-      label: "Material",
-      step: 2,
-      raw: isMaterialComplete(values) ? "complete" : "incomplete",
-      hasValue: !!values.material || !!values.subtype,
-    },
-    {
-      key: "quantity",
-      label: "Quantity",
-      step: 3,
-      raw: isBuyerQuantityComplete(values) ? "complete" : "incomplete",
-      hasValue: !!values.buyerQuantityValue?.trim() || !!values.buyerQuantityUnit,
-    },
-    {
-      key: "tradeRoute",
-      label: "Trade route",
-      step: 3,
-      raw: values.buyerTradeRequirement ? "complete" : "incomplete",
-      hasValue: false,
-    },
-    {
-      key: "destination",
-      label: "Destination & logistics",
-      step: 4,
-      raw: isBuyerDestinationComplete(values) ? "complete" : "incomplete",
-      hasValue: buyerDestinationHasValue(values),
-    },
-    {
-      key: "contact",
-      label: "Contact details",
-      step: 5,
-      raw: isBuyerContactComplete(values) ? "complete" : "incomplete",
-      hasValue:
-        !!values.buyerContactPerson?.trim() ||
-        !!values.buyerPhone?.trim() ||
-        !!values.buyerEmail?.trim(),
-    },
-    {
-      key: "documents",
-      label: "Documents",
-      step: 5,
-      raw: values.buyerDocuments.length > 0 ? "complete" : "recommended",
-      hasValue: false,
-      count: values.buyerDocuments.length,
-      countUnit: "attached",
-    },
-  ];
-}
-
-function getRawReadiness(values: QuoteFormValues): RawReadinessItem[] {
-  return values.intent === "buy" ? getBuyerReadinessRaw(values) : getSellerReadinessRaw(values);
-}
-
-/**
- * `currentStep`/`furthestStepReached`/`attemptedSteps` are UI-only concerns — they exist
- * purely to pick between "required" and "needs attention" for an empty field, per A-05/A-06.
- */
-export function getReadiness(
-  values: QuoteFormValues,
-  currentStep: number,
-  furthestStepReached: number,
-  attemptedSteps: ReadonlySet<number>,
-): ReadinessItem[] {
-  return getRawReadiness(values).map((item) => ({
-    key: item.key,
-    label: item.label,
-    step: item.step,
-    state: resolveState(item, currentStep, furthestStepReached, attemptedSteps),
-    stateLabelOverride:
-      item.raw === "complete" && item.count !== undefined && item.count > 0
-        ? `${item.count} ${item.countUnit}`
-        : undefined,
-  }));
-}
 
 /**
  * Pure business-rule gate for Review/dev-preview — ignores UI timing (required
@@ -335,7 +111,23 @@ function buyerDestinationLine(values: QuoteFormValues): string | undefined {
   return undefined;
 }
 
-/** Deterministic one-line "Smart Quote Brief" shown on the Review step. */
+/**
+ * C2L-Q2 — a short identifying headline for Review's top recap: just intent
+ * + material, e.g. "Selling Copper · Wire & Cable". Deliberately NOT the
+ * fuller `buildSmartBrief` below (quantity/location/pickup etc.) — those
+ * facts already live in the compact editable cards right underneath, and
+ * repeating them in both places was the exact duplication this replaces.
+ * `buildSmartBrief` itself is unchanged and still used on the post-success
+ * confirmation screen, where there are no editable cards to fall back on.
+ */
+export function buildReviewHeadline(values: QuoteFormValues): string {
+  if (values.intent !== "sell" && values.intent !== "buy") return "Your request";
+  const material = materialLine(values);
+  const materialText = material === "Material not specified" ? "your material" : material;
+  return values.intent === "sell" ? `Selling ${materialText}` : `Buying ${materialText}`;
+}
+
+/** Deterministic one-line "Smart Quote Brief" shown on the post-success confirmation screen. */
 export function buildSmartBrief(values: QuoteFormValues): string {
   const parts: string[] = [];
   if (values.intent === "sell") {
@@ -409,9 +201,15 @@ function buyerLogisticsLabel(values: QuoteFormValues): string | undefined {
   return requirement ? FULFILMENT_LABELS[requirement] : undefined;
 }
 
-/** Deterministic WhatsApp handoff message — never emits "undefined" or empty rows. */
-export function buildWhatsAppMessage(values: QuoteFormValues): string {
+/**
+ * Deterministic WhatsApp handoff message — never emits "undefined" or empty
+ * rows. `reference` (C2L-Q1) is the server's own authoritative reference,
+ * passed only from the post-success confirmation screen — pre-submission
+ * callers never have one, and this function has no way to fabricate one.
+ */
+export function buildWhatsAppMessage(values: QuoteFormValues, reference?: string): string {
   const lines: string[] = [];
+  if (reference) lines.push(`Reference: ${reference}`, "");
 
   if (values.intent === "sell") {
     lines.push("Hello MSM Scrap, I'd like to sell scrap.", "", "Enquiry summary");

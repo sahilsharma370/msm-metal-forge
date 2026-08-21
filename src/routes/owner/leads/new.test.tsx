@@ -60,9 +60,23 @@ describe("OwnerLeadQuickAddBody — success navigates to the new lead's detail p
   });
 });
 
-describe("OwnerLeadQuickAddBody — back link", () => {
-  it("links back to the owner inbox", () => {
+// CHECKPOINT OWNER DESKTOP REFINEMENT — Back to enquiries/Cancel are now
+// plain buttons calling a `cancel` callback (navigate({ to: "/owner" }))
+// owned by this route body, not a declarative <Link>, so
+// OwnerLeadQuickAddForm stays router-import-free and trivially testable —
+// same destination, different mechanism.
+describe("OwnerLeadQuickAddBody — back / cancel navigate to the owner inbox", () => {
+  it("Back to enquiries navigates to /owner", async () => {
+    const user = userEvent.setup();
     render(<OwnerLeadQuickAddBody onUnauthorized={vi.fn()} />);
-    expect(screen.getByRole("link", { name: /back to enquiries/i })).toHaveAttribute("href", "/owner");
+    await user.click(screen.getByRole("button", { name: /back to enquiries/i }));
+    expect(navigateMock).toHaveBeenCalledWith({ to: "/owner" });
+  });
+
+  it("Cancel navigates to /owner", async () => {
+    const user = userEvent.setup();
+    render(<OwnerLeadQuickAddBody onUnauthorized={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /^cancel$/i }));
+    expect(navigateMock).toHaveBeenCalledWith({ to: "/owner" });
   });
 });

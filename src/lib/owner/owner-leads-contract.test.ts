@@ -21,6 +21,7 @@ const VALID_ITEM = {
   quantity: { value: 100, unit: "kg" },
   fileUploadStatus: "complete",
   notificationStatus: "sent",
+  deletedAt: null,
 };
 
 describe("ownerLeadListItemSchema — accepts the intended sanitized shape", () => {
@@ -99,9 +100,9 @@ describe("ownerLeadListSuccessBodySchema / ownerLeadListErrorBodySchema", () => 
 });
 
 describe("OWNER_LEAD_LIST_QUERY_PARAMS — the fixed allowlist", () => {
-  it("contains exactly the nine documented parameters", () => {
+  it("contains exactly the ten documented parameters (CHECKPOINT C2M-A adds 'view')", () => {
     expect([...OWNER_LEAD_LIST_QUERY_PARAMS].sort()).toEqual(
-      ["status", "intent", "material", "captureChannel", "submittedFrom", "submittedTo", "q", "cursor", "limit"].sort(),
+      ["view", "status", "intent", "material", "captureChannel", "submittedFrom", "submittedTo", "q", "cursor", "limit"].sort(),
     );
   });
 });

@@ -41,7 +41,12 @@ export function OwnerLeadNoteComposer({ isSaving, error, onAddNote, onClearError
 
   return (
     <div className="flex flex-col gap-2">
-      <Label htmlFor={fieldId}>Add a private note</Label>
+      {/* CHECKPOINT OWNER DESKTOP CORRECTION — "Add a private note" renamed
+          to "Internal note", and the privacy explanation now appears
+          exactly once (the persistent helper line below, which stays
+          visible after typing — a placeholder disappears the moment there's
+          content, so it was the weaker of the two duplicate copies). */}
+      <Label htmlFor={fieldId}>Internal note</Label>
       <Textarea
         id={fieldId}
         value={body}
@@ -53,14 +58,14 @@ export function OwnerLeadNoteComposer({ isSaving, error, onAddNote, onClearError
         maxLength={OWNER_LEAD_NOTE_MAX_LENGTH}
         rows={3}
         disabled={isSaving}
-        placeholder="Visible only to owner/staff — never shown to the customer."
+        placeholder="e.g. Customer confirmed pickup window for Friday morning."
         aria-describedby={`${fieldId}-hint`}
       />
       <div className="flex items-center justify-between">
         <p id={`${fieldId}-hint`} className="text-xs text-muted-foreground">
-          {body.length}/{OWNER_LEAD_NOTE_MAX_LENGTH} · Private — not visible to the customer
+          {body.length}/{OWNER_LEAD_NOTE_MAX_LENGTH} · Only visible to owner/staff
         </p>
-        <Button type="button" size="sm" disabled={!canSubmit} onClick={() => void handleSubmit()} className="gap-1.5">
+        <Button type="button" variant="outline" size="sm" disabled={!canSubmit} onClick={() => void handleSubmit()} className="gap-1.5">
           {isSaving ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : null}
           {isSaving ? "Saving…" : "Add note"}
         </Button>

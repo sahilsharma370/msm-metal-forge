@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AboutRouteImport } from './routes/about'
 import { Route as QuoteRouteImport } from './routes/quote'
 import { Route as OwnerIndexRouteImport } from './routes/owner/index'
 import { Route as OwnerLoginRouteImport } from './routes/owner/login'
@@ -22,16 +23,26 @@ import { Route as ApiQuoteUploadRouteImport } from './routes/api/quote/upload'
 import { Route as OwnerLeadsLeadIdRouteImport } from './routes/owner/leads/$leadId'
 import { Route as OwnerLeadsNewRouteImport } from './routes/owner/leads/new'
 import { Route as ApiOwnerLeadsLeadIdRouteImport } from './routes/api/owner/leads/$leadId'
+import { Route as ApiOwnerLeadsExportRouteImport } from './routes/api/owner/leads/export'
 import { Route as ApiOwnerLeadsOverviewRouteImport } from './routes/api/owner/leads/overview'
 import { Route as ApiOwnerLoginRequestCodeRouteImport } from './routes/api/owner/login/request-code'
 import { Route as ApiOwnerLoginVerifyCodeRouteImport } from './routes/api/owner/login/verify-code'
+import { Route as OwnerLeadsLeadIdEditRouteImport } from './routes/owner/leads/$leadId_.edit'
+import { Route as ApiOwnerLeadsLeadIdDetailsRouteImport } from './routes/api/owner/leads/$leadId.details'
 import { Route as ApiOwnerLeadsLeadIdNotesRouteImport } from './routes/api/owner/leads/$leadId.notes'
+import { Route as ApiOwnerLeadsLeadIdRestoreRouteImport } from './routes/api/owner/leads/$leadId.restore'
 import { Route as ApiOwnerLeadsLeadIdStatusRouteImport } from './routes/api/owner/leads/$leadId.status'
+import { Route as ApiOwnerLeadsLeadIdTrashRouteImport } from './routes/api/owner/leads/$leadId.trash'
 import { Route as ApiOwnerLeadsLeadIdFilesFileIdAccessRouteImport } from './routes/api/owner/leads/$leadId.files.$fileId.access'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AboutRoute = AboutRouteImport.update({
+  id: '/about',
+  path: '/about',
   getParentRoute: () => rootRouteImport,
 } as any)
 const QuoteRoute = QuoteRouteImport.update({
@@ -94,6 +105,11 @@ const ApiOwnerLeadsLeadIdRoute = ApiOwnerLeadsLeadIdRouteImport.update({
   path: '/$leadId',
   getParentRoute: () => ApiOwnerLeadsRoute,
 } as any)
+const ApiOwnerLeadsExportRoute = ApiOwnerLeadsExportRouteImport.update({
+  id: '/export',
+  path: '/export',
+  getParentRoute: () => ApiOwnerLeadsRoute,
+} as any)
 const ApiOwnerLeadsOverviewRoute = ApiOwnerLeadsOverviewRouteImport.update({
   id: '/overview',
   path: '/overview',
@@ -110,16 +126,39 @@ const ApiOwnerLoginVerifyCodeRoute = ApiOwnerLoginVerifyCodeRouteImport.update({
   path: '/api/owner/login/verify-code',
   getParentRoute: () => rootRouteImport,
 } as any)
+const OwnerLeadsLeadIdEditRoute = OwnerLeadsLeadIdEditRouteImport.update({
+  id: '/owner/leads/$leadId_/edit',
+  path: '/owner/leads/$leadId/edit',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiOwnerLeadsLeadIdDetailsRoute =
+  ApiOwnerLeadsLeadIdDetailsRouteImport.update({
+    id: '/details',
+    path: '/details',
+    getParentRoute: () => ApiOwnerLeadsLeadIdRoute,
+  } as any)
 const ApiOwnerLeadsLeadIdNotesRoute =
   ApiOwnerLeadsLeadIdNotesRouteImport.update({
     id: '/notes',
     path: '/notes',
     getParentRoute: () => ApiOwnerLeadsLeadIdRoute,
   } as any)
+const ApiOwnerLeadsLeadIdRestoreRoute =
+  ApiOwnerLeadsLeadIdRestoreRouteImport.update({
+    id: '/restore',
+    path: '/restore',
+    getParentRoute: () => ApiOwnerLeadsLeadIdRoute,
+  } as any)
 const ApiOwnerLeadsLeadIdStatusRoute =
   ApiOwnerLeadsLeadIdStatusRouteImport.update({
     id: '/status',
     path: '/status',
+    getParentRoute: () => ApiOwnerLeadsLeadIdRoute,
+  } as any)
+const ApiOwnerLeadsLeadIdTrashRoute =
+  ApiOwnerLeadsLeadIdTrashRouteImport.update({
+    id: '/trash',
+    path: '/trash',
     getParentRoute: () => ApiOwnerLeadsLeadIdRoute,
   } as any)
 const ApiOwnerLeadsLeadIdFilesFileIdAccessRoute =
@@ -131,6 +170,7 @@ const ApiOwnerLeadsLeadIdFilesFileIdAccessRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/about': typeof AboutRoute
   '/quote': typeof QuoteRoute
   '/owner/login': typeof OwnerLoginRoute
   '/owner/overview': typeof OwnerOverviewRoute
@@ -143,15 +183,21 @@ export interface FileRoutesByFullPath {
   '/owner/leads/$leadId': typeof OwnerLeadsLeadIdRoute
   '/owner/leads/new': typeof OwnerLeadsNewRoute
   '/api/owner/leads/$leadId': typeof ApiOwnerLeadsLeadIdRouteWithChildren
+  '/api/owner/leads/export': typeof ApiOwnerLeadsExportRoute
   '/api/owner/leads/overview': typeof ApiOwnerLeadsOverviewRoute
   '/api/owner/login/request-code': typeof ApiOwnerLoginRequestCodeRoute
   '/api/owner/login/verify-code': typeof ApiOwnerLoginVerifyCodeRoute
+  '/owner/leads/$leadId/edit': typeof OwnerLeadsLeadIdEditRoute
+  '/api/owner/leads/$leadId/details': typeof ApiOwnerLeadsLeadIdDetailsRoute
   '/api/owner/leads/$leadId/notes': typeof ApiOwnerLeadsLeadIdNotesRoute
+  '/api/owner/leads/$leadId/restore': typeof ApiOwnerLeadsLeadIdRestoreRoute
   '/api/owner/leads/$leadId/status': typeof ApiOwnerLeadsLeadIdStatusRoute
+  '/api/owner/leads/$leadId/trash': typeof ApiOwnerLeadsLeadIdTrashRoute
   '/api/owner/leads/$leadId/files/$fileId/access': typeof ApiOwnerLeadsLeadIdFilesFileIdAccessRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/about': typeof AboutRoute
   '/quote': typeof QuoteRoute
   '/owner/login': typeof OwnerLoginRoute
   '/owner/overview': typeof OwnerOverviewRoute
@@ -164,16 +210,22 @@ export interface FileRoutesByTo {
   '/owner/leads/$leadId': typeof OwnerLeadsLeadIdRoute
   '/owner/leads/new': typeof OwnerLeadsNewRoute
   '/api/owner/leads/$leadId': typeof ApiOwnerLeadsLeadIdRouteWithChildren
+  '/api/owner/leads/export': typeof ApiOwnerLeadsExportRoute
   '/api/owner/leads/overview': typeof ApiOwnerLeadsOverviewRoute
   '/api/owner/login/request-code': typeof ApiOwnerLoginRequestCodeRoute
   '/api/owner/login/verify-code': typeof ApiOwnerLoginVerifyCodeRoute
+  '/owner/leads/$leadId/edit': typeof OwnerLeadsLeadIdEditRoute
+  '/api/owner/leads/$leadId/details': typeof ApiOwnerLeadsLeadIdDetailsRoute
   '/api/owner/leads/$leadId/notes': typeof ApiOwnerLeadsLeadIdNotesRoute
+  '/api/owner/leads/$leadId/restore': typeof ApiOwnerLeadsLeadIdRestoreRoute
   '/api/owner/leads/$leadId/status': typeof ApiOwnerLeadsLeadIdStatusRoute
+  '/api/owner/leads/$leadId/trash': typeof ApiOwnerLeadsLeadIdTrashRoute
   '/api/owner/leads/$leadId/files/$fileId/access': typeof ApiOwnerLeadsLeadIdFilesFileIdAccessRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/about': typeof AboutRoute
   '/quote': typeof QuoteRoute
   '/owner/login': typeof OwnerLoginRoute
   '/owner/overview': typeof OwnerOverviewRoute
@@ -186,17 +238,23 @@ export interface FileRoutesById {
   '/owner/leads/$leadId': typeof OwnerLeadsLeadIdRoute
   '/owner/leads/new': typeof OwnerLeadsNewRoute
   '/api/owner/leads/$leadId': typeof ApiOwnerLeadsLeadIdRouteWithChildren
+  '/api/owner/leads/export': typeof ApiOwnerLeadsExportRoute
   '/api/owner/leads/overview': typeof ApiOwnerLeadsOverviewRoute
   '/api/owner/login/request-code': typeof ApiOwnerLoginRequestCodeRoute
   '/api/owner/login/verify-code': typeof ApiOwnerLoginVerifyCodeRoute
+  '/owner/leads/$leadId_/edit': typeof OwnerLeadsLeadIdEditRoute
+  '/api/owner/leads/$leadId/details': typeof ApiOwnerLeadsLeadIdDetailsRoute
   '/api/owner/leads/$leadId/notes': typeof ApiOwnerLeadsLeadIdNotesRoute
+  '/api/owner/leads/$leadId/restore': typeof ApiOwnerLeadsLeadIdRestoreRoute
   '/api/owner/leads/$leadId/status': typeof ApiOwnerLeadsLeadIdStatusRoute
+  '/api/owner/leads/$leadId/trash': typeof ApiOwnerLeadsLeadIdTrashRoute
   '/api/owner/leads/$leadId/files/$fileId/access': typeof ApiOwnerLeadsLeadIdFilesFileIdAccessRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/about'
     | '/quote'
     | '/owner/login'
     | '/owner/overview'
@@ -209,15 +267,21 @@ export interface FileRouteTypes {
     | '/owner/leads/$leadId'
     | '/owner/leads/new'
     | '/api/owner/leads/$leadId'
+    | '/api/owner/leads/export'
     | '/api/owner/leads/overview'
     | '/api/owner/login/request-code'
     | '/api/owner/login/verify-code'
+    | '/owner/leads/$leadId/edit'
+    | '/api/owner/leads/$leadId/details'
     | '/api/owner/leads/$leadId/notes'
+    | '/api/owner/leads/$leadId/restore'
     | '/api/owner/leads/$leadId/status'
+    | '/api/owner/leads/$leadId/trash'
     | '/api/owner/leads/$leadId/files/$fileId/access'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/about'
     | '/quote'
     | '/owner/login'
     | '/owner/overview'
@@ -230,15 +294,21 @@ export interface FileRouteTypes {
     | '/owner/leads/$leadId'
     | '/owner/leads/new'
     | '/api/owner/leads/$leadId'
+    | '/api/owner/leads/export'
     | '/api/owner/leads/overview'
     | '/api/owner/login/request-code'
     | '/api/owner/login/verify-code'
+    | '/owner/leads/$leadId/edit'
+    | '/api/owner/leads/$leadId/details'
     | '/api/owner/leads/$leadId/notes'
+    | '/api/owner/leads/$leadId/restore'
     | '/api/owner/leads/$leadId/status'
+    | '/api/owner/leads/$leadId/trash'
     | '/api/owner/leads/$leadId/files/$fileId/access'
   id:
     | '__root__'
     | '/'
+    | '/about'
     | '/quote'
     | '/owner/login'
     | '/owner/overview'
@@ -251,16 +321,22 @@ export interface FileRouteTypes {
     | '/owner/leads/$leadId'
     | '/owner/leads/new'
     | '/api/owner/leads/$leadId'
+    | '/api/owner/leads/export'
     | '/api/owner/leads/overview'
     | '/api/owner/login/request-code'
     | '/api/owner/login/verify-code'
+    | '/owner/leads/$leadId_/edit'
+    | '/api/owner/leads/$leadId/details'
     | '/api/owner/leads/$leadId/notes'
+    | '/api/owner/leads/$leadId/restore'
     | '/api/owner/leads/$leadId/status'
+    | '/api/owner/leads/$leadId/trash'
     | '/api/owner/leads/$leadId/files/$fileId/access'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AboutRoute: typeof AboutRoute
   QuoteRoute: typeof QuoteRoute
   OwnerLoginRoute: typeof OwnerLoginRoute
   OwnerOverviewRoute: typeof OwnerOverviewRoute
@@ -274,6 +350,7 @@ export interface RootRouteChildren {
   OwnerLeadsNewRoute: typeof OwnerLeadsNewRoute
   ApiOwnerLoginRequestCodeRoute: typeof ApiOwnerLoginRequestCodeRoute
   ApiOwnerLoginVerifyCodeRoute: typeof ApiOwnerLoginVerifyCodeRoute
+  OwnerLeadsLeadIdEditRoute: typeof OwnerLeadsLeadIdEditRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -283,6 +360,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/about': {
+      id: '/about'
+      path: '/about'
+      fullPath: '/about'
+      preLoaderRoute: typeof AboutRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/quote': {
@@ -369,6 +453,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiOwnerLeadsLeadIdRouteImport
       parentRoute: typeof ApiOwnerLeadsRoute
     }
+    '/api/owner/leads/export': {
+      id: '/api/owner/leads/export'
+      path: '/export'
+      fullPath: '/api/owner/leads/export'
+      preLoaderRoute: typeof ApiOwnerLeadsExportRouteImport
+      parentRoute: typeof ApiOwnerLeadsRoute
+    }
     '/api/owner/leads/overview': {
       id: '/api/owner/leads/overview'
       path: '/overview'
@@ -390,6 +481,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiOwnerLoginVerifyCodeRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/owner/leads/$leadId_/edit': {
+      id: '/owner/leads/$leadId_/edit'
+      path: '/owner/leads/$leadId/edit'
+      fullPath: '/owner/leads/$leadId/edit'
+      preLoaderRoute: typeof OwnerLeadsLeadIdEditRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/owner/leads/$leadId/details': {
+      id: '/api/owner/leads/$leadId/details'
+      path: '/details'
+      fullPath: '/api/owner/leads/$leadId/details'
+      preLoaderRoute: typeof ApiOwnerLeadsLeadIdDetailsRouteImport
+      parentRoute: typeof ApiOwnerLeadsLeadIdRoute
+    }
     '/api/owner/leads/$leadId/notes': {
       id: '/api/owner/leads/$leadId/notes'
       path: '/notes'
@@ -397,11 +502,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiOwnerLeadsLeadIdNotesRouteImport
       parentRoute: typeof ApiOwnerLeadsLeadIdRoute
     }
+    '/api/owner/leads/$leadId/restore': {
+      id: '/api/owner/leads/$leadId/restore'
+      path: '/restore'
+      fullPath: '/api/owner/leads/$leadId/restore'
+      preLoaderRoute: typeof ApiOwnerLeadsLeadIdRestoreRouteImport
+      parentRoute: typeof ApiOwnerLeadsLeadIdRoute
+    }
     '/api/owner/leads/$leadId/status': {
       id: '/api/owner/leads/$leadId/status'
       path: '/status'
       fullPath: '/api/owner/leads/$leadId/status'
       preLoaderRoute: typeof ApiOwnerLeadsLeadIdStatusRouteImport
+      parentRoute: typeof ApiOwnerLeadsLeadIdRoute
+    }
+    '/api/owner/leads/$leadId/trash': {
+      id: '/api/owner/leads/$leadId/trash'
+      path: '/trash'
+      fullPath: '/api/owner/leads/$leadId/trash'
+      preLoaderRoute: typeof ApiOwnerLeadsLeadIdTrashRouteImport
       parentRoute: typeof ApiOwnerLeadsLeadIdRoute
     }
     '/api/owner/leads/$leadId/files/$fileId/access': {
@@ -415,14 +534,20 @@ declare module '@tanstack/react-router' {
 }
 
 interface ApiOwnerLeadsLeadIdRouteChildren {
+  ApiOwnerLeadsLeadIdDetailsRoute: typeof ApiOwnerLeadsLeadIdDetailsRoute
   ApiOwnerLeadsLeadIdNotesRoute: typeof ApiOwnerLeadsLeadIdNotesRoute
+  ApiOwnerLeadsLeadIdRestoreRoute: typeof ApiOwnerLeadsLeadIdRestoreRoute
   ApiOwnerLeadsLeadIdStatusRoute: typeof ApiOwnerLeadsLeadIdStatusRoute
+  ApiOwnerLeadsLeadIdTrashRoute: typeof ApiOwnerLeadsLeadIdTrashRoute
   ApiOwnerLeadsLeadIdFilesFileIdAccessRoute: typeof ApiOwnerLeadsLeadIdFilesFileIdAccessRoute
 }
 
 const ApiOwnerLeadsLeadIdRouteChildren: ApiOwnerLeadsLeadIdRouteChildren = {
+  ApiOwnerLeadsLeadIdDetailsRoute: ApiOwnerLeadsLeadIdDetailsRoute,
   ApiOwnerLeadsLeadIdNotesRoute: ApiOwnerLeadsLeadIdNotesRoute,
+  ApiOwnerLeadsLeadIdRestoreRoute: ApiOwnerLeadsLeadIdRestoreRoute,
   ApiOwnerLeadsLeadIdStatusRoute: ApiOwnerLeadsLeadIdStatusRoute,
+  ApiOwnerLeadsLeadIdTrashRoute: ApiOwnerLeadsLeadIdTrashRoute,
   ApiOwnerLeadsLeadIdFilesFileIdAccessRoute:
     ApiOwnerLeadsLeadIdFilesFileIdAccessRoute,
 }
@@ -432,11 +557,13 @@ const ApiOwnerLeadsLeadIdRouteWithChildren =
 
 interface ApiOwnerLeadsRouteChildren {
   ApiOwnerLeadsLeadIdRoute: typeof ApiOwnerLeadsLeadIdRouteWithChildren
+  ApiOwnerLeadsExportRoute: typeof ApiOwnerLeadsExportRoute
   ApiOwnerLeadsOverviewRoute: typeof ApiOwnerLeadsOverviewRoute
 }
 
 const ApiOwnerLeadsRouteChildren: ApiOwnerLeadsRouteChildren = {
   ApiOwnerLeadsLeadIdRoute: ApiOwnerLeadsLeadIdRouteWithChildren,
+  ApiOwnerLeadsExportRoute: ApiOwnerLeadsExportRoute,
   ApiOwnerLeadsOverviewRoute: ApiOwnerLeadsOverviewRoute,
 }
 
@@ -446,6 +573,7 @@ const ApiOwnerLeadsRouteWithChildren = ApiOwnerLeadsRoute._addFileChildren(
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AboutRoute: AboutRoute,
   QuoteRoute: QuoteRoute,
   OwnerLoginRoute: OwnerLoginRoute,
   OwnerOverviewRoute: OwnerOverviewRoute,
@@ -459,6 +587,7 @@ const rootRouteChildren: RootRouteChildren = {
   OwnerLeadsNewRoute: OwnerLeadsNewRoute,
   ApiOwnerLoginRequestCodeRoute: ApiOwnerLoginRequestCodeRoute,
   ApiOwnerLoginVerifyCodeRoute: ApiOwnerLoginVerifyCodeRoute,
+  OwnerLeadsLeadIdEditRoute: OwnerLeadsLeadIdEditRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

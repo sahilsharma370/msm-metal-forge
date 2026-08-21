@@ -6,11 +6,13 @@ import * as transport from "./owner-leads-transport";
 
 vi.mock("./owner-leads-transport", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./owner-leads-transport")>();
-  return { ...actual, changeOwnerLeadStatus: vi.fn(), addOwnerLeadNote: vi.fn() };
+  return { ...actual, changeOwnerLeadStatus: vi.fn(), addOwnerLeadNote: vi.fn(), trashOwnerLead: vi.fn(), restoreOwnerLead: vi.fn() };
 });
 
 const changeOwnerLeadStatusMock = vi.mocked(transport.changeOwnerLeadStatus);
 const addOwnerLeadNoteMock = vi.mocked(transport.addOwnerLeadNote);
+const trashOwnerLeadMock = vi.mocked(transport.trashOwnerLead);
+const restoreOwnerLeadMock = vi.mocked(transport.restoreOwnerLead);
 const fakeDeps = { authClient: { getAccessToken: vi.fn(), setSession: vi.fn(), signOut: vi.fn() }, fetchImpl: vi.fn() };
 
 afterEach(() => {
@@ -169,5 +171,86 @@ describe("useOwnerLeadMutations — addNote request id stability (CHECKPOINT C2J
     const [, , firstRequestId] = addOwnerLeadNoteMock.mock.calls[0]!;
     const [, , secondRequestId] = addOwnerLeadNoteMock.mock.calls[1]!;
     expect(firstRequestId).not.toBe(secondRequestId);
+  });
+});
+
+describe("useOwnerLeadMutations — trashLead (CHECKPOINT C2M-A)", () => {
+  it("calls onMutated after a successful trash", async () => {
+    trashOwnerLeadMock.mockResolvedValue({ kind: "ok", data: { trashed: true, deletedAt: "2026-01-01T00:00:00.000Z", status: "new" } });
+    const onMutated = vi.fn();
+    const { result } = renderHook(() => useOwnerLeadMutations("lead-1", fakeDeps, onMutated, vi.fn()));
+    await act(async () => {
+      const outcome = await result.current.trashLead();
+      expect(outcome).toEqual({ ok: true });
+    });
+    expect(onMutated).toHaveBeenCalledTimes(1);
+  });
+
+  it("a failed trash sets trashError and never calls onMutated", async () => {
+    trashOwnerLeadMock.mockResolvedValue({ kind: "error", message: "Something went wrong. Please try again.", status: 500 });
+    const onMutated = vi.fn();
+    const { result } = renderHook(() => useOwnerLeadMutations("lead-1", fakeDeps, onMutated, vi.fn()));
+    await act(async () => {
+      await result.current.trashLead();
+    });
+    expect(onMutated).not.toHaveBeenCalled();
+    expect(result.current.state.trashError).toBe("Something went wrong. Please try again.");
+  });
+
+  it("calls onUnauthorized and never onMutated on a 401", async () => {
+    trashOwnerLeadMock.mockResolvedValue({ kind: "unauthorized" });
+    const onMutated = vi.fn();
+    const onUnauthorized = vi.fn();
+    const { result } = renderHook(() => useOwnerLeadMutations("lead-1", fakeDeps, onMutated, onUnauthorized));
+    await act(async () => {
+      await result.current.trashLead();
+    });
+    expect(onUnauthorized).toHaveBeenCalledTimes(1);
+    expect(onMutated).not.toHaveBeenCalled();
+  });
+
+  it("a concurrent second call while one is pending is rejected without a second transport call (double-submit guard)", async () => {
+    let resolveFirst!: (value: Awaited<ReturnType<typeof transport.trashOwnerLead>>) => void;
+    trashOwnerLeadMock.mockReturnValueOnce(new Promise((resolve) => (resolveFirst = resolve)));
+    const { result } = renderHook(() => useOwnerLeadMutations("lead-1", fakeDeps, vi.fn(), vi.fn()));
+
+    let firstOutcomePromise!: ReturnType<typeof result.current.trashLead>;
+    act(() => {
+      firstOutcomePromise = result.current.trashLead();
+    });
+    await waitFor(() => expect(result.current.state.isTrashing).toBe(true));
+
+    const secondOutcome = await result.current.trashLead();
+    expect(secondOutcome.ok).toBe(false);
+    expect(trashOwnerLeadMock).toHaveBeenCalledTimes(1);
+
+    resolveFirst({ kind: "ok", data: { trashed: true, deletedAt: "2026-01-01T00:00:00.000Z", status: "new" } });
+    await act(async () => {
+      await firstOutcomePromise;
+    });
+  });
+});
+
+describe("useOwnerLeadMutations — restoreLead (CHECKPOINT C2M-A)", () => {
+  it("calls onMutated after a successful restore", async () => {
+    restoreOwnerLeadMock.mockResolvedValue({ kind: "ok", data: { restored: true, status: "new" } });
+    const onMutated = vi.fn();
+    const { result } = renderHook(() => useOwnerLeadMutations("lead-1", fakeDeps, onMutated, vi.fn()));
+    await act(async () => {
+      const outcome = await result.current.restoreLead();
+      expect(outcome).toEqual({ ok: true });
+    });
+    expect(onMutated).toHaveBeenCalledTimes(1);
+  });
+
+  it("a failed restore sets restoreError and never calls onMutated", async () => {
+    restoreOwnerLeadMock.mockResolvedValue({ kind: "error", message: "Something went wrong. Please try again.", status: 500 });
+    const onMutated = vi.fn();
+    const { result } = renderHook(() => useOwnerLeadMutations("lead-1", fakeDeps, onMutated, vi.fn()));
+    await act(async () => {
+      await result.current.restoreLead();
+    });
+    expect(onMutated).not.toHaveBeenCalled();
+    expect(result.current.state.restoreError).toBe("Something went wrong. Please try again.");
   });
 });

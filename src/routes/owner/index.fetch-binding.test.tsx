@@ -92,6 +92,7 @@ const DEMO_SHAPED_RESPONSE = {
         quantity: { value: 250, unit: "kg" },
         fileUploadStatus: "complete",
         notificationStatus: "pending",
+        deletedAt: null,
       },
       {
         id: "22222222-2222-2222-2222-222222222222",
@@ -108,6 +109,7 @@ const DEMO_SHAPED_RESPONSE = {
         quantity: { value: 5000, unit: "kg" },
         fileUploadStatus: "none",
         notificationStatus: "pending",
+        deletedAt: null,
       },
     ],
     page: { nextCursor: null, hasMore: false },
@@ -133,7 +135,7 @@ describe("OwnerInboxBody — real fetch-binding regression (C2J-D2)", () => {
     await waitFor(() => expect(screen.getByText(/demo seller/i)).toBeInTheDocument());
     expect(screen.getByText(/demo buyer/i)).toBeInTheDocument();
     expect(screen.queryByText(/something went wrong/i)).not.toBeInTheDocument();
-    expect(screen.getByText(/showing 2 loaded/i)).toBeInTheDocument();
+    expect(screen.getByText(/^2 enquiries$/i)).toBeInTheDocument();
   });
 
   it("demonstrates the exact original defect: an unbound fetchImpl throws Illegal Invocation and surfaces the generic error (proves the fix is load-bearing, not incidental)", async () => {

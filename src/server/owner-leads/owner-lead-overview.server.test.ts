@@ -18,6 +18,8 @@ function row(overrides: Partial<OverviewLeadRow> & { id: string }): OverviewLead
     material: "copper",
     created_at: "2026-08-10T10:00:00.000Z",
     submission_completed_at: "2026-08-10T10:00:00.000Z",
+    seller_name: null,
+    buyer_contact_person: null,
     ...overrides,
   };
 }
@@ -173,6 +175,28 @@ describe("computeOwnerLeadOverview — notification attention", () => {
     const result = computeOwnerLeadOverview(rows, new Map([[leadId, staleActivity]]), new Map([[leadId, "dead_letter"]]), NOW);
     expect(result.attentionLeads).toHaveLength(1);
     expect(result.attentionLeads[0]?.reasons.sort()).toEqual(["notification_attention", "stale"]);
+  });
+});
+
+describe("computeOwnerLeadOverview — attentionLeads carries contact name and material (CHECKPOINT OWNER DESKTOP CORRECTION — Follow-ups row)", () => {
+  const leadId = "11111111-1111-1111-1111-111111111111";
+
+  it("uses seller_name for a sell lead", () => {
+    const lastActivity = new Date(NOW.getTime() - 100 * 60 * 60 * 1000).toISOString();
+    const rows = [row({ id: leadId, status: "new", intent: "sell", material: "aluminium", seller_name: "Ahmed Khan" })];
+    const result = computeOwnerLeadOverview(rows, new Map([[leadId, lastActivity]]), new Map(), NOW);
+    expect(result.attentionLeads[0]?.contactName).toBe("Ahmed Khan");
+    expect(result.attentionLeads[0]?.material).toBe("aluminium");
+  });
+
+  it("uses buyer_contact_person for a buy lead, never falling back to seller_name", () => {
+    const lastActivity = new Date(NOW.getTime() - 100 * 60 * 60 * 1000).toISOString();
+    const rows = [
+      row({ id: leadId, status: "new", intent: "buy", material: "steel_iron", seller_name: "Ignored", buyer_contact_person: "Fatima Noor" }),
+    ];
+    const result = computeOwnerLeadOverview(rows, new Map([[leadId, lastActivity]]), new Map(), NOW);
+    expect(result.attentionLeads[0]?.contactName).toBe("Fatima Noor");
+    expect(result.attentionLeads[0]?.material).toBe("steel_iron");
   });
 });
 

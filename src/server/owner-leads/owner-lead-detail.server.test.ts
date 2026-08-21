@@ -24,6 +24,8 @@ function fakeLeadRow(overrides: Partial<LeadDetailRow> = {}): LeadDetailRow {
     created_at: "2026-01-01T00:00:00.000Z",
     submission_completed_at: "2026-01-01T00:05:00.000Z",
     file_upload_status: "complete",
+    deleted_at: null,
+    updated_at: "2026-01-01T00:05:00.000Z",
     seller_quantity_value: 100,
     seller_quantity_unit: "kg",
     seller_quantity_unit_other: null,
@@ -135,6 +137,28 @@ describe("getOwnerLeadDetail — not-found collapsing", () => {
     expect(deps.queryLeadFiles).not.toHaveBeenCalled();
     expect(deps.queryLeadActivities).not.toHaveBeenCalled();
     expect(deps.queryNotificationDelivery).not.toHaveBeenCalled();
+  });
+});
+
+describe("getOwnerLeadDetail — CHECKPOINT C2M-A: trashed leads remain visible", () => {
+  it("a normal (not trashed) lead exposes deletedAt: null", async () => {
+    const deps = fakeDeps({ queryLeadById: vi.fn().mockResolvedValue(fakeLeadRow({ deleted_at: null })) });
+    const result = await getOwnerLeadDetail("11111111-1111-1111-1111-111111111111", deps);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.lead.deletedAt).toBeNull();
+  });
+
+  it("a trashed lead is still returned (never collapsed to not_found) with its deletedAt populated", async () => {
+    const deps = fakeDeps({
+      queryLeadById: vi.fn().mockResolvedValue(fakeLeadRow({ deleted_at: "2026-02-01T00:00:00.000Z" })),
+    });
+    const result = await getOwnerLeadDetail("11111111-1111-1111-1111-111111111111", deps);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.lead.deletedAt).toBe("2026-02-01T00:00:00.000Z");
+    // The rest of the lead's real submitted data is untouched by trashing.
+    expect(result.lead.reference).toBe("MSM-260101-ABCDEF");
   });
 });
 
