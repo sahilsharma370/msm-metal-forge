@@ -30,6 +30,7 @@ export function toOwnerLeadNoteRpcClient(client: SupabaseClient): OwnerLeadNoteR
 
 const NOT_AUTHORIZED_FRAGMENT = "add_lead_note_v1: owner not authorized";
 const NOT_FOUND_FRAGMENT = "add_lead_note_v1: lead not found";
+const NOT_EDITABLE_FRAGMENT = "add_lead_note_v1: lead not editable";
 const BODY_REQUIRED_FRAGMENT = "add_lead_note_v1: note body required";
 const BODY_TOO_LONG_FRAGMENT = "add_lead_note_v1: note body too long";
 const REQUEST_ID_REQUIRED_FRAGMENT = "add_lead_note_v1: request_id is required";
@@ -40,6 +41,10 @@ function isNotAuthorizedError(message: string): boolean {
 }
 function isNotFoundError(message: string): boolean {
   return message.includes(NOT_FOUND_FRAGMENT);
+}
+/** BATCH 3B — a trashed lead (deleted_at is not null); never status = 'archived', which stays fully mutable. Replaying an already-committed note from before trashing is unaffected — see add_lead_note_v1's own migration comment. */
+function isNotEditableError(message: string): boolean {
+  return message.includes(NOT_EDITABLE_FRAGMENT);
 }
 function isValidationError(message: string): boolean {
   return (
@@ -73,7 +78,7 @@ export function createProductionOwnerLeadNoteServiceDeps(): AddOwnerLeadNoteServ
 
 export type AddOwnerLeadNoteResult =
   | { readonly ok: true; readonly activityId: string; readonly note: string; readonly createdAt: string }
-  | { readonly ok: false; readonly reason: "unauthorized" | "not_found" | "validation" | "internal_error" };
+  | { readonly ok: false; readonly reason: "unauthorized" | "not_found" | "not_editable" | "validation" | "internal_error" };
 
 /**
  * The one entry point this checkpoint's notes route calls. Idempotent: a
@@ -99,6 +104,7 @@ export async function addOwnerLeadNote(input: AddOwnerLeadNoteInput, deps: AddOw
   if (response.error) {
     if (isNotAuthorizedError(response.error.message)) return { ok: false, reason: "unauthorized" };
     if (isNotFoundError(response.error.message)) return { ok: false, reason: "not_found" };
+    if (isNotEditableError(response.error.message)) return { ok: false, reason: "not_editable" };
     if (isValidationError(response.error.message)) return { ok: false, reason: "validation" };
     return { ok: false, reason: "internal_error" };
   }

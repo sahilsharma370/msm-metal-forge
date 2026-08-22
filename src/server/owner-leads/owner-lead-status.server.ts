@@ -35,6 +35,7 @@ export function toOwnerLeadStatusRpcClient(client: SupabaseClient): OwnerLeadSta
 
 const NOT_AUTHORIZED_FRAGMENT = "change_lead_status_v1: owner not authorized";
 const NOT_FOUND_FRAGMENT = "change_lead_status_v1: lead not found";
+const NOT_EDITABLE_FRAGMENT = "change_lead_status_v1: lead not editable";
 const STALE_FRAGMENT = "change_lead_status_v1: stale status";
 const LOST_REASON_REQUIRED_FRAGMENT = "change_lead_status_v1: lost reason required";
 const LOST_REASON_TOO_LONG_FRAGMENT = "change_lead_status_v1: lost reason too long";
@@ -45,6 +46,10 @@ function isNotAuthorizedError(message: string): boolean {
 }
 function isNotFoundError(message: string): boolean {
   return message.includes(NOT_FOUND_FRAGMENT);
+}
+/** BATCH 3B — a trashed lead (deleted_at is not null); never status = 'archived', which stays fully mutable. */
+function isNotEditableError(message: string): boolean {
+  return message.includes(NOT_EDITABLE_FRAGMENT);
 }
 function isStaleError(message: string): boolean {
   return message.includes(STALE_FRAGMENT);
@@ -90,7 +95,7 @@ export type ChangeOwnerLeadStatusResult =
       readonly closedAt: string | null;
       readonly updatedAt: string;
     }
-  | { readonly ok: false; readonly reason: "unauthorized" | "not_found" | "conflict" | "validation" | "internal_error" };
+  | { readonly ok: false; readonly reason: "unauthorized" | "not_found" | "not_editable" | "conflict" | "validation" | "internal_error" };
 
 /**
  * The one entry point this checkpoint's status route calls. "not_found"
@@ -118,6 +123,7 @@ export async function changeOwnerLeadStatus(
   if (response.error) {
     if (isNotAuthorizedError(response.error.message)) return { ok: false, reason: "unauthorized" };
     if (isNotFoundError(response.error.message)) return { ok: false, reason: "not_found" };
+    if (isNotEditableError(response.error.message)) return { ok: false, reason: "not_editable" };
     if (isStaleError(response.error.message)) return { ok: false, reason: "conflict" };
     if (isValidationError(response.error.message)) return { ok: false, reason: "validation" };
     return { ok: false, reason: "internal_error" };

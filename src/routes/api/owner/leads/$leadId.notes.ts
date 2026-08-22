@@ -31,6 +31,8 @@ function jsonResponse(status: number, body: OwnerLeadNoteCreateRouteResponseBody
 
 const unauthorizedResponse = () => jsonResponse(401, { ok: false });
 const notFoundResponse = () => jsonResponse(404, { ok: false, error: { code: "NOT_FOUND", message: "Not found." } });
+const notEditableResponse = () =>
+  jsonResponse(409, { ok: false, error: { code: "NOT_EDITABLE", message: "This enquiry is in Trash and can't be changed until it's restored." } });
 const genericServerErrorResponse = () =>
   jsonResponse(500, { ok: false, error: { code: "INTERNAL_ERROR", message: "Something went wrong. Please try again." } });
 const validationErrorResponse = () =>
@@ -80,6 +82,7 @@ export async function handleOwnerLeadNoteCreateRequest(request: Request, leadId:
     if (!result.ok) {
       if (result.reason === "unauthorized") return unauthorizedResponse();
       if (result.reason === "not_found") return notFoundResponse();
+      if (result.reason === "not_editable") return notEditableResponse();
       if (result.reason === "validation") return validationErrorResponse();
       return genericServerErrorResponse();
     }
