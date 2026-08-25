@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom/vitest";
 
@@ -30,6 +30,7 @@ const { OwnerLeadInbox } = await import("./OwnerLeadInbox");
 import type { OwnerLeadInboxProps } from "./OwnerLeadInbox";
 import type { OwnerLeadListHookState } from "./use-owner-lead-list";
 import type { OwnerLeadListItem } from "@/lib/owner/owner-leads-contract";
+import { OWNER_LEAD_STATUS_LABELS } from "./owner-lead-format";
 
 afterEach(() => {
   cleanup();
@@ -170,9 +171,38 @@ describe("OwnerLeadInbox — rendering seller and buyer summaries", () => {
 });
 
 describe("OwnerLeadInbox — notification attention is never color-only", () => {
-  it("pairs the attention badge with visible text, not just a color", () => {
+  it("pairs the attention indicator with visible text, not just a color", () => {
     render(<OwnerLeadInbox {...baseProps({ state: baseState({ items: [buyLead({ notificationStatus: "attention" })] }) })} />);
-    expect(screen.getByText(/attention required/i)).toBeInTheDocument();
+    expect(screen.getByText("Email alert failed")).toBeInTheDocument();
+  });
+
+  it("never shows the ambiguous old 'Attention required' phrasing beside the phone number", () => {
+    render(<OwnerLeadInbox {...baseProps({ state: baseState({ items: [buyLead({ notificationStatus: "attention" })] }) })} />);
+    expect(screen.queryByText(/attention required/i)).not.toBeInTheDocument();
+  });
+
+  it("carries accessible explanatory text on the indicator itself, not just the visible label", () => {
+    render(<OwnerLeadInbox {...baseProps({ state: baseState({ items: [buyLead({ notificationStatus: "attention" })] }) })} />);
+    expect(screen.getByTitle("Owner email notification could not be delivered. The enquiry is safely stored.")).toBeInTheDocument();
+  });
+
+  it("renders the compact indicator in the Status column, not next to the phone number", () => {
+    render(<OwnerLeadInbox {...baseProps({ state: baseState({ items: [buyLead({ notificationStatus: "attention" })] }) })} />);
+    const row = screen.getByText("MSM-260101-FEDCBA").closest("li") as HTMLElement;
+    const phoneLine = within(row).getByText("+971 50 999 9999").closest("span");
+    const statusBadge = within(row).getByText(OWNER_LEAD_STATUS_LABELS.contacted);
+    const issueBadge = within(row).getByText("Email alert failed");
+    expect(phoneLine?.parentElement?.contains(issueBadge)).toBe(false);
+    expect(statusBadge.parentElement?.contains(issueBadge)).toBe(true);
+  });
+
+  it("shows the indicator only on the genuine attention row, never on a normal row rendered alongside it", () => {
+    render(
+      <OwnerLeadInbox
+        {...baseProps({ state: baseState({ items: [sellLead({ notificationStatus: "sent" }), buyLead({ notificationStatus: "attention" })] }) })}
+      />,
+    );
+    expect(screen.getAllByText("Email alert failed")).toHaveLength(1);
   });
 });
 

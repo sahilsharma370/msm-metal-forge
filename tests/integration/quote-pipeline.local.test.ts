@@ -62,11 +62,17 @@ vi.mock("../../src/server/rate-limit.server", async (importOriginal) => {
   };
 });
 
+// A vi.fn() (not a plain closure) so CHECKPOINT C2G-LT's own tests below can
+// swap in the REAL createCloudflareTurnstileVerifier (imported via
+// importOriginal, with a fake fetchImpl — never a real network call) for
+// exactly the two tests that need genuine verify() logic; every other test
+// in this file is unaffected by the default always-ok implementation.
+const turnstileVerifierMock = vi.fn(() => ({ verify: async () => ({ ok: true }) }));
 vi.mock("../../src/server/turnstile.server", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../src/server/turnstile.server")>();
   return {
     ...actual,
-    getTurnstileVerifier: () => ({ verify: async () => ({ ok: true }) }),
+    getTurnstileVerifier: (request: Request) => turnstileVerifierMock(request),
   };
 });
 
@@ -699,6 +705,121 @@ describe("CHECKPOINT C2C — real local Quote submission + upload pipeline", () 
       .eq("id", leadThreeId)
       .single();
     expect(lead.data?.submission_completed_at).toBeNull();
+  });
+
+  // -------------------------------------------------------------------------
+  // I2 — CHECKPOINT C2G-LT: Turnstile local-test-mode boundary, through the
+  // REAL initiate handler + REAL RPC. Every check on WHEN localTestMode may
+  // activate is already exhaustively unit-tested in turnstile.server.test.ts
+  // (pure verify() logic, fake fetchImpl, no DB); the two tests here prove
+  // the one thing that file cannot: what the downstream lead-creation
+  // boundary does with the verdict. turnstileVerifierMock is swapped with
+  // mockImplementationOnce for exactly one call each, so every other test
+  // in this file keeps the default always-ok behavior.
+  // -------------------------------------------------------------------------
+
+  it("a Siteverify response that does not match the exact synthetic test-key shape is still rejected even with localTestMode on, and creates no lead", async () => {
+    const actualTurnstile = await vi.importActual<typeof import("../../src/server/turnstile.server")>(
+      "../../src/server/turnstile.server",
+    );
+    turnstileVerifierMock.mockImplementationOnce(() =>
+      actualTurnstile.createCloudflareTurnstileVerifier(
+        {
+          secretKey: "irrelevant-in-this-test",
+          expectedAction: actualTurnstile.TURNSTILE_EXPECTED_ACTION,
+          allowedHostnames: ["localhost"],
+          localTestMode: true,
+        },
+        // A real widget response shape (has an action, wrong hostname) —
+        // NOT Cloudflare's fixed test-key synthetic shape — so the
+        // carve-out must not apply even though localTestMode is on.
+        async () =>
+          new Response(
+            JSON.stringify({ success: true, action: actualTurnstile.TURNSTILE_EXPECTED_ACTION, hostname: "not-allowed.test" }),
+            { status: 200 },
+          ),
+      ),
+    );
+
+    const { handleQuoteInitiateRequest } = await import("../../src/routes/api/quote/initiate");
+    const idempotencyKey = crypto.randomUUID();
+    const response = await handleQuoteInitiateRequest(
+      new Request("https://example.test/api/quote/initiate", {
+        method: "POST",
+        headers: { "content-type": "application/json", ...CF_CONNECTING_IP_HEADER },
+        body: JSON.stringify({
+          idempotencyKey,
+          submission: validSellerSubmission(),
+          files: [],
+          turnstileToken: INTEGRATION_TURNSTILE_TOKEN,
+        }),
+      }),
+    );
+    expect(response.status).toBe(403);
+    const body = await response.json();
+    expect(body.error.code).toBe("VERIFICATION_REQUIRED");
+
+    const lead = await serviceClient.from("leads").select("id", { count: "exact", head: true }).eq("idempotency_key", idempotencyKey);
+    expect(lead.count).toBe(0);
+  });
+
+  it("Cloudflare's official always-pass TEST-key synthetic response (no action, hostname:example.com) is accepted only with localTestMode on, and creates exactly one durable lead across an idempotent replay", async () => {
+    const actualTurnstile = await vi.importActual<typeof import("../../src/server/turnstile.server")>(
+      "../../src/server/turnstile.server",
+    );
+    const syntheticFetch = async () =>
+      new Response(JSON.stringify({ success: true, hostname: "example.com" }), { status: 200 });
+    const localTestVerifier = () =>
+      actualTurnstile.createCloudflareTurnstileVerifier(
+        {
+          secretKey: "irrelevant-in-this-test",
+          expectedAction: actualTurnstile.TURNSTILE_EXPECTED_ACTION,
+          allowedHostnames: ["localhost"],
+          localTestMode: true,
+        },
+        syntheticFetch,
+      );
+
+    const { handleQuoteInitiateRequest } = await import("../../src/routes/api/quote/initiate");
+    const idempotencyKey = crypto.randomUUID();
+    const requestBody = JSON.stringify({
+      idempotencyKey,
+      submission: validSellerSubmission(),
+      files: [],
+      turnstileToken: INTEGRATION_TURNSTILE_TOKEN,
+    });
+
+    turnstileVerifierMock.mockImplementationOnce(localTestVerifier);
+    const first = await handleQuoteInitiateRequest(
+      new Request("https://example.test/api/quote/initiate", {
+        method: "POST",
+        headers: { "content-type": "application/json", ...CF_CONNECTING_IP_HEADER },
+        body: requestBody,
+      }),
+    );
+    expect(first.status).toBe(200);
+    const firstBody = await first.json();
+    expect(firstBody.ok).toBe(true);
+    expect(firstBody.data.idempotentReplay).toBe(false);
+
+    // Replay with the exact same idempotencyKey — the RPC's own idempotency
+    // guarantee, not this test's own dedup, is what must hold here.
+    turnstileVerifierMock.mockImplementationOnce(localTestVerifier);
+    const second = await handleQuoteInitiateRequest(
+      new Request("https://example.test/api/quote/initiate", {
+        method: "POST",
+        headers: { "content-type": "application/json", ...CF_CONNECTING_IP_HEADER },
+        body: requestBody,
+      }),
+    );
+    expect(second.status).toBe(200);
+    const secondBody = await second.json();
+    expect(secondBody.ok).toBe(true);
+    expect(secondBody.data.idempotentReplay).toBe(true);
+    expect(secondBody.data.leadId).toBe(firstBody.data.leadId);
+
+    const leads = await serviceClient.from("leads").select("id", { count: "exact", head: true }).eq("idempotency_key", idempotencyKey);
+    expect(leads.count).toBe(1);
   });
 
   // -------------------------------------------------------------------------

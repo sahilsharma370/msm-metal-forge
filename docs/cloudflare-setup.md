@@ -89,6 +89,14 @@ correctly keep using `process.env` directly (`env.server.ts`,
      hostname(s), e.g. `www.example.com`. Can be a plaintext environment
      variable (not sensitive) or a secret; either works since
      `process.env` reads both the same way in this runtime.
+   - Never set `TURNSTILE_LOCAL_TEST_MODE` here. It is a local-development-
+     only compatibility flag (see `.env.example`'s own comment and
+     CHECKPOINT C2G-LT in `src/server/turnstile.server.ts`) that lets
+     Cloudflare's official always-pass TEST secret key work against a local
+     hostname; it cannot relax anything on a real deployment (it also
+     requires the request's own hostname and `TURNSTILE_ALLOWED_HOSTNAMES`
+     to both be loopback-only, never true here), but there is no reason to
+     set it on a real Worker either.
    - `SUPABASE_URL` / `SUPABASE_SECRET_KEY` — already required by the
      existing Quote pipeline; unchanged by this checkpoint.
 3. **Set the one public build-time variable**: `VITE_TURNSTILE_SITE_KEY`,

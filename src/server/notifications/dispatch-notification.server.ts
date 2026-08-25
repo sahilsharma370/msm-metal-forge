@@ -128,7 +128,36 @@ export const LEAD_EMAIL_COLUMNS =
   "buyer_company, buyer_contact_person, buyer_phone, buyer_email, buyer_preferred_contact, buyer_notes, " +
   "file_upload_status, submitted_at";
 
-const leadRowSchema = z.object({
+/**
+ * CHECKPOINT BATCH-5C — seller_quantity_value/buyer_quantity_value are
+ * `numeric(12,3)` Postgres columns (see create_website_quote_v1's own
+ * migration); PostgREST serializes `numeric` as a JSON number, never a
+ * string, so the real shape here is `number | null`. A small number of
+ * existing unit-test fixtures construct this row shape by hand and already
+ * pass a plain numeric-looking string (e.g. "100") — accepted too, so both
+ * the real PostgREST shape and that established test-fixture shape work.
+ * Normalizes to the one canonical string shape every downstream consumer
+ * (owner-notification-email.ts's formatQuantity, `${value} ${label}`
+ * interpolation) already expects — no change needed there. NaN/±Infinity
+ * (defensive only; JSON itself cannot encode either) and a non-numeric
+ * string are both rejected, never silently coerced.
+ */
+const quantityValueSchema = z
+  .union([z.number().finite(), z.string()])
+  .nullable()
+  .transform((value, ctx) => {
+    if (value === null) return null;
+    if (typeof value === "number") return String(value);
+    const trimmed = value.trim();
+    if (trimmed.length === 0 || !Number.isFinite(Number(trimmed))) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "quantity value is not a valid number" });
+      return z.NEVER;
+    }
+    return trimmed;
+  });
+
+/** Exported only so unit tests can exercise the real PostgREST-shape parsing (numeric quantity columns, in particular) directly, without needing a live database. */
+export const leadRowSchema = z.object({
   reference: z.string(),
   intent: z.enum(["sell", "buy"]),
   material: z.string(),
@@ -136,7 +165,7 @@ const leadRowSchema = z.object({
   material_subtype_other_text: z.string().nullable(),
   material_other_text: z.string().nullable(),
   material_spec: z.string().nullable(),
-  seller_quantity_value: z.string().nullable(),
+  seller_quantity_value: quantityValueSchema,
   seller_quantity_unit: z.string().nullable(),
   seller_quantity_unit_other: z.string().nullable(),
   seller_quantity_unsure: z.boolean(),
@@ -154,7 +183,7 @@ const leadRowSchema = z.object({
   seller_email: z.string().nullable(),
   seller_preferred_contact: z.string().nullable(),
   seller_notes: z.string().nullable(),
-  buyer_quantity_value: z.string().nullable(),
+  buyer_quantity_value: quantityValueSchema,
   buyer_quantity_unit: z.string().nullable(),
   buyer_quantity_unit_other: z.string().nullable(),
   buyer_trade_requirement: z.string().nullable(),

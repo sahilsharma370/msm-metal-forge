@@ -26,6 +26,7 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import {
   dispatchOwnerNotification,
   toNotificationDispatchRpcClient,
+  createDispatchNotificationDeps,
   LEAD_EMAIL_COLUMNS,
   type DispatchNotificationDeps,
   type LeadEmailRow,
@@ -278,6 +279,62 @@ describe("CHECKPOINT C2H-B2 — real local outbox + dispatcher + Queue-consumer 
     const hostname = new URL(settings.apiUrl).hostname;
     expect(["localhost", "127.0.0.1"]).toContain(hostname);
     expect(hostname.endsWith(".supabase.co")).toBe(false);
+  });
+
+  // ---------------------------------------------------------------------------
+  // BATCH 5C — real Postgres numeric quantity columns, through the REAL
+  // production loadLead (createDispatchNotificationDeps, not the
+  // buildRealDeps test helper above, which hand-casts and so never
+  // exercised leadRowSchema's own parsing at all). seller_quantity_value/
+  // buyer_quantity_value are `numeric(12,3)` columns — PostgREST returns
+  // them as JSON numbers, which previously failed leadRowSchema's old
+  // `z.string()` check and silently dead-lettered every quantity-bearing
+  // lead as a false LEAD_NOT_FOUND. Only createEmailProvider/getEmailConfig
+  // are swapped for the injected fake provider/test config; rpc/loadLead/
+  // countLeadFiles are the real production implementation.
+  // ---------------------------------------------------------------------------
+
+  // Each test below builds its OWN provider with a globally-unique
+  // providerMessageId (crypto.randomUUID(), not the shared
+  // fakeSendingProvider()'s fixed "fake-msg-1" scheme) — provider_message_id
+  // carries a real unique index (notification_deliveries_provider_message_id_key),
+  // and a fixed literal id would collide with any other successful "sent"
+  // row already in the table from another test in this same un-reset file
+  // run. fakeSendingProvider() itself is left untouched, since another
+  // existing test in this file asserts its exact "fake-msg-1" literal.
+  function uniqueFakeSendingProvider(): EmailProvider & { calls: EmailSendInput[] } {
+    const calls: EmailSendInput[] = [];
+    return {
+      calls,
+      async send(input) {
+        calls.push(input);
+        return { ok: true, provider: "fake", providerMessageId: `fake-msg-${crypto.randomUUID()}` };
+      },
+    };
+  }
+
+  it("a Seller lead with a real numeric quantity value dispatches successfully (not a false LEAD_NOT_FOUND)", async () => {
+    const { leadId } = await createCompletedLead(sellSubmission({ sellerQuantityValue: "50" }));
+    const delivery = await fetchDelivery(leadId);
+    const provider = uniqueFakeSendingProvider();
+    const result = await dispatchOwnerNotification(
+      { deliveryId: delivery.id },
+      { ...createDispatchNotificationDeps(), createEmailProvider: () => provider, getEmailConfig: () => testEmailConfig },
+    );
+    expect(result.kind).toBe("sent");
+    expect(provider.calls).toHaveLength(1);
+  });
+
+  it("a Buyer lead with a real numeric quantity value dispatches successfully (not a false LEAD_NOT_FOUND)", async () => {
+    const { leadId } = await createCompletedLead(buySubmission({ buyerQuantityValue: "500" }));
+    const delivery = await fetchDelivery(leadId);
+    const provider = uniqueFakeSendingProvider();
+    const result = await dispatchOwnerNotification(
+      { deliveryId: delivery.id },
+      { ...createDispatchNotificationDeps(), createEmailProvider: () => provider, getEmailConfig: () => testEmailConfig },
+    );
+    expect(result.kind).toBe("sent");
+    expect(provider.calls).toHaveLength(1);
   });
 
   it("creates a real zero-file website enquiry with a pending notification row, then the Queue consumer sends it exactly once, and a replayed wake-up never sends a duplicate", async () => {

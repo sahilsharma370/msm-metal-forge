@@ -7,7 +7,6 @@ import {
   OWNER_LEAD_STATUS_BADGE_CLASS,
   OWNER_LEAD_INTENT_LABELS,
   OWNER_LEAD_MATERIAL_LABELS,
-  OWNER_NOTIFICATION_STATUS_LABELS,
   formatQuantity,
   formatPhoneForDisplay,
   formatUaeDateTimeConcise,
@@ -91,12 +90,6 @@ export function OwnerLeadListItem({ lead }: OwnerLeadListItemProps) {
               MISSING
             )}
           </span>
-          {needsNotificationAttention ? (
-            <Badge variant="destructive" className="inline-flex w-fit items-center gap-1 text-[10px]">
-              <AlertTriangle className="size-3" aria-hidden="true" />
-              {OWNER_NOTIFICATION_STATUS_LABELS[lead.notificationStatus]}
-            </Badge>
-          ) : null}
         </div>
 
         {/* 2. Material + quantity — material name reads as equally primary as the customer's name. */}
@@ -123,11 +116,21 @@ export function OwnerLeadListItem({ lead }: OwnerLeadListItemProps) {
           )}
         </div>
 
-        {/* 4. Status — restrained semantic colour per status, aligned to the same top baseline as every other column's primary line. */}
-        <div className="min-w-0">
+        {/* 4. Status — restrained semantic colour per status, aligned to the same top baseline as every other column's primary line. The notification-attention indicator, when present, sits below it on its own line with a 6px gap (space-y-1.5) so the two never touch or read as one merged pill — a soft outlined danger treatment (same rose tint already used for the "lost" status badge, see OWNER_LEAD_STATUS_BADGE_CLASS), never a large solid-red block. */}
+        <div className="min-w-0 space-y-1.5">
           <Badge variant="outline" className={`text-[10px] ${OWNER_LEAD_STATUS_BADGE_CLASS[lead.status]}`}>
             {OWNER_LEAD_STATUS_LABELS[lead.status]}
           </Badge>
+          {needsNotificationAttention ? (
+            <Badge
+              variant="outline"
+              className="inline-flex w-fit items-center gap-1 whitespace-nowrap border-rose-400/25 bg-rose-400/10 text-[10px] text-rose-300"
+              title="Owner email notification could not be delivered. The enquiry is safely stored."
+            >
+              <AlertTriangle className="size-3 shrink-0" aria-hidden="true" />
+              Email alert failed
+            </Badge>
+          ) : null}
         </div>
 
         {/* 5. Received (UAE) — the timestamp is the first line; the capture channel reads beneath it as a quiet "Via ..." fragment, never repeating "(UAE time)" per row. */}

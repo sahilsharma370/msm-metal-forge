@@ -88,7 +88,7 @@ export async function handleQuoteInitiateRequest(request: Request): Promise<Resp
     if (!allowed) return rateLimitedResponse();
 
     supabase = toQuoteRpcClient(createSupabaseAdminClient());
-    turnstile = getTurnstileVerifier();
+    turnstile = getTurnstileVerifier(request);
   } catch {
     return jsonResponse(500, genericServerErrorBody);
   }

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   dispatchOwnerNotification,
   computeRetryDelaySeconds,
+  leadRowSchema,
   type DispatchNotificationDeps,
   type NotificationDispatchRpcClient,
   type LeadEmailRow,
@@ -455,6 +456,82 @@ describe("dispatchOwnerNotification — invalid claim/lead shape", () => {
     );
     expect(result).toEqual({ kind: "dead_lettered", deliveryId: DELIVERY_ID, errorCode: "LEAD_NOT_FOUND" });
     expect(send).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// BATCH 5C — leadRowSchema against the REAL PostgREST shape. Real
+// seller_quantity_value/buyer_quantity_value are `numeric(12,3)` Postgres
+// columns, which PostgREST serializes as JSON numbers, not strings — this
+// is what previously caused every completed lead with a quantity to
+// dead-letter as a false LEAD_NOT_FOUND (loadLead's safeParse silently
+// failed, returning null). These tests exercise leadRowSchema directly
+// against that real raw shape, never through the mocked loadLead used
+// everywhere else in this file.
+// ---------------------------------------------------------------------------
+
+describe("leadRowSchema — real PostgREST numeric quantity columns (BATCH 5C)", () => {
+  it("accepts a numeric seller_quantity_value (the real PostgREST shape) and normalizes it to a string", () => {
+    const parsed = leadRowSchema.safeParse({ ...leadRow(), seller_quantity_value: 50 });
+    expect(parsed.success).toBe(true);
+    expect(parsed.success && parsed.data.seller_quantity_value).toBe("50");
+  });
+
+  it("accepts a numeric buyer_quantity_value (the real PostgREST shape) and normalizes it to a string", () => {
+    const parsed = leadRowSchema.safeParse({ ...leadRow(), intent: "buy", buyer_quantity_value: 500.5 });
+    expect(parsed.success).toBe(true);
+    expect(parsed.success && parsed.data.buyer_quantity_value).toBe("500.5");
+  });
+
+  it("still accepts the established numeric-looking string shape used by this file's own leadRow() fixture", () => {
+    const parsed = leadRowSchema.safeParse({ ...leadRow(), seller_quantity_value: "100" });
+    expect(parsed.success).toBe(true);
+    expect(parsed.success && parsed.data.seller_quantity_value).toBe("100");
+  });
+
+  it("preserves null (a genuinely quantity-unsure/not-applicable submission) for both fields", () => {
+    const parsed = leadRowSchema.safeParse({ ...leadRow(), seller_quantity_value: null, buyer_quantity_value: null });
+    expect(parsed.success).toBe(true);
+    expect(parsed.success && parsed.data.seller_quantity_value).toBeNull();
+    expect(parsed.success && parsed.data.buyer_quantity_value).toBeNull();
+  });
+
+  it("rejects NaN/Infinity and a non-numeric string rather than silently coercing", () => {
+    expect(leadRowSchema.safeParse({ ...leadRow(), seller_quantity_value: Number.POSITIVE_INFINITY }).success).toBe(false);
+    expect(leadRowSchema.safeParse({ ...leadRow(), seller_quantity_value: Number.NaN }).success).toBe(false);
+    expect(leadRowSchema.safeParse({ ...leadRow(), seller_quantity_value: "not-a-number" }).success).toBe(false);
+  });
+});
+
+describe("dispatchOwnerNotification — numeric quantity no longer false-dead-letters (BATCH 5C)", () => {
+  it("a Seller lead whose loadLead returns the real PostgREST-parsed numeric quantity dispatches successfully, not LEAD_NOT_FOUND", async () => {
+    const { rpc } = createFakeRpc({
+      claim: { data: claimSuccess(), error: null },
+      markSent: { data: { delivery_id: DELIVERY_ID, status: "sent", sent_at: "x", provider: "resend", provider_message_id: "msg-1" }, error: null },
+    });
+    const send = vi.fn().mockResolvedValue(fakeSuccessfulSend());
+    const parsedLead = leadRowSchema.parse({ ...leadRow(), seller_quantity_value: 50 });
+    const result = await dispatchOwnerNotification(
+      { deliveryId: DELIVERY_ID },
+      createDeps({ rpc, loadLead: async () => parsedLead, createEmailProvider: () => ({ send }) }),
+    );
+    expect(result.kind).toBe("sent");
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it("a Buyer lead whose loadLead returns the real PostgREST-parsed numeric quantity dispatches successfully, not LEAD_NOT_FOUND", async () => {
+    const { rpc } = createFakeRpc({
+      claim: { data: claimSuccess(), error: null },
+      markSent: { data: { delivery_id: DELIVERY_ID, status: "sent", sent_at: "x", provider: "resend", provider_message_id: "msg-1" }, error: null },
+    });
+    const send = vi.fn().mockResolvedValue(fakeSuccessfulSend());
+    const parsedLead = leadRowSchema.parse({ ...leadRow(), intent: "buy", buyer_quantity_value: 500.5 });
+    const result = await dispatchOwnerNotification(
+      { deliveryId: DELIVERY_ID },
+      createDeps({ rpc, loadLead: async () => parsedLead, createEmailProvider: () => ({ send }) }),
+    );
+    expect(result.kind).toBe("sent");
+    expect(send).toHaveBeenCalledTimes(1);
   });
 });
 

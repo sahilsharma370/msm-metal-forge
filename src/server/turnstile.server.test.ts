@@ -107,6 +107,58 @@ describe("createCloudflareTurnstileVerifier — hostname mismatch", () => {
   });
 });
 
+describe("createCloudflareTurnstileVerifier — local test mode (CHECKPOINT C2G-LT)", () => {
+  const localTestConfig = { ...config, localTestMode: true };
+
+  it("accepts Cloudflare's exact synthetic test-key shape (no action, hostname:example.com) when localTestMode is on", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(200, { success: true, hostname: "example.com" }));
+    const verifier = createCloudflareTurnstileVerifier(localTestConfig, fetchImpl);
+    const result = await verifier.verify("token");
+    expect(result.ok).toBe(true);
+  });
+
+  it("rejects that same synthetic shape when localTestMode is off", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(200, { success: true, hostname: "example.com" }));
+    const verifier = createCloudflareTurnstileVerifier(config, fetchImpl);
+    const result = await verifier.verify("token");
+    expect(result).toEqual({ ok: false, reason: "action_mismatch" });
+  });
+
+  it("still rejects success:false even with localTestMode on — the carve-out never touches the success check", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(200, { success: false }));
+    const verifier = createCloudflareTurnstileVerifier(localTestConfig, fetchImpl);
+    const result = await verifier.verify("token");
+    expect(result).toEqual({ ok: false, reason: "invalid_or_expired_token" });
+  });
+
+  it("still rejects a real mismatched action even with localTestMode on — only the exact synthetic shape is carved out", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse(200, { success: true, action: "some_other_action", hostname: "quote.example.test" }),
+    );
+    const verifier = createCloudflareTurnstileVerifier(localTestConfig, fetchImpl);
+    const result = await verifier.verify("token");
+    expect(result).toEqual({ ok: false, reason: "action_mismatch" });
+  });
+
+  it("still rejects a real unrecognized hostname even with localTestMode on", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse(200, { success: true, action: TURNSTILE_EXPECTED_ACTION, hostname: "evil.test" }),
+    );
+    const verifier = createCloudflareTurnstileVerifier(localTestConfig, fetchImpl);
+    const result = await verifier.verify("token");
+    expect(result).toEqual({ ok: false, reason: "hostname_mismatch" });
+  });
+
+  it("rejects hostname:example.com paired with a present (mismatched) action — only the combined missing-action+example.com shape is carved out", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse(200, { success: true, action: "some_other_action", hostname: "example.com" }),
+    );
+    const verifier = createCloudflareTurnstileVerifier(localTestConfig, fetchImpl);
+    const result = await verifier.verify("token");
+    expect(result).toEqual({ ok: false, reason: "action_mismatch" });
+  });
+});
+
 describe("createCloudflareTurnstileVerifier — Siteverify unavailable fails closed", () => {
   it("a network failure is treated as service_unavailable, never as success", async () => {
     const fetchImpl = vi.fn().mockRejectedValue(new TypeError("Failed to fetch"));
@@ -137,33 +189,40 @@ describe("createCloudflareTurnstileVerifier — Siteverify unavailable fails clo
   });
 });
 
+function requestTo(hostname: string): Request {
+  return new Request(`https://${hostname}/api/quote/initiate`, { method: "POST" });
+}
+
+const LOCALHOST_REQUEST = requestTo("localhost");
+
 describe("getTurnstileVerifier — fails closed when misconfigured", () => {
   const ORIGINAL_ENV = { ...process.env };
   afterEach(() => {
     delete process.env["TURNSTILE_SECRET_KEY"];
     delete process.env["TURNSTILE_ALLOWED_HOSTNAMES"];
+    delete process.env["TURNSTILE_LOCAL_TEST_MODE"];
     for (const [key, value] of Object.entries(ORIGINAL_ENV)) process.env[key] = value;
   });
 
   it("throws when TURNSTILE_SECRET_KEY is missing", () => {
     process.env["TURNSTILE_ALLOWED_HOSTNAMES"] = "localhost";
-    expect(() => getTurnstileVerifier()).toThrow(TurnstileConfigurationError);
+    expect(() => getTurnstileVerifier(LOCALHOST_REQUEST)).toThrow(TurnstileConfigurationError);
   });
 
   it("throws when TURNSTILE_ALLOWED_HOSTNAMES is missing", () => {
     process.env["TURNSTILE_SECRET_KEY"] = "a-secret";
-    expect(() => getTurnstileVerifier()).toThrow(TurnstileConfigurationError);
+    expect(() => getTurnstileVerifier(LOCALHOST_REQUEST)).toThrow(TurnstileConfigurationError);
   });
 
   it("throws when TURNSTILE_ALLOWED_HOSTNAMES resolves to an empty list", () => {
     process.env["TURNSTILE_SECRET_KEY"] = "a-secret";
     process.env["TURNSTILE_ALLOWED_HOSTNAMES"] = " , ,";
-    expect(() => getTurnstileVerifier()).toThrow(TurnstileConfigurationError);
+    expect(() => getTurnstileVerifier(LOCALHOST_REQUEST)).toThrow(TurnstileConfigurationError);
   });
 
   it("never reveals which variable was missing", () => {
     try {
-      getTurnstileVerifier();
+      getTurnstileVerifier(LOCALHOST_REQUEST);
       expect.unreachable();
     } catch (error) {
       expect((error as Error).message).not.toMatch(/TURNSTILE|SECRET/i);
@@ -173,6 +232,66 @@ describe("getTurnstileVerifier — fails closed when misconfigured", () => {
   it("succeeds when both are present, splitting the hostname list on commas", () => {
     process.env["TURNSTILE_SECRET_KEY"] = "a-secret";
     process.env["TURNSTILE_ALLOWED_HOSTNAMES"] = "quote.example.test, localhost ,";
-    expect(() => getTurnstileVerifier()).not.toThrow();
+    expect(() => getTurnstileVerifier(LOCALHOST_REQUEST)).not.toThrow();
+  });
+});
+
+describe("getTurnstileVerifier — local-test-mode gate (CHECKPOINT C2G-LT)", () => {
+  const ORIGINAL_ENV = { ...process.env };
+  const ORIGINAL_FETCH = global.fetch;
+
+  afterEach(() => {
+    delete process.env["TURNSTILE_SECRET_KEY"];
+    delete process.env["TURNSTILE_ALLOWED_HOSTNAMES"];
+    delete process.env["TURNSTILE_LOCAL_TEST_MODE"];
+    for (const [key, value] of Object.entries(ORIGINAL_ENV)) process.env[key] = value;
+    global.fetch = ORIGINAL_FETCH;
+  });
+
+  /** Stubs the real global fetch (never a real network call) to return Cloudflare's exact synthetic test-key shape. */
+  function stubSyntheticTestKeyFetch(): void {
+    global.fetch = vi
+      .fn()
+      .mockResolvedValue(jsonResponse(200, { success: true, hostname: "example.com" })) as unknown as typeof fetch;
+  }
+
+  it("accepts the synthetic test-key response only when the flag is set, the request hostname is local, AND the configured allowed hostnames are local-only", async () => {
+    stubSyntheticTestKeyFetch();
+    process.env["TURNSTILE_SECRET_KEY"] = "1x0000000000000000000000000000000AA";
+    process.env["TURNSTILE_ALLOWED_HOSTNAMES"] = "localhost";
+    process.env["TURNSTILE_LOCAL_TEST_MODE"] = "true";
+
+    const result = await getTurnstileVerifier(LOCALHOST_REQUEST).verify("test-token");
+    expect(result.ok).toBe(true);
+  });
+
+  it("rejects the same synthetic response when TURNSTILE_LOCAL_TEST_MODE is not set", async () => {
+    stubSyntheticTestKeyFetch();
+    process.env["TURNSTILE_SECRET_KEY"] = "1x0000000000000000000000000000000AA";
+    process.env["TURNSTILE_ALLOWED_HOSTNAMES"] = "localhost";
+    // TURNSTILE_LOCAL_TEST_MODE deliberately left unset.
+
+    const result = await getTurnstileVerifier(LOCALHOST_REQUEST).verify("test-token");
+    expect(result).toEqual({ ok: false, reason: "action_mismatch" });
+  });
+
+  it("cannot relax verification when this deployment's configured allowed hostnames is a real domain, even with the flag set and a local request hostname", async () => {
+    stubSyntheticTestKeyFetch();
+    process.env["TURNSTILE_SECRET_KEY"] = "1x0000000000000000000000000000000AA";
+    process.env["TURNSTILE_ALLOWED_HOSTNAMES"] = "www.example.com";
+    process.env["TURNSTILE_LOCAL_TEST_MODE"] = "true";
+
+    const result = await getTurnstileVerifier(LOCALHOST_REQUEST).verify("test-token");
+    expect(result).toEqual({ ok: false, reason: "action_mismatch" });
+  });
+
+  it("cannot relax verification for a non-local request hostname, even with the flag set and locally-scoped allowed hostnames", async () => {
+    stubSyntheticTestKeyFetch();
+    process.env["TURNSTILE_SECRET_KEY"] = "1x0000000000000000000000000000000AA";
+    process.env["TURNSTILE_ALLOWED_HOSTNAMES"] = "localhost";
+    process.env["TURNSTILE_LOCAL_TEST_MODE"] = "true";
+
+    const result = await getTurnstileVerifier(requestTo("www.example.com")).verify("test-token");
+    expect(result).toEqual({ ok: false, reason: "action_mismatch" });
   });
 });

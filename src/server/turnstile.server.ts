@@ -48,7 +48,28 @@ export interface TurnstileVerifierConfig {
   readonly expectedAction: string;
   /** Exact hostnames Turnstile is allowed to have observed the widget on — configured per environment (production domain, preview deployment pattern, "localhost" for local testing), never a wildcard. */
   readonly allowedHostnames: readonly string[];
+  /**
+   * CHECKPOINT C2G-LT — when true, `verify()` additionally accepts the one
+   * fixed synthetic response shape Cloudflare's official always-pass TEST
+   * secret key produces (`hostname:"example.com"`, no `action` field at
+   * all — see CLOUDFLARE_TEST_KEY_SYNTHETIC_HOSTNAME below). Every other
+   * check (token presence, Siteverify call, `success:true`, and the
+   * configured action/hostname for any response that is NOT that exact
+   * synthetic shape) is unchanged. `getTurnstileVerifier()` is the only
+   * place this is computed, and only turns it on when three independent
+   * conditions all hold — see its own doc comment.
+   */
+  readonly localTestMode?: boolean;
 }
+
+/**
+ * Cloudflare's own documented synthetic hostname for the official TEST
+ * secret keys (always-pass/always-block/always-error) — see
+ * https://developers.cloudflare.com/turnstile/troubleshooting/testing/.
+ * Siteverify hardcodes this for every response to a test-key request; a
+ * real widget on a real site never reports it.
+ */
+const CLOUDFLARE_TEST_KEY_SYNTHETIC_HOSTNAME = "example.com";
 
 /**
  * Real Siteverify-backed verifier. `fetchImpl` is injectable purely so
@@ -101,16 +122,34 @@ export function createCloudflareTurnstileVerifier(
       if (!parsed.data.success) {
         return { ok: false, reason: "invalid_or_expired_token" };
       }
-      if (parsed.data.action !== config.expectedAction) {
-        return { ok: false, reason: "action_mismatch" };
-      }
-      if (!parsed.data.hostname || !config.allowedHostnames.includes(parsed.data.hostname)) {
-        return { ok: false, reason: "hostname_mismatch" };
+
+      // CHECKPOINT C2G-LT — the ONE narrow carve-out: only when
+      // localTestMode is active AND the response is exactly Cloudflare's
+      // fixed test-key shape (both conditions together, not either alone)
+      // do the action/hostname checks below get skipped. Anything else —
+      // a real mismatched action, a real unrecognized hostname, or this
+      // exact shape when localTestMode is off — still falls through to
+      // the same strict checks as before.
+      const isSyntheticTestKeyResponse =
+        config.localTestMode === true &&
+        parsed.data.action === undefined &&
+        parsed.data.hostname === CLOUDFLARE_TEST_KEY_SYNTHETIC_HOSTNAME;
+
+      if (!isSyntheticTestKeyResponse) {
+        if (parsed.data.action !== config.expectedAction) {
+          return { ok: false, reason: "action_mismatch" };
+        }
+        if (!parsed.data.hostname || !config.allowedHostnames.includes(parsed.data.hostname)) {
+          return { ok: false, reason: "hostname_mismatch" };
+        }
       }
       return { ok: true };
     },
   };
 }
+
+/** Loopback hostnames a genuine production/staging deployment never serves real traffic on. */
+const LOCAL_TEST_REQUEST_HOSTNAMES = new Set(["localhost", "127.0.0.1"]);
 
 /**
  * Reads TURNSTILE_SECRET_KEY and TURNSTILE_ALLOWED_HOSTNAMES from the
@@ -119,8 +158,23 @@ export function createCloudflareTurnstileVerifier(
  * Cloudflare Workers). Fails closed (throws) if either is missing or the
  * hostname list is empty — a misconfigured deployment must never silently
  * skip verification.
+ *
+ * `request` is taken for exactly one purpose: deciding whether
+ * CHECKPOINT C2G-LT's local-test carve-out (see TurnstileVerifierConfig's
+ * own doc comment) may activate for THIS call. It activates only when all
+ * three hold:
+ *   1. `TURNSTILE_LOCAL_TEST_MODE` is explicitly set to "true".
+ *   2. This request's own hostname (from `request.url`, the same value
+ *      Cloudflare's edge routed the request to) is a loopback address.
+ *   3. This deployment's configured TURNSTILE_ALLOWED_HOSTNAMES is
+ *      loopback-only — never true for a real production/staging
+ *      deployment, since Turnstile could not pass any real traffic if it
+ *      were.
+ * A production Worker accidentally left with TURNSTILE_LOCAL_TEST_MODE set
+ * still fails closed exactly as before: condition 2 and/or 3 will not
+ * hold for real traffic on a real domain, so nothing is relaxed.
  */
-export function getTurnstileVerifier(): TurnstileVerifier {
+export function getTurnstileVerifier(request: Request): TurnstileVerifier {
   const secretKey = process.env["TURNSTILE_SECRET_KEY"];
   const allowedHostnamesRaw = process.env["TURNSTILE_ALLOWED_HOSTNAMES"];
   if (!secretKey || !allowedHostnamesRaw) {
@@ -133,9 +187,17 @@ export function getTurnstileVerifier(): TurnstileVerifier {
   if (allowedHostnames.length === 0) {
     throw new TurnstileConfigurationError();
   }
+
+  const requestHostname = new URL(request.url).hostname;
+  const localTestMode =
+    process.env["TURNSTILE_LOCAL_TEST_MODE"] === "true" &&
+    LOCAL_TEST_REQUEST_HOSTNAMES.has(requestHostname) &&
+    allowedHostnames.every((hostname) => LOCAL_TEST_REQUEST_HOSTNAMES.has(hostname));
+
   return createCloudflareTurnstileVerifier({
     secretKey,
     expectedAction: TURNSTILE_EXPECTED_ACTION,
     allowedHostnames,
+    localTestMode,
   });
 }
