@@ -260,3 +260,31 @@ describe("renderOwnerNotificationEmail — text/html both produced", () => {
     expect(email.text).toContain("Some notes here");
   });
 });
+
+describe("renderOwnerNotificationEmail — Submitted is a UAE-local timestamp, not a raw ISO string", () => {
+  it("formats Submitted as day/month/year/hour:minute AM-PM with a (UAE time) suffix, in both text and html", () => {
+    const email = renderOwnerNotificationEmail(sellerLead({ submittedAt: "2026-08-17T10:00:00.000Z" }), noFiles);
+    // 2026-08-17T10:00:00Z is 2026-08-17T14:00 in Asia/Dubai (+4, no DST).
+    expect(email.text).toContain("Submitted: 17 Aug 2026, 02:00 PM (UAE time)");
+    expect(email.html).toContain("<strong>Submitted:</strong> 17 Aug 2026, 02:00 PM (UAE time)");
+    expect(email.text).not.toContain("2026-08-17T10:00:00.000Z");
+    expect(email.html).not.toContain("2026-08-17T10:00:00.000Z");
+  });
+
+  it("rolls over to the next Asia/Dubai calendar day for a late-UTC-evening timestamp (UTC-to-next-UAE-day boundary)", () => {
+    // 2026-08-25T22:11:13Z (UTC) is 2026-08-26T02:11 in Asia/Dubai (+4) — a
+    // different calendar day than the raw UTC/database value would suggest.
+    const email = renderOwnerNotificationEmail(
+      sellerLead({ submittedAt: "2026-08-25T22:11:13.541639+00:00" }),
+      noFiles,
+    );
+    expect(email.text).toContain("Submitted: 26 Aug 2026, 02:11 AM (UAE time)");
+    expect(email.html).toContain("<strong>Submitted:</strong> 26 Aug 2026, 02:11 AM (UAE time)");
+  });
+
+  it("falls back to the raw value rather than showing an invalid date for an unparseable submittedAt", () => {
+    const email = renderOwnerNotificationEmail(sellerLead({ submittedAt: "not-a-real-timestamp" }), noFiles);
+    expect(email.text).toContain("Submitted: not-a-real-timestamp");
+    expect(email.text).not.toContain("Invalid Date");
+  });
+});

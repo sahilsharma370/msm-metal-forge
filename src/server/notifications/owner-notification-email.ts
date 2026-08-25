@@ -148,6 +148,22 @@ function formatDate(value: string | null): string | null {
   return value;
 }
 
+/** Owner-facing timestamps are shown in Asia/Dubai; an unparseable input falls back to the original value rather than showing an invalid date. */
+const SUBMITTED_AT_UAE_FORMATTER = new Intl.DateTimeFormat("en-AE", {
+  timeZone: "Asia/Dubai",
+  day: "2-digit",
+  month: "short",
+  year: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+});
+
+function formatSubmittedAtUae(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return `${SUBMITTED_AT_UAE_FORMATTER.format(date)} (UAE time)`;
+}
+
 interface Row {
   readonly label: string;
   readonly value: string | null;
@@ -266,7 +282,7 @@ export function renderOwnerNotificationEmail(
     ...sectionRows.map((row) => `${row.label}: ${row.value}`),
     "",
     `Files: ${fileStatusLabel(fileStats)}`,
-    `Submitted: ${lead.submittedAt}`,
+    `Submitted: ${formatSubmittedAtUae(lead.submittedAt)}`,
   ];
   if (options.dashboardUrl) {
     textLines.push("", `View in dashboard: ${options.dashboardUrl}`);
@@ -290,7 +306,7 @@ export function renderOwnerNotificationEmail(
     `<strong>Type:</strong> ${lead.intent === "sell" ? "Sell to MSM" : "Buy from MSM"}</p>` +
     `<table cellspacing="0" cellpadding="0">${htmlRows}</table>` +
     `<p><strong>Files:</strong> ${escapeHtml(fileStatusLabel(fileStats))}<br>` +
-    `<strong>Submitted:</strong> ${escapeHtml(lead.submittedAt)}</p>` +
+    `<strong>Submitted:</strong> ${escapeHtml(formatSubmittedAtUae(lead.submittedAt))}</p>` +
     dashboardHtml +
     `</div>`;
 
