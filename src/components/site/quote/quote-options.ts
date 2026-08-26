@@ -1,12 +1,5 @@
 import type { QuoteIntent, QuoteMaterialKey, QuoteTradeRoute } from "./quote-search";
 
-/**
- * PROVISIONAL business config. Swap this number when a dedicated quote-desk
- * WhatsApp line is assigned — nothing else in the Quote Experience needs to
- * change, every WhatsApp handoff reads from here.
- */
-export const QUOTE_WHATSAPP_NUMBER_PROVISIONAL = "971508491233";
-
 export const QUOTE_UNITS = ["kg", "tonnes", "pieces", "load", "other"] as const;
 export type QuoteUnit = (typeof QUOTE_UNITS)[number];
 /** Deliberately compact — used both on the unit pills and in review/WhatsApp summaries ("500 kg", not "500 Kilograms"). */

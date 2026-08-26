@@ -164,7 +164,10 @@ export function WhatWeDo() {
   const eased = easeProgress(progress);
 
   return (
-    <section className="relative flex min-h-screen flex-col justify-center overflow-hidden bg-[#080A1D] py-16">
+    <section
+      id="services"
+      className="relative flex min-h-screen flex-col justify-center overflow-hidden bg-[#080A1D] py-16"
+    >
       <DotGrid glow={0} />
       <div className="relative mx-auto max-w-7xl px-6 text-center">
         <p className="label-eyebrow text-copper-bright">Our Services</p>

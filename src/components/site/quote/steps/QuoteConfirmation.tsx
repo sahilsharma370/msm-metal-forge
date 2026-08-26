@@ -1,7 +1,7 @@
 import { CircleCheck, MessageCircle } from "lucide-react";
 import type { QuoteFormValues } from "../quote-schema";
-import { QUOTE_WHATSAPP_NUMBER_PROVISIONAL } from "../quote-options";
-import { buildSmartBrief, buildWhatsAppMessage, buildWhatsAppUrl } from "../quote-summary";
+import { COMPANY_WHATSAPP_NUMBER } from "@/lib/site";
+import { buildSmartBrief, buildWhatsAppUrl } from "../quote-summary";
 
 interface QuoteConfirmationProps {
   values: QuoteFormValues;
@@ -26,8 +26,8 @@ export function QuoteConfirmation({
   onReturnToWebsite,
 }: QuoteConfirmationProps) {
   const whatsappUrl = buildWhatsAppUrl(
-    QUOTE_WHATSAPP_NUMBER_PROVISIONAL,
-    buildWhatsAppMessage(values, reference),
+    COMPANY_WHATSAPP_NUMBER,
+    `Hello MSM Scrap, I’ve submitted an enquiry. My reference is ${reference}.`,
   );
 
   return (
