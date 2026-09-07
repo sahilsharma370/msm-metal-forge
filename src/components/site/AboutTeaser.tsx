@@ -1,6 +1,7 @@
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { DotGrid } from "./DotGrid";
+import ownerPortrait from "@/assets/owner-mohammed-sihabuddin-dark.webp";
 
 const COPPER = "oklch(0.583 0.135 45.5)";
 const NAVY = "#080A1D";
@@ -137,20 +138,18 @@ export function AboutTeaser() {
           }}
         >
           <DotGrid glow={0} interactive={false} className="z-0" />
-          {/* Owner portrait placeholder — plain solid navy, no internal dot
-              layer. Restore a real photograph here once one is approved. */}
           <div
-            aria-hidden="true"
             className="relative z-10 flex h-full w-full items-center justify-center overflow-hidden border"
             style={{
               backgroundColor: "oklch(0.195 0.055 265.5)",
               borderColor: "oklch(0.583 0.135 45.5 / 0.45)",
             }}
           >
-            <div className="relative z-10 flex flex-col items-center gap-2">
-              <MonogramMark className="h-[42px] w-[42px]" />
-              <p className="label-eyebrow text-[0.6rem] text-[#EDE8D0]/40">Owner Portrait</p>
-            </div>
+            <img
+              src={ownerPortrait}
+              alt="Mohammed Sihabuddin, Owner of MSM Scrap"
+              className="h-full w-full object-cover object-[center_top]"
+            />
           </div>
           <div className="relative z-10 flex flex-col">
             <div className="flex items-center gap-4">
@@ -176,7 +175,7 @@ export function AboutTeaser() {
               />
               <div>
                 <p className="font-display text-lg font-bold text-[#EDE8D0]">Mohammed Sihabuddin</p>
-                <p className="text-foreground/70">Owner, MSM Scrap</p>
+                <p className="text-foreground/70">Owner – MSM Scrap</p>
               </div>
             </div>
 

@@ -2,8 +2,9 @@ import { createFileRoute } from "@tanstack/react-router";
 import { ShieldCheck, Truck, Users } from "lucide-react";
 import { Header } from "@/components/site/Header";
 import { ContactFooter } from "@/components/site/ContactFooter";
-import { ArrowLinkCTA, MonogramMark } from "@/components/site/AboutTeaser";
+import { ArrowLinkCTA } from "@/components/site/AboutTeaser";
 import craneBackground from "@/assets/trust-industrial-crane.webp";
+import ownerPortrait from "@/assets/owner-mohammed-sihabuddin-dark.webp";
 
 const title = "About MSM Scrap | Metal Scrap Trading in the UAE";
 const description =
@@ -157,21 +158,18 @@ function AboutPage() {
           }}
         >
           <div className="mx-auto grid max-w-5xl items-center gap-10 px-6 sm:grid-cols-[220px_1fr]">
-            {/* Owner portrait placeholder — plain solid navy, no internal
-                dot layer. Restore a real photograph here once one is
-                approved. */}
             <div
-              aria-hidden="true"
               className="relative mx-auto flex aspect-[4/5] w-full max-w-[220px] items-center justify-center overflow-hidden border"
               style={{
                 backgroundColor: "oklch(0.195 0.055 265.5)",
                 borderColor: "oklch(0.583 0.135 45.5 / 0.45)",
               }}
             >
-              <div className="relative z-10 flex flex-col items-center gap-2">
-                <MonogramMark className="h-[42px] w-[42px]" />
-                <p className="label-eyebrow text-[0.6rem] text-[#EDE8D0]/40">Owner Portrait</p>
-              </div>
+              <img
+                src={ownerPortrait}
+                alt="Mohammed Sihabuddin, Owner of MSM Scrap"
+                className="h-full w-full object-cover object-[center_top]"
+              />
             </div>
 
             <div>
@@ -192,7 +190,7 @@ function AboutPage() {
                   <p className="font-display text-base font-bold text-[#EDE8D0]">
                     Mohammed Sihabuddin
                   </p>
-                  <p className="text-sm text-[#EDE8D0]/70">Owner, MSM Scrap</p>
+                  <p className="text-sm text-[#EDE8D0]/70">Owner – MSM Scrap</p>
                 </div>
               </div>
             </div>
