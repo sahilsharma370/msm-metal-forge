@@ -166,7 +166,12 @@ export function WhatWeDo() {
   return (
     <section
       id="services"
-      className="relative flex min-h-screen flex-col justify-center overflow-hidden bg-[#080A1D] py-16"
+      // BATCH 5N-R3 — `min-h-screen` was unprefixed, forcing this section to
+      // a full 100vh minimum and flex-centering its (shorter) mobile
+      // content inside it, pushing the eyebrow down by the leftover slack
+      // — the dominant cause of the large gap after Trust on mobile.
+      // Desktop's exact py-16/min-h-screen composition is unchanged.
+      className="relative flex flex-col justify-center overflow-hidden bg-[#080A1D] pt-10 pb-16 lg:min-h-screen lg:pt-16"
     >
       <DotGrid glow={0} />
       <div className="relative mx-auto max-w-7xl px-6 text-center">

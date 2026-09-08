@@ -47,6 +47,20 @@ export function ScrollStack({ heroWrapperRef, heroRef, trustBarRef }: Props) {
       return;
     }
 
+    // BATCH 5N — this fixed/pin/scrub choreography is desktop-only. Below
+    // `lg` it was forcing TrustBar's own compact, normal-flow mobile layout
+    // into the same full-viewport `position: fixed` cover used for
+    // desktop's full-bleed photo section — reading as a sudden zoom, and
+    // adding a redundant scrubbed 100vh of scroll distance on top of
+    // TrustBar's own (now much shorter) natural content height. Below lg,
+    // Hero and TrustBar are simply left in their own default document flow
+    // (Hero's own absolute/inset-0 already fills its 100vh wrapper without
+    // any help from this effect); nothing here is set up, so there is
+    // nothing to tear down.
+    if (!window.matchMedia("(min-width: 1024px)").matches) {
+      return;
+    }
+
     gsap.registerPlugin(ScrollTrigger);
 
     const heroWrapper = heroWrapperRef.current;

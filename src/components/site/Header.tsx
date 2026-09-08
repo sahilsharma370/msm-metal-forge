@@ -128,35 +128,7 @@ export function Header() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   // Skip trigger focus restoration after pointer closes; preserve it for keyboard navigation.
   const drawerInputModalityRef = useRef<"pointer" | "keyboard">("keyboard");
-  const [showCompactQuote, setShowCompactQuote] = useState(false);
   const [activeSectionHash, setActiveSectionHash] = useState<string | null>(null);
-
-  // BATCH 5M-A — the mobile bar's compact "Quote" action only appears once
-  // the homepage hero's own primary CTA (id="hero-cta-mobile", set in
-  // Hero.tsx's mobile composition) has scrolled out of view; on any route
-  // that never has that element (e.g. /about) there is nothing to wait
-  // for, so it shows immediately. Entirely client-side (useEffect only,
-  // never reads window/document during render) and never used to decide
-  // LAYOUT — the mobile bar itself is already fully responsive via CSS
-  // breakpoints; this only toggles one small action's visibility on top of
-  // markup that exists unconditionally.
-  useEffect(() => {
-    const heroCta = document.getElementById("hero-cta-mobile");
-    if (!heroCta) {
-      setShowCompactQuote(true);
-      return;
-    }
-    setShowCompactQuote(false);
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const entry = entries[0];
-        if (entry) setShowCompactQuote(!entry.isIntersecting);
-      },
-      { threshold: 0 },
-    );
-    observer.observe(heroCta);
-    return () => observer.disconnect();
-  }, [pathname]);
 
   // BATCH 5M-A — best-effort active-section highlight for the mobile
   // drawer, homepage only. A real IntersectionObserver over the same
@@ -268,11 +240,14 @@ export function Header() {
       </header>
 
       {/* BATCH 5M-A — mobile/tablet header, below lg only. Slim sticky bar:
-          small logo left, hamburger right, safe-area-aware. No large
-          trust badge and no permanent Get-a-Quote pill here — trust proof
-          now lives inside the mobile hero itself, and the compact "Quote"
-          action only appears once the hero's own primary CTA has scrolled
-          away (see the IntersectionObserver above). */}
+          small logo left, hamburger right, safe-area-aware. No large trust
+          badge and no Get-a-Quote pill here — trust proof lives inside the
+          mobile hero itself, and Get a Quote lives inside the drawer.
+          BATCH 5N — the header is now permanently logo + hamburger only:
+          the scroll-triggered compact "Quote" pill (and its
+          IntersectionObserver on Hero's `#hero-cta-mobile`) was removed —
+          it caused a width/position shift in this fixed header as the
+          user scrolled. */}
       <header
         className="fixed inset-x-0 top-0 z-40 border-b border-white/10 bg-[#080A1D]/92 backdrop-blur-md lg:hidden"
         style={{ paddingTop: "env(safe-area-inset-top)" }}
@@ -283,23 +258,6 @@ export function Header() {
           </Link>
 
           <div className="flex items-center gap-2">
-            {/* Reserved slot, always in the layout — only opacity/pointer-events
-                toggle, so this appearing never shifts the hamburger next to it. */}
-            <div
-              className={`transition-opacity duration-200 ${showCompactQuote ? "opacity-100" : "pointer-events-none opacity-0"}`}
-              aria-hidden={!showCompactQuote}
-            >
-              <Link
-                to="/"
-                search={{ quote: true, source: "header" }}
-                mask={{ to: "/quote", search: { source: "header" } }}
-                tabIndex={showCompactQuote ? 0 : -1}
-                className="font-display inline-flex h-9 items-center rounded-full bg-[image:var(--gradient-copper-cta)] px-4 text-xs font-bold tracking-[0.08em] text-[#080A1D] uppercase"
-              >
-                Quote
-              </Link>
-            </div>
-
             <Sheet open={drawerOpen} onOpenChange={setDrawerOpen}>
               <SheetTrigger asChild>
                 <button

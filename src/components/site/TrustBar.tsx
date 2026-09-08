@@ -1,6 +1,7 @@
 import { forwardRef, useEffect, useRef, useState } from "react";
 import { Scale, ShieldCheck, Truck, Users } from "lucide-react";
 import { gsap } from "gsap";
+import { ScrollTrigger } from "gsap/ScrollTrigger";
 import craneBackground from "@/assets/trust-industrial-crane.webp";
 
 type CounterStat = {
@@ -36,6 +37,17 @@ const STATS: Stat[] = [
   { kind: "counter", value: 500, suffix: "+", label: "Clients Served", Icon: Users, delayMs: 240, durationMs: 950 },
 ];
 
+/** Mobile-only Load Line copy — kept separate from STATS above since the
+    wording differs from the desktop cards; the underlying facts are the
+    same. Transparent Weighing is the rail's endpoint/seal, not part of
+    this alternating list. */
+type TrackPoint = { value: string; label: string; align: "left" | "right"; index: string };
+const TRACK_POINTS: TrackPoint[] = [
+  { value: "14+", label: "Years Trading", align: "right", index: "01 / 04" },
+  { value: "7", label: "Emirates Served", align: "left", index: "02 / 04" },
+  { value: "500+", label: "Clients Served", align: "right", index: "03 / 04" },
+];
+
 function usePrefersReducedMotion() {
   const [reduced, setReduced] = useState(false);
   useEffect(() => {
@@ -48,21 +60,13 @@ function usePrefersReducedMotion() {
   return reduced;
 }
 
-/**
- * Dispatches "trustbar:settled" once the first stat card (the "14+" card) is
- * sufficiently visible, then disconnects. On desktop all four cards share
- * the same row, so this card entering the screen represents all four.
- * Desktop uses a high threshold (~90%) since the card fits within one
- * viewport there; mobile's stacked layout can push the card partly off
- * either edge of the viewport, so it uses a much lower threshold (~20%).
- */
-function useSettledOnCardsVisible<T extends HTMLElement>() {
+/** Dispatches "trustbar:settled" once the observed element is sufficiently
+    visible, then disconnects — gates the desktop counters' start. */
+function useSettledOnVisible<T extends HTMLElement>(threshold: number) {
   const ref = useRef<T | null>(null);
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    const isDesktop = window.matchMedia("(min-width: 1024px)").matches;
-    const threshold = isDesktop ? 0.9 : 0.2;
     const io = new IntersectionObserver(
       (entries) => {
         if (entries[0]?.isIntersecting) {
@@ -250,10 +254,60 @@ function StatCard({
   );
 }
 
+/** One Load Line row: index / number / label, alternating either side of
+    the central rail corridor. Ordinary document-flow content — the corridor
+    tick doubles as the connector, and the row itself never touches opacity,
+    so it's always fully readable even if GSAP never runs. */
+function LoadLineRow({
+  point,
+  numberRef,
+  tickRef,
+}: {
+  point: TrackPoint;
+  numberRef?: React.Ref<HTMLDivElement> | undefined;
+  tickRef?: React.Ref<HTMLDivElement> | undefined;
+}) {
+  const onLeft = point.align === "left";
+  return (
+    <div className="grid grid-cols-[minmax(0,1fr)_30px_minmax(0,1fr)] items-center">
+      <div className={onLeft ? "min-w-0 text-right" : ""}>
+        {onLeft && <Callout point={point} calloutRef={numberRef} align="left" />}
+      </div>
+      <div ref={tickRef} aria-hidden="true" className="h-px bg-copper/35" />
+      <div className={onLeft ? "" : "min-w-0 text-left"}>
+        {!onLeft && <Callout point={point} calloutRef={numberRef} align="right" />}
+      </div>
+    </div>
+  );
+}
+
+function Callout({
+  point,
+  align,
+  calloutRef,
+}: {
+  point: TrackPoint;
+  align: "left" | "right";
+  calloutRef?: React.Ref<HTMLDivElement> | undefined;
+}) {
+  return (
+    <div ref={calloutRef} className="inline-block min-w-0 max-w-full py-6">
+      <div className="text-[10px] font-semibold tracking-[0.1em] text-copper/75">{point.index}</div>
+      <div className="font-display mt-1 text-[clamp(2.25rem,11vw,3rem)] leading-[0.95] font-bold text-foreground">
+        {point.value}
+      </div>
+      <div className="mt-1 text-[10px] font-semibold tracking-[0.09em] text-muted-foreground uppercase">
+        {point.label}
+      </div>
+      <div className={`mt-2 h-px w-8 bg-copper/40 ${align === "left" ? "ml-auto" : ""}`} />
+    </div>
+  );
+}
+
 export const TrustBar = forwardRef<HTMLElement>(function TrustBar(_props, forwardedRef) {
   const reduced = usePrefersReducedMotion();
   const [settled, setSettled] = useState(false);
-  const cardsRowRef = useSettledOnCardsVisible<HTMLDivElement>();
+  const desktopCardsRowRef = useSettledOnVisible<HTMLDivElement>(0.9);
 
   useEffect(() => {
     const onSettled = () => setSettled(true);
@@ -261,81 +315,242 @@ export const TrustBar = forwardRef<HTMLElement>(function TrustBar(_props, forwar
     return () => window.removeEventListener("trustbar:settled", onSettled);
   }, []);
 
-  return (
-    <section ref={forwardedRef} className="relative min-h-screen overflow-hidden bg-[#080A1D]">
-      {/* Crane photograph — bottom-most layer, full-bleed, decorative
-          (alt="" + aria-hidden, cards/copy already carry the real content). */}
-      <img
-        src={craneBackground}
-        alt=""
-        aria-hidden="true"
-        loading="lazy"
-        decoding="async"
-        width={1672}
-        height={941}
-        className="absolute inset-0 h-full w-full object-cover object-center"
-      />
-      {/* CHECKPOINT C2L (trust background swap) — the previous skyline wash
-          (85%/45%/92% alpha) was tuned specifically to hide the old image's
-          own busy sky/spire; against this crane photo it would flatten the
-          sunlight/copper/shadow detail the photo is chosen for. Capped at
-          25% max (same top-heavier/bottom-heavier shape, just far lighter)
-          — the minimum needed to keep card text readable. */}
-      <div className="absolute inset-0 bg-gradient-to-b from-[#080A1D]/25 via-[#080A1D]/10 to-[#080A1D]/25" />
-      {/* Header-legibility fade only, same 190px band, same shape as
-          before — peak reduced from 0.92 to 0.25 for the same reason. */}
-      <div
-        className="absolute inset-x-0 top-0 h-[190px]"
-        style={{
-          backgroundImage:
-            "linear-gradient(to bottom, rgba(8, 10, 29, 0.25) 0px, rgba(8, 10, 29, 0.15) 87px, rgba(8, 10, 29, 0.06) 140px, rgba(8, 10, 29, 0) 190px)",
-        }}
-      />
+  // Mobile Load Line — ordinary document flow throughout (no sticky, no
+  // pin, no fixed-height wrapper, desktop's pin/cover stays desktop-only
+  // via ScrollStack's own <1024px gate). ScrollTrigger only ties the
+  // rail's `scaleY` draw + leading node to the natural scroll position of
+  // its own in-flow container, and gives each row a small settle-in;
+  // nothing here is pinned and nothing controls layout. Base render (rail
+  // fully drawn, rows at rest) is already correct HTML/CSS, so a JS
+  // failure or a page load that lands mid-section never hides content.
+  const railWrapperRef = useRef<HTMLDivElement | null>(null);
+  const railDrawRef = useRef<HTMLDivElement | null>(null);
+  const railGlowRef = useRef<HTMLDivElement | null>(null);
+  const numberRefs = useRef<Array<HTMLDivElement | null>>([]);
+  const tickRefs = useRef<Array<HTMLDivElement | null>>([]);
+  const sealNodeRef = useRef<HTMLDivElement | null>(null);
 
-      <div className="relative mx-auto max-w-7xl px-6 pt-[164px] pb-[316px]">
-        {/* CHECKPOINT C2L (trust composition lock) — eyebrow + heading share
-            this same max-w-7xl/px-6 gutter as the cards below (no separate
-            centred wrapper), so their left edge lines up with the left
-            card's own left edge. A small localized navy fade sits only
-            behind this block (not the full section) purely so the heading
-            stays readable over the photo without darkening it elsewhere. */}
-        <div className="relative max-w-xl text-left">
-          <div
-            aria-hidden="true"
-            className="pointer-events-none absolute -inset-x-4 -inset-y-3 -z-10 rounded-2xl bg-[#080A1D]/35 blur-xl"
-          />
-          <p
-            className="label-eyebrow text-copper-bright"
-            style={{ textShadow: "0 1px 5px rgba(8, 10, 29, 0.75)" }}
-          >
-            Our Track Record
-          </p>
-          <h2 className="font-display mt-2 text-2xl font-bold text-foreground sm:text-3xl">
-            Built on trust across the UAE.
+  useEffect(() => {
+    if (reduced) return;
+    if (window.matchMedia("(min-width: 1024px)").matches) return;
+    const wrapper = railWrapperRef.current;
+    if (!wrapper) return;
+
+    gsap.registerPlugin(ScrollTrigger);
+
+    const ctx = gsap.context(() => {
+      if (railDrawRef.current) {
+        gsap.fromTo(
+          railDrawRef.current,
+          { scaleY: 0, transformOrigin: "top" },
+          {
+            scaleY: 1,
+            transformOrigin: "top",
+            ease: "none",
+            scrollTrigger: {
+              trigger: wrapper,
+              start: "top 80%",
+              end: "bottom 85%",
+              scrub: 0.3,
+              onUpdate: (self) => {
+                const glow = railGlowRef.current;
+                if (!glow) return;
+                glow.style.top = `${self.progress * 100}%`;
+                glow.style.opacity = self.progress > 0.02 && self.progress < 0.98 ? "1" : "0";
+              },
+            },
+          },
+        );
+      }
+
+      numberRefs.current.forEach((el, i) => {
+        if (!el) return;
+        gsap.from(el, {
+          y: 10,
+          duration: 0.5,
+          ease: "power2.out",
+          scrollTrigger: { trigger: el, start: "top 88%", toggleActions: "play none none none" },
+        });
+        const tick = tickRefs.current[i];
+        if (tick) {
+          gsap.fromTo(
+            tick,
+            { backgroundColor: "oklch(0.583 0.135 45.5 / 0.15)" },
+            {
+              backgroundColor: "oklch(0.583 0.135 45.5 / 0.5)",
+              duration: 0.5,
+              ease: "power2.out",
+              scrollTrigger: { trigger: el, start: "top 88%", toggleActions: "play none none none" },
+            },
+          );
+        }
+      });
+
+      // Restrained one-time halo as the rail reaches the final seal — never
+      // a constant pulse, plays once and settles.
+      if (sealNodeRef.current) {
+        gsap.fromTo(
+          sealNodeRef.current,
+          { boxShadow: "0 0 0 0 oklch(0.62 0.13 50 / 0)" },
+          {
+            boxShadow: "0 0 18px 3px oklch(0.62 0.13 50 / 0.35)",
+            duration: 0.6,
+            ease: "power2.out",
+            scrollTrigger: { trigger: sealNodeRef.current, start: "top 90%", toggleActions: "play none none none" },
+          },
+        );
+      }
+    }, wrapper);
+
+    return () => ctx.revert();
+  }, [reduced]);
+
+  return (
+    <section ref={forwardedRef} className="relative overflow-hidden bg-[#080A1D] lg:min-h-screen">
+      {/* Desktop composition — hard-locked, unchanged. `hidden lg:contents`
+          removes this whole block from mobile layout/rendering while
+          leaving every desktop class/position identical (the wrapper never
+          participates in the box model at lg+, so the `absolute inset-0`
+          layers below still size against the section exactly as before). */}
+      <div className="hidden lg:contents">
+        <img
+          src={craneBackground}
+          alt=""
+          aria-hidden="true"
+          loading="lazy"
+          decoding="async"
+          width={1672}
+          height={941}
+          className="absolute inset-0 h-full w-full object-cover object-center"
+        />
+        <div className="absolute inset-0 bg-gradient-to-b from-[#080A1D]/25 via-[#080A1D]/10 to-[#080A1D]/25" />
+        <div
+          className="absolute inset-x-0 top-0 h-[190px]"
+          style={{
+            backgroundImage:
+              "linear-gradient(to bottom, rgba(8, 10, 29, 0.25) 0px, rgba(8, 10, 29, 0.15) 87px, rgba(8, 10, 29, 0.06) 140px, rgba(8, 10, 29, 0) 190px)",
+          }}
+        />
+
+        <div className="relative mx-auto max-w-7xl px-6 pt-[164px] pb-[316px]">
+          <div className="relative max-w-xl text-left">
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute -inset-x-4 -inset-y-3 -z-10 rounded-2xl bg-[#080A1D]/35 blur-xl"
+            />
+            <p
+              className="label-eyebrow text-copper-bright"
+              style={{ textShadow: "0 1px 5px rgba(8, 10, 29, 0.75)" }}
+            >
+              Our Track Record
+            </p>
+            <h2 className="font-display mt-2 text-2xl font-bold text-foreground sm:text-3xl">
+              Built on trust across the UAE.
+            </h2>
+          </div>
+
+          <div className="mt-8 flex flex-col gap-5 sm:grid sm:grid-cols-2 lg:flex lg:flex-row lg:items-stretch lg:gap-10">
+            <div className="contents lg:flex lg:min-w-0 lg:flex-1 lg:flex-row lg:gap-4">
+              {STATS.slice(0, 2).map((stat, i) => (
+                <StatCard
+                  key={stat.label}
+                  stat={stat}
+                  run={settled}
+                  reduced={reduced}
+                  cardRef={i === 0 ? desktopCardsRowRef : undefined}
+                />
+              ))}
+            </div>
+
+            <div className="hidden shrink-0 lg:block" style={{ width: "clamp(14rem, 16vw, 20rem)" }} aria-hidden="true" />
+
+            <div className="contents lg:flex lg:min-w-0 lg:flex-1 lg:flex-row lg:gap-4">
+              {STATS.slice(2, 4).map((stat) => (
+                <StatCard key={stat.label} stat={stat} run={settled} reduced={reduced} />
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Mobile "The Load Line" — below lg only, entirely normal document
+          flow. Begins immediately after Hero; no cover/sticky transition. */}
+      <div className="pt-12 pb-10 lg:hidden">
+        <div className="px-5">
+          <p className="label-eyebrow text-copper-bright">Our Track Record</p>
+          <h2 className="font-display mt-2.5 text-[2.05rem] leading-[1.1] font-bold text-foreground">
+            Trust, measured load by load.
           </h2>
         </div>
 
-        <div className="mt-8 flex flex-col gap-5 sm:grid sm:grid-cols-2 lg:flex lg:flex-row lg:items-stretch lg:gap-10">
-          <div className="contents lg:flex lg:min-w-0 lg:flex-1 lg:flex-row lg:gap-4">
-            {STATS.slice(0, 2).map((stat, i) => (
-              <StatCard
-                key={stat.label}
-                stat={stat}
-                run={settled}
-                reduced={reduced}
-                cardRef={i === 0 ? cardsRowRef : undefined}
-              />
-            ))}
+        {/* Edge-to-edge cinematic plate — full section width, not inset
+            into the text gutter. Square corners read as an integrated
+            structural element rather than a floating card. */}
+        <div className="relative mt-7 overflow-hidden" style={{ height: "clamp(270px, 39svh, 340px)" }}>
+          <img
+            src={craneBackground}
+            alt="Crane lifting scrap metal at an MSM Scrap yard"
+            loading="lazy"
+            decoding="async"
+            width={1672}
+            height={941}
+            className="h-full w-full object-cover object-center"
+          />
+          <div className="absolute inset-x-0 top-0 h-10 bg-gradient-to-b from-[#080A1D]/70 to-transparent" />
+          <div className="absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-[#080A1D]/75 to-transparent" />
+        </div>
+
+        {/* The rail begins immediately at the image's bottom edge — no
+            gap — directly below the crane cable, and runs through every
+            row's natural height. No fixed height, no percentage
+            positioning; the container's height is just its content. */}
+        <div ref={railWrapperRef} className="px-5">
+          <div className="relative">
+            <div aria-hidden="true" className="absolute top-0 bottom-0 left-1/2 w-px -translate-x-1/2 bg-copper/20" />
+            <div
+              ref={railDrawRef}
+              aria-hidden="true"
+              className="absolute top-0 bottom-0 left-1/2 w-px origin-top -translate-x-1/2 bg-gradient-to-b from-copper to-copper/40"
+            />
+            <div
+              ref={railGlowRef}
+              aria-hidden="true"
+              className="absolute left-1/2 h-1.5 w-1.5 -translate-x-1/2 rounded-full bg-copper opacity-0 shadow-[0_0_8px_2px_oklch(0.62_0.13_50/0.6)]"
+            />
+
+            <div className="flex flex-col">
+              {TRACK_POINTS.map((point, i) => (
+                <LoadLineRow
+                  key={point.label}
+                  point={point}
+                  numberRef={(el) => {
+                    numberRefs.current[i] = el;
+                  }}
+                  tickRef={(el) => {
+                    tickRefs.current[i] = el;
+                  }}
+                />
+              ))}
+            </div>
           </div>
 
-          {/* Central corridor — clamp(14rem, 16vw, 20rem) so no card edge
-              crosses or crowds the crane's cable/claw silhouette. */}
-          <div className="hidden shrink-0 lg:block" style={{ width: "clamp(14rem, 16vw, 20rem)" }} aria-hidden="true" />
-
-          <div className="contents lg:flex lg:min-w-0 lg:flex-1 lg:flex-row lg:gap-4">
-            {STATS.slice(2, 4).map((stat) => (
-              <StatCard key={stat.label} stat={stat} run={settled} reduced={reduced} />
-            ))}
+          {/* Transparent Weighing — the rail's final verification seal. A
+              short stub bridges the row-rail's end to the node so the seal
+              still reads as the rail's own endpoint, never a fixed width
+              wider than available space. */}
+          <div className="flex flex-col items-center pt-1 pb-1 text-center">
+            <div aria-hidden="true" className="h-4 w-px bg-copper/40" />
+            <div
+              ref={sealNodeRef}
+              className="mt-1 flex h-11 w-11 items-center justify-center rounded-full border border-copper/50 bg-[#0B0E24]"
+            >
+              <Scale className="h-5 w-5 text-copper" strokeWidth={1.5} aria-hidden="true" />
+            </div>
+            <div className="mt-3 min-w-0" style={{ width: "min(100%, 270px)" }}>
+              <div className="font-display text-[13px] font-bold tracking-[0.06em] text-foreground uppercase">
+                Transparent Weighing
+              </div>
+            </div>
           </div>
         </div>
       </div>
