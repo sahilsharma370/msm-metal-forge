@@ -1,0 +1,44 @@
+-- MSM Scrap — CHECKPOINT C2J-A: read-optimized index for the owner lead
+-- inbox's exact stable default order.
+--
+-- Scope: exactly one new partial B-tree index on public.leads. No table,
+-- column, constraint, RLS policy, grant, or function is touched — the
+-- owner lead-inbox read path (added alongside this migration in
+-- src/server/owner-leads/) is a plain server-side SELECT via the existing
+-- service-role admin client, not a new RPC, so no function/grant is needed
+-- here either.
+--
+-- Index shape matches the inbox's required default sort exactly —
+-- submission_completed_at DESC, created_at DESC, id DESC — so a keyset
+-- ("cursor") pagination query filtering on that same three-column tuple can
+-- be satisfied by a single ordered index scan instead of a sort. Partial
+-- (`where submission_completed_at is not null`) because the inbox only
+-- ever shows completed leads (see leads_submission_incomplete_idx in
+-- 20260813114500_lead_completion_lifecycle.sql for the complementary
+-- "still incomplete" case, which this index deliberately does not cover)
+-- — this keeps the index small and skips every in-progress/never-completed
+-- website submission it would otherwise have to include for no benefit.
+--
+-- Not a replacement for leads_open_dashboard_idx (keyed on
+-- (status, created_at), added in the same C2D-A migration): that index
+-- supports a *different* query shape (open leads needing attention,
+-- filtered by status first) and remains exactly as-is. This migration adds
+-- a second, additive index for the inbox's own specific ordering need
+-- rather than trying to serve both shapes from one index.
+--
+-- No CONCURRENTLY: this project's migrations run inside a transaction (see
+-- every prior migration's plain `create index`, and CHECKPOINT C2H-A's own
+-- documented pgTAP-harness-is-one-transaction constraint) — CREATE INDEX
+-- CONCURRENTLY cannot run inside a transaction block at all, so a plain
+-- CREATE INDEX is not just consistent with convention here, it is the only
+-- option available.
+--
+-- Security posture: unaffected. RLS remains enabled and FORCEd on
+-- public.leads with zero client-facing policies (unchanged since
+-- 20260811165757_create_quote_backend_foundation.sql); service_role's
+-- existing select/insert/update grant (no delete) is untouched — an index
+-- carries no privilege of its own and needs no GRANT/REVOKE statement.
+
+create index leads_owner_inbox_completed_order_idx
+  on public.leads (submission_completed_at desc, created_at desc, id desc)
+  where submission_completed_at is not null;

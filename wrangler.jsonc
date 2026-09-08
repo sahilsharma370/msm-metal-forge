@@ -1,0 +1,171 @@
+{
+  // CHECKPOINT C2G — checked-in Cloudflare Workers runtime configuration.
+  //
+  // This file is read by Nitro's `cloudflare-module` preset (readWranglerConfig
+  // in nitro/dist/_presets.mjs) during `npm run build` and merged via
+  // `defu(overrides, ctxConfig, userConfig, defaults)` — every field below
+  // wins over Nitro's own defaults EXCEPT `main`, `assets` and
+  // `pages_build_output_dir`, which Nitro always computes itself from the
+  // actual build output and will silently override regardless of what's
+  // written here. The values below are therefore the real, effective
+  // production configuration for everything except those three fields.
+  //
+  // Local-only: this file is never used to run `wrangler deploy`, `wrangler
+  // login`, or to create/modify any remote Cloudflare resource from this
+  // repository. See docs/cloudflare-setup.md for the manual dashboard/CLI
+  // steps still required before a real deployment.
+
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "msm-metal-forge",
+
+  // Ignored/overridden by Nitro at build time — kept only so this file is
+  // independently valid if ever pointed at by `wrangler` directly.
+  "main": "./.output/server/index.mjs",
+
+  // Pinned to a specific, well-past date rather than "today" so behavior
+  // never silently shifts on a future Workers runtime release. Safe to bump
+  // forward deliberately later; must never be left to float.
+  "compatibility_date": "2024-09-23",
+
+  // `nodejs_compat`: the base Node.js compatibility polyfill layer (Buffer,
+  // streams, etc.) — required broadly, including by @supabase/supabase-js.
+  //
+  // `nodejs_compat_populate_process_env` — CHECKPOINT C2I-B: required for
+  // `process.env["..."]` to actually be populated at all with this
+  // project's pinned `compatibility_date` (2024-09-23, well before
+  // Cloudflare's 2025-04-01 default-on cutoff for this behavior) — without
+  // it, `process.env` reads (env.server.ts's SUPABASE_URL/
+  // SUPABASE_SECRET_KEY/RESEND_API_KEY/etc., turnstile.server.ts's
+  // TURNSTILE_SECRET_KEY/TURNSTILE_ALLOWED_HOSTNAMES) silently return
+  // undefined, discovered empirically against a real `wrangler dev` run.
+  // This flag is explicitly NOT a substitute for bumping
+  // `compatibility_date` forward — that stays pinned deliberately (see its
+  // own comment above) so behavior never silently shifts on a future
+  // Workers runtime release; this flag opts into exactly the one documented
+  // behavior needed, nothing else.
+  //
+  // Explicitly does NOT cover live binding objects (Rate Limiting, Queues,
+  // KV, R2, Durable Objects, service bindings): Cloudflare's `process.env`
+  // — with or without this flag — only ever carries plain-string values,
+  // never a binding object with methods like `.limit()`/`.send()`. Every
+  // live binding in this codebase is read via
+  // `@/server/cloudflare-runtime.server`'s `getCloudflareBinding`, from
+  // `request.runtime.cloudflare.env` (Nitro's own per-request attachment),
+  // never `process.env` — see that module's own doc comment for the full
+  // empirical story and rate-limit.server.ts/queue-producer.server.ts for
+  // the two call sites.
+  "compatibility_flags": ["nodejs_compat", "nodejs_compat_populate_process_env"],
+
+  // CHECKPOINT C2G — Cloudflare Workers Rate Limiting bindings (native
+  // Workers Free-tier feature; no paid add-on, no external service, no
+  // process-memory/browser counters — see src/server/rate-limit.server.ts).
+  // `namespace_id` is an arbitrary, developer-chosen unique string per the
+  // Rate Limiting binding's own contract — unlike KV/D1/R2 IDs, it is never
+  // provisioned via the Cloudflare dashboard, so no manual step is needed
+  // for these three specifically. `period` accepts only 10 or 60 (seconds)
+  // per Wrangler's own config schema; 60 is used throughout to match
+  // RATE_LIMIT_RETRY_AFTER_SECONDS in rate-limit.server.ts.
+  //
+  // Limit rationale (all easily adjustable — see rate-limit.server.ts's own
+  // doc comments for the full reasoning):
+  //   - initiate (5/60s):  the cheapest-per-call route but the one that
+  //     creates a Supabase lead row and burns a Turnstile Siteverify call;
+  //     kept tightest since one legitimate customer submits at most a
+  //     handful of times per minute even across retries.
+  //   - upload (30/60s):   must comfortably fit one legitimate session
+  //     uploading up to 5 files with normal retry slack, without opening the
+  //     door to using this route to brute-force or flood Storage.
+  //   - complete (10/60s): called once per genuine submission (plus rare
+  //     idempotent retries after a lost response), so a small allowance
+  //     covers real retry behavior while still bounding abuse.
+  //   - CHECKPOINT C2I-A ownerLoginRequestCode (5/60s) / ownerLoginVerifyCode
+  //     (8/60s): owner passwordless-login rate limits — see
+  //     src/server/rate-limit.server.ts's own doc comment for the full
+  //     rationale. Two separate bindings because requesting a code and
+  //     submitting a code are different abuse shapes.
+  "ratelimits": [
+    {
+      "name": "RATE_LIMITER_INITIATE",
+      "namespace_id": "10001",
+      "simple": { "limit": 5, "period": 60 }
+    },
+    {
+      "name": "RATE_LIMITER_UPLOAD",
+      "namespace_id": "10002",
+      "simple": { "limit": 30, "period": 60 }
+    },
+    {
+      "name": "RATE_LIMITER_COMPLETE",
+      "namespace_id": "10003",
+      "simple": { "limit": 10, "period": 60 }
+    },
+    {
+      "name": "RATE_LIMITER_OWNER_LOGIN_REQUEST_CODE",
+      "namespace_id": "10004",
+      "simple": { "limit": 5, "period": 60 }
+    },
+    {
+      "name": "RATE_LIMITER_OWNER_LOGIN_VERIFY_CODE",
+      "namespace_id": "10005",
+      "simple": { "limit": 8, "period": 60 }
+    }
+  ],
+
+  // CHECKPOINT C2H-B2 — Cloudflare Queue wake-up + scheduled reconciliation.
+  // The Queue is a wake-up accelerator only, never the source of truth —
+  // public.notification_deliveries (Postgres) remains authoritative even if
+  // every message below is lost, duplicated, delayed, or discarded; see
+  // src/server/notifications/queue-producer.server.ts,
+  // queue-consumer.server.ts and cron-sweep.server.ts for the full
+  // reasoning. Not created remotely by this checkpoint — see
+  // docs/cloudflare-setup.md for the manual `wrangler queues create
+  // msm-owner-notifications` step still required before a real deployment.
+  "queues": {
+    "producers": [
+      {
+        // Binding name read via process.env["OWNER_NOTIFICATION_QUEUE"] in
+        // queue-producer.server.ts, the exact same per-request-binding
+        // mechanism already used for the Rate Limiting bindings above.
+        "binding": "OWNER_NOTIFICATION_QUEUE",
+        "queue": "msm-owner-notifications"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "msm-owner-notifications",
+        // This Queue carries exactly one minimal wake-up message per
+        // completed enquiry (see queue-producer.server.ts) — there is
+        // never a real batch to accumulate, and an owner notification
+        // should start promptly, not sit waiting to be joined by messages
+        // that will never arrive. max_batch_size=1 with a short
+        // max_batch_timeout delivers each wake-up to the consumer
+        // immediately, one at a time; the consumer implementation itself
+        // (handleOwnerNotificationQueueBatch) remains fully batch-capable
+        // and is tested against multi-message batches regardless — this is
+        // a deployment-tuning choice, not a code constraint. max_retries=3
+        // is a transport-level retry ceiling only: Postgres
+        // (attempt_count/status on notification_deliveries) remains the
+        // sole business retry/dead-letter authority — see
+        // queue-consumer.server.ts's own comment on never using
+        // Cloudflare's retry count as the business attempt counter — and
+        // Cron (cron-sweep.server.ts, every minute) remains the recovery
+        // mechanism for anything a Queue message ever fails to redeliver.
+        // max_concurrency=1 is ample for this volume and keeps reasoning
+        // about the underlying FOR UPDATE SKIP LOCKED database claim
+        // simple (it stays correct under higher concurrency too, but there
+        // is no need for it here).
+        "max_batch_size": 1,
+        "max_batch_timeout": 5,
+        "max_retries": 3,
+        "max_concurrency": 1
+      }
+    ]
+  },
+
+  // Every minute — recovers a missed/discarded Queue wake-up, a due
+  // retry_wait row, or a processing row whose lease expired (a crashed
+  // worker). See src/server/notifications/cron-sweep.server.ts.
+  "triggers": {
+    "crons": ["* * * * *"]
+  }
+}

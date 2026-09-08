@@ -10,33 +10,347 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AboutRouteImport } from './routes/about'
+import { Route as QuoteRouteImport } from './routes/quote'
+import { Route as OwnerIndexRouteImport } from './routes/owner/index'
+import { Route as OwnerLoginRouteImport } from './routes/owner/login'
+import { Route as OwnerOverviewRouteImport } from './routes/owner/overview'
+import { Route as ApiOwnerLeadsRouteImport } from './routes/api/owner/leads'
+import { Route as ApiOwnerSessionRouteImport } from './routes/api/owner/session'
+import { Route as ApiQuoteCompleteRouteImport } from './routes/api/quote/complete'
+import { Route as ApiQuoteInitiateRouteImport } from './routes/api/quote/initiate'
+import { Route as ApiQuoteUploadRouteImport } from './routes/api/quote/upload'
+import { Route as OwnerLeadsLeadIdRouteImport } from './routes/owner/leads/$leadId'
+import { Route as OwnerLeadsNewRouteImport } from './routes/owner/leads/new'
+import { Route as ApiOwnerLeadsLeadIdRouteImport } from './routes/api/owner/leads/$leadId'
+import { Route as ApiOwnerLeadsExportRouteImport } from './routes/api/owner/leads/export'
+import { Route as ApiOwnerLeadsOverviewRouteImport } from './routes/api/owner/leads/overview'
+import { Route as ApiOwnerLoginRequestCodeRouteImport } from './routes/api/owner/login/request-code'
+import { Route as ApiOwnerLoginVerifyCodeRouteImport } from './routes/api/owner/login/verify-code'
+import { Route as OwnerLeadsLeadIdEditRouteImport } from './routes/owner/leads/$leadId_.edit'
+import { Route as ApiOwnerLeadsLeadIdDetailsRouteImport } from './routes/api/owner/leads/$leadId.details'
+import { Route as ApiOwnerLeadsLeadIdNotesRouteImport } from './routes/api/owner/leads/$leadId.notes'
+import { Route as ApiOwnerLeadsLeadIdRestoreRouteImport } from './routes/api/owner/leads/$leadId.restore'
+import { Route as ApiOwnerLeadsLeadIdStatusRouteImport } from './routes/api/owner/leads/$leadId.status'
+import { Route as ApiOwnerLeadsLeadIdTrashRouteImport } from './routes/api/owner/leads/$leadId.trash'
+import { Route as ApiOwnerLeadsLeadIdFilesFileIdAccessRouteImport } from './routes/api/owner/leads/$leadId.files.$fileId.access'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AboutRoute = AboutRouteImport.update({
+  id: '/about',
+  path: '/about',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const QuoteRoute = QuoteRouteImport.update({
+  id: '/quote',
+  path: '/quote',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OwnerIndexRoute = OwnerIndexRouteImport.update({
+  id: '/owner/',
+  path: '/owner/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OwnerLoginRoute = OwnerLoginRouteImport.update({
+  id: '/owner/login',
+  path: '/owner/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OwnerOverviewRoute = OwnerOverviewRouteImport.update({
+  id: '/owner/overview',
+  path: '/owner/overview',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiOwnerLeadsRoute = ApiOwnerLeadsRouteImport.update({
+  id: '/api/owner/leads',
+  path: '/api/owner/leads',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiOwnerSessionRoute = ApiOwnerSessionRouteImport.update({
+  id: '/api/owner/session',
+  path: '/api/owner/session',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiQuoteCompleteRoute = ApiQuoteCompleteRouteImport.update({
+  id: '/api/quote/complete',
+  path: '/api/quote/complete',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiQuoteInitiateRoute = ApiQuoteInitiateRouteImport.update({
+  id: '/api/quote/initiate',
+  path: '/api/quote/initiate',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiQuoteUploadRoute = ApiQuoteUploadRouteImport.update({
+  id: '/api/quote/upload',
+  path: '/api/quote/upload',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OwnerLeadsLeadIdRoute = OwnerLeadsLeadIdRouteImport.update({
+  id: '/owner/leads/$leadId',
+  path: '/owner/leads/$leadId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OwnerLeadsNewRoute = OwnerLeadsNewRouteImport.update({
+  id: '/owner/leads/new',
+  path: '/owner/leads/new',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiOwnerLeadsLeadIdRoute = ApiOwnerLeadsLeadIdRouteImport.update({
+  id: '/$leadId',
+  path: '/$leadId',
+  getParentRoute: () => ApiOwnerLeadsRoute,
+} as any)
+const ApiOwnerLeadsExportRoute = ApiOwnerLeadsExportRouteImport.update({
+  id: '/export',
+  path: '/export',
+  getParentRoute: () => ApiOwnerLeadsRoute,
+} as any)
+const ApiOwnerLeadsOverviewRoute = ApiOwnerLeadsOverviewRouteImport.update({
+  id: '/overview',
+  path: '/overview',
+  getParentRoute: () => ApiOwnerLeadsRoute,
+} as any)
+const ApiOwnerLoginRequestCodeRoute =
+  ApiOwnerLoginRequestCodeRouteImport.update({
+    id: '/api/owner/login/request-code',
+    path: '/api/owner/login/request-code',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiOwnerLoginVerifyCodeRoute = ApiOwnerLoginVerifyCodeRouteImport.update({
+  id: '/api/owner/login/verify-code',
+  path: '/api/owner/login/verify-code',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OwnerLeadsLeadIdEditRoute = OwnerLeadsLeadIdEditRouteImport.update({
+  id: '/owner/leads/$leadId_/edit',
+  path: '/owner/leads/$leadId/edit',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiOwnerLeadsLeadIdDetailsRoute =
+  ApiOwnerLeadsLeadIdDetailsRouteImport.update({
+    id: '/details',
+    path: '/details',
+    getParentRoute: () => ApiOwnerLeadsLeadIdRoute,
+  } as any)
+const ApiOwnerLeadsLeadIdNotesRoute =
+  ApiOwnerLeadsLeadIdNotesRouteImport.update({
+    id: '/notes',
+    path: '/notes',
+    getParentRoute: () => ApiOwnerLeadsLeadIdRoute,
+  } as any)
+const ApiOwnerLeadsLeadIdRestoreRoute =
+  ApiOwnerLeadsLeadIdRestoreRouteImport.update({
+    id: '/restore',
+    path: '/restore',
+    getParentRoute: () => ApiOwnerLeadsLeadIdRoute,
+  } as any)
+const ApiOwnerLeadsLeadIdStatusRoute =
+  ApiOwnerLeadsLeadIdStatusRouteImport.update({
+    id: '/status',
+    path: '/status',
+    getParentRoute: () => ApiOwnerLeadsLeadIdRoute,
+  } as any)
+const ApiOwnerLeadsLeadIdTrashRoute =
+  ApiOwnerLeadsLeadIdTrashRouteImport.update({
+    id: '/trash',
+    path: '/trash',
+    getParentRoute: () => ApiOwnerLeadsLeadIdRoute,
+  } as any)
+const ApiOwnerLeadsLeadIdFilesFileIdAccessRoute =
+  ApiOwnerLeadsLeadIdFilesFileIdAccessRouteImport.update({
+    id: '/files/$fileId/access',
+    path: '/files/$fileId/access',
+    getParentRoute: () => ApiOwnerLeadsLeadIdRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/about': typeof AboutRoute
+  '/quote': typeof QuoteRoute
+  '/owner/login': typeof OwnerLoginRoute
+  '/owner/overview': typeof OwnerOverviewRoute
+  '/owner/': typeof OwnerIndexRoute
+  '/api/owner/leads': typeof ApiOwnerLeadsRouteWithChildren
+  '/api/owner/session': typeof ApiOwnerSessionRoute
+  '/api/quote/complete': typeof ApiQuoteCompleteRoute
+  '/api/quote/initiate': typeof ApiQuoteInitiateRoute
+  '/api/quote/upload': typeof ApiQuoteUploadRoute
+  '/owner/leads/$leadId': typeof OwnerLeadsLeadIdRoute
+  '/owner/leads/new': typeof OwnerLeadsNewRoute
+  '/api/owner/leads/$leadId': typeof ApiOwnerLeadsLeadIdRouteWithChildren
+  '/api/owner/leads/export': typeof ApiOwnerLeadsExportRoute
+  '/api/owner/leads/overview': typeof ApiOwnerLeadsOverviewRoute
+  '/api/owner/login/request-code': typeof ApiOwnerLoginRequestCodeRoute
+  '/api/owner/login/verify-code': typeof ApiOwnerLoginVerifyCodeRoute
+  '/owner/leads/$leadId/edit': typeof OwnerLeadsLeadIdEditRoute
+  '/api/owner/leads/$leadId/details': typeof ApiOwnerLeadsLeadIdDetailsRoute
+  '/api/owner/leads/$leadId/notes': typeof ApiOwnerLeadsLeadIdNotesRoute
+  '/api/owner/leads/$leadId/restore': typeof ApiOwnerLeadsLeadIdRestoreRoute
+  '/api/owner/leads/$leadId/status': typeof ApiOwnerLeadsLeadIdStatusRoute
+  '/api/owner/leads/$leadId/trash': typeof ApiOwnerLeadsLeadIdTrashRoute
+  '/api/owner/leads/$leadId/files/$fileId/access': typeof ApiOwnerLeadsLeadIdFilesFileIdAccessRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/about': typeof AboutRoute
+  '/quote': typeof QuoteRoute
+  '/owner/login': typeof OwnerLoginRoute
+  '/owner/overview': typeof OwnerOverviewRoute
+  '/owner': typeof OwnerIndexRoute
+  '/api/owner/leads': typeof ApiOwnerLeadsRouteWithChildren
+  '/api/owner/session': typeof ApiOwnerSessionRoute
+  '/api/quote/complete': typeof ApiQuoteCompleteRoute
+  '/api/quote/initiate': typeof ApiQuoteInitiateRoute
+  '/api/quote/upload': typeof ApiQuoteUploadRoute
+  '/owner/leads/$leadId': typeof OwnerLeadsLeadIdRoute
+  '/owner/leads/new': typeof OwnerLeadsNewRoute
+  '/api/owner/leads/$leadId': typeof ApiOwnerLeadsLeadIdRouteWithChildren
+  '/api/owner/leads/export': typeof ApiOwnerLeadsExportRoute
+  '/api/owner/leads/overview': typeof ApiOwnerLeadsOverviewRoute
+  '/api/owner/login/request-code': typeof ApiOwnerLoginRequestCodeRoute
+  '/api/owner/login/verify-code': typeof ApiOwnerLoginVerifyCodeRoute
+  '/owner/leads/$leadId/edit': typeof OwnerLeadsLeadIdEditRoute
+  '/api/owner/leads/$leadId/details': typeof ApiOwnerLeadsLeadIdDetailsRoute
+  '/api/owner/leads/$leadId/notes': typeof ApiOwnerLeadsLeadIdNotesRoute
+  '/api/owner/leads/$leadId/restore': typeof ApiOwnerLeadsLeadIdRestoreRoute
+  '/api/owner/leads/$leadId/status': typeof ApiOwnerLeadsLeadIdStatusRoute
+  '/api/owner/leads/$leadId/trash': typeof ApiOwnerLeadsLeadIdTrashRoute
+  '/api/owner/leads/$leadId/files/$fileId/access': typeof ApiOwnerLeadsLeadIdFilesFileIdAccessRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/about': typeof AboutRoute
+  '/quote': typeof QuoteRoute
+  '/owner/login': typeof OwnerLoginRoute
+  '/owner/overview': typeof OwnerOverviewRoute
+  '/owner/': typeof OwnerIndexRoute
+  '/api/owner/leads': typeof ApiOwnerLeadsRouteWithChildren
+  '/api/owner/session': typeof ApiOwnerSessionRoute
+  '/api/quote/complete': typeof ApiQuoteCompleteRoute
+  '/api/quote/initiate': typeof ApiQuoteInitiateRoute
+  '/api/quote/upload': typeof ApiQuoteUploadRoute
+  '/owner/leads/$leadId': typeof OwnerLeadsLeadIdRoute
+  '/owner/leads/new': typeof OwnerLeadsNewRoute
+  '/api/owner/leads/$leadId': typeof ApiOwnerLeadsLeadIdRouteWithChildren
+  '/api/owner/leads/export': typeof ApiOwnerLeadsExportRoute
+  '/api/owner/leads/overview': typeof ApiOwnerLeadsOverviewRoute
+  '/api/owner/login/request-code': typeof ApiOwnerLoginRequestCodeRoute
+  '/api/owner/login/verify-code': typeof ApiOwnerLoginVerifyCodeRoute
+  '/owner/leads/$leadId_/edit': typeof OwnerLeadsLeadIdEditRoute
+  '/api/owner/leads/$leadId/details': typeof ApiOwnerLeadsLeadIdDetailsRoute
+  '/api/owner/leads/$leadId/notes': typeof ApiOwnerLeadsLeadIdNotesRoute
+  '/api/owner/leads/$leadId/restore': typeof ApiOwnerLeadsLeadIdRestoreRoute
+  '/api/owner/leads/$leadId/status': typeof ApiOwnerLeadsLeadIdStatusRoute
+  '/api/owner/leads/$leadId/trash': typeof ApiOwnerLeadsLeadIdTrashRoute
+  '/api/owner/leads/$leadId/files/$fileId/access': typeof ApiOwnerLeadsLeadIdFilesFileIdAccessRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths:
+    | '/'
+    | '/about'
+    | '/quote'
+    | '/owner/login'
+    | '/owner/overview'
+    | '/owner/'
+    | '/api/owner/leads'
+    | '/api/owner/session'
+    | '/api/quote/complete'
+    | '/api/quote/initiate'
+    | '/api/quote/upload'
+    | '/owner/leads/$leadId'
+    | '/owner/leads/new'
+    | '/api/owner/leads/$leadId'
+    | '/api/owner/leads/export'
+    | '/api/owner/leads/overview'
+    | '/api/owner/login/request-code'
+    | '/api/owner/login/verify-code'
+    | '/owner/leads/$leadId/edit'
+    | '/api/owner/leads/$leadId/details'
+    | '/api/owner/leads/$leadId/notes'
+    | '/api/owner/leads/$leadId/restore'
+    | '/api/owner/leads/$leadId/status'
+    | '/api/owner/leads/$leadId/trash'
+    | '/api/owner/leads/$leadId/files/$fileId/access'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to:
+    | '/'
+    | '/about'
+    | '/quote'
+    | '/owner/login'
+    | '/owner/overview'
+    | '/owner'
+    | '/api/owner/leads'
+    | '/api/owner/session'
+    | '/api/quote/complete'
+    | '/api/quote/initiate'
+    | '/api/quote/upload'
+    | '/owner/leads/$leadId'
+    | '/owner/leads/new'
+    | '/api/owner/leads/$leadId'
+    | '/api/owner/leads/export'
+    | '/api/owner/leads/overview'
+    | '/api/owner/login/request-code'
+    | '/api/owner/login/verify-code'
+    | '/owner/leads/$leadId/edit'
+    | '/api/owner/leads/$leadId/details'
+    | '/api/owner/leads/$leadId/notes'
+    | '/api/owner/leads/$leadId/restore'
+    | '/api/owner/leads/$leadId/status'
+    | '/api/owner/leads/$leadId/trash'
+    | '/api/owner/leads/$leadId/files/$fileId/access'
+  id:
+    | '__root__'
+    | '/'
+    | '/about'
+    | '/quote'
+    | '/owner/login'
+    | '/owner/overview'
+    | '/owner/'
+    | '/api/owner/leads'
+    | '/api/owner/session'
+    | '/api/quote/complete'
+    | '/api/quote/initiate'
+    | '/api/quote/upload'
+    | '/owner/leads/$leadId'
+    | '/owner/leads/new'
+    | '/api/owner/leads/$leadId'
+    | '/api/owner/leads/export'
+    | '/api/owner/leads/overview'
+    | '/api/owner/login/request-code'
+    | '/api/owner/login/verify-code'
+    | '/owner/leads/$leadId_/edit'
+    | '/api/owner/leads/$leadId/details'
+    | '/api/owner/leads/$leadId/notes'
+    | '/api/owner/leads/$leadId/restore'
+    | '/api/owner/leads/$leadId/status'
+    | '/api/owner/leads/$leadId/trash'
+    | '/api/owner/leads/$leadId/files/$fileId/access'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AboutRoute: typeof AboutRoute
+  QuoteRoute: typeof QuoteRoute
+  OwnerLoginRoute: typeof OwnerLoginRoute
+  OwnerOverviewRoute: typeof OwnerOverviewRoute
+  OwnerIndexRoute: typeof OwnerIndexRoute
+  ApiOwnerLeadsRoute: typeof ApiOwnerLeadsRouteWithChildren
+  ApiOwnerSessionRoute: typeof ApiOwnerSessionRoute
+  ApiQuoteCompleteRoute: typeof ApiQuoteCompleteRoute
+  ApiQuoteInitiateRoute: typeof ApiQuoteInitiateRoute
+  ApiQuoteUploadRoute: typeof ApiQuoteUploadRoute
+  OwnerLeadsLeadIdRoute: typeof OwnerLeadsLeadIdRoute
+  OwnerLeadsNewRoute: typeof OwnerLeadsNewRoute
+  ApiOwnerLoginRequestCodeRoute: typeof ApiOwnerLoginRequestCodeRoute
+  ApiOwnerLoginVerifyCodeRoute: typeof ApiOwnerLoginVerifyCodeRoute
+  OwnerLeadsLeadIdEditRoute: typeof OwnerLeadsLeadIdEditRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -48,12 +362,243 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/about': {
+      id: '/about'
+      path: '/about'
+      fullPath: '/about'
+      preLoaderRoute: typeof AboutRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/quote': {
+      id: '/quote'
+      path: '/quote'
+      fullPath: '/quote'
+      preLoaderRoute: typeof QuoteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/owner/': {
+      id: '/owner/'
+      path: '/owner'
+      fullPath: '/owner/'
+      preLoaderRoute: typeof OwnerIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/owner/login': {
+      id: '/owner/login'
+      path: '/owner/login'
+      fullPath: '/owner/login'
+      preLoaderRoute: typeof OwnerLoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/owner/overview': {
+      id: '/owner/overview'
+      path: '/owner/overview'
+      fullPath: '/owner/overview'
+      preLoaderRoute: typeof OwnerOverviewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/owner/leads': {
+      id: '/api/owner/leads'
+      path: '/api/owner/leads'
+      fullPath: '/api/owner/leads'
+      preLoaderRoute: typeof ApiOwnerLeadsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/owner/session': {
+      id: '/api/owner/session'
+      path: '/api/owner/session'
+      fullPath: '/api/owner/session'
+      preLoaderRoute: typeof ApiOwnerSessionRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/quote/complete': {
+      id: '/api/quote/complete'
+      path: '/api/quote/complete'
+      fullPath: '/api/quote/complete'
+      preLoaderRoute: typeof ApiQuoteCompleteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/quote/initiate': {
+      id: '/api/quote/initiate'
+      path: '/api/quote/initiate'
+      fullPath: '/api/quote/initiate'
+      preLoaderRoute: typeof ApiQuoteInitiateRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/quote/upload': {
+      id: '/api/quote/upload'
+      path: '/api/quote/upload'
+      fullPath: '/api/quote/upload'
+      preLoaderRoute: typeof ApiQuoteUploadRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/owner/leads/$leadId': {
+      id: '/owner/leads/$leadId'
+      path: '/owner/leads/$leadId'
+      fullPath: '/owner/leads/$leadId'
+      preLoaderRoute: typeof OwnerLeadsLeadIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/owner/leads/new': {
+      id: '/owner/leads/new'
+      path: '/owner/leads/new'
+      fullPath: '/owner/leads/new'
+      preLoaderRoute: typeof OwnerLeadsNewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/owner/leads/$leadId': {
+      id: '/api/owner/leads/$leadId'
+      path: '/$leadId'
+      fullPath: '/api/owner/leads/$leadId'
+      preLoaderRoute: typeof ApiOwnerLeadsLeadIdRouteImport
+      parentRoute: typeof ApiOwnerLeadsRoute
+    }
+    '/api/owner/leads/export': {
+      id: '/api/owner/leads/export'
+      path: '/export'
+      fullPath: '/api/owner/leads/export'
+      preLoaderRoute: typeof ApiOwnerLeadsExportRouteImport
+      parentRoute: typeof ApiOwnerLeadsRoute
+    }
+    '/api/owner/leads/overview': {
+      id: '/api/owner/leads/overview'
+      path: '/overview'
+      fullPath: '/api/owner/leads/overview'
+      preLoaderRoute: typeof ApiOwnerLeadsOverviewRouteImport
+      parentRoute: typeof ApiOwnerLeadsRoute
+    }
+    '/api/owner/login/request-code': {
+      id: '/api/owner/login/request-code'
+      path: '/api/owner/login/request-code'
+      fullPath: '/api/owner/login/request-code'
+      preLoaderRoute: typeof ApiOwnerLoginRequestCodeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/owner/login/verify-code': {
+      id: '/api/owner/login/verify-code'
+      path: '/api/owner/login/verify-code'
+      fullPath: '/api/owner/login/verify-code'
+      preLoaderRoute: typeof ApiOwnerLoginVerifyCodeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/owner/leads/$leadId_/edit': {
+      id: '/owner/leads/$leadId_/edit'
+      path: '/owner/leads/$leadId/edit'
+      fullPath: '/owner/leads/$leadId/edit'
+      preLoaderRoute: typeof OwnerLeadsLeadIdEditRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/owner/leads/$leadId/details': {
+      id: '/api/owner/leads/$leadId/details'
+      path: '/details'
+      fullPath: '/api/owner/leads/$leadId/details'
+      preLoaderRoute: typeof ApiOwnerLeadsLeadIdDetailsRouteImport
+      parentRoute: typeof ApiOwnerLeadsLeadIdRoute
+    }
+    '/api/owner/leads/$leadId/notes': {
+      id: '/api/owner/leads/$leadId/notes'
+      path: '/notes'
+      fullPath: '/api/owner/leads/$leadId/notes'
+      preLoaderRoute: typeof ApiOwnerLeadsLeadIdNotesRouteImport
+      parentRoute: typeof ApiOwnerLeadsLeadIdRoute
+    }
+    '/api/owner/leads/$leadId/restore': {
+      id: '/api/owner/leads/$leadId/restore'
+      path: '/restore'
+      fullPath: '/api/owner/leads/$leadId/restore'
+      preLoaderRoute: typeof ApiOwnerLeadsLeadIdRestoreRouteImport
+      parentRoute: typeof ApiOwnerLeadsLeadIdRoute
+    }
+    '/api/owner/leads/$leadId/status': {
+      id: '/api/owner/leads/$leadId/status'
+      path: '/status'
+      fullPath: '/api/owner/leads/$leadId/status'
+      preLoaderRoute: typeof ApiOwnerLeadsLeadIdStatusRouteImport
+      parentRoute: typeof ApiOwnerLeadsLeadIdRoute
+    }
+    '/api/owner/leads/$leadId/trash': {
+      id: '/api/owner/leads/$leadId/trash'
+      path: '/trash'
+      fullPath: '/api/owner/leads/$leadId/trash'
+      preLoaderRoute: typeof ApiOwnerLeadsLeadIdTrashRouteImport
+      parentRoute: typeof ApiOwnerLeadsLeadIdRoute
+    }
+    '/api/owner/leads/$leadId/files/$fileId/access': {
+      id: '/api/owner/leads/$leadId/files/$fileId/access'
+      path: '/files/$fileId/access'
+      fullPath: '/api/owner/leads/$leadId/files/$fileId/access'
+      preLoaderRoute: typeof ApiOwnerLeadsLeadIdFilesFileIdAccessRouteImport
+      parentRoute: typeof ApiOwnerLeadsLeadIdRoute
+    }
   }
 }
 
+interface ApiOwnerLeadsLeadIdRouteChildren {
+  ApiOwnerLeadsLeadIdDetailsRoute: typeof ApiOwnerLeadsLeadIdDetailsRoute
+  ApiOwnerLeadsLeadIdNotesRoute: typeof ApiOwnerLeadsLeadIdNotesRoute
+  ApiOwnerLeadsLeadIdRestoreRoute: typeof ApiOwnerLeadsLeadIdRestoreRoute
+  ApiOwnerLeadsLeadIdStatusRoute: typeof ApiOwnerLeadsLeadIdStatusRoute
+  ApiOwnerLeadsLeadIdTrashRoute: typeof ApiOwnerLeadsLeadIdTrashRoute
+  ApiOwnerLeadsLeadIdFilesFileIdAccessRoute: typeof ApiOwnerLeadsLeadIdFilesFileIdAccessRoute
+}
+
+const ApiOwnerLeadsLeadIdRouteChildren: ApiOwnerLeadsLeadIdRouteChildren = {
+  ApiOwnerLeadsLeadIdDetailsRoute: ApiOwnerLeadsLeadIdDetailsRoute,
+  ApiOwnerLeadsLeadIdNotesRoute: ApiOwnerLeadsLeadIdNotesRoute,
+  ApiOwnerLeadsLeadIdRestoreRoute: ApiOwnerLeadsLeadIdRestoreRoute,
+  ApiOwnerLeadsLeadIdStatusRoute: ApiOwnerLeadsLeadIdStatusRoute,
+  ApiOwnerLeadsLeadIdTrashRoute: ApiOwnerLeadsLeadIdTrashRoute,
+  ApiOwnerLeadsLeadIdFilesFileIdAccessRoute:
+    ApiOwnerLeadsLeadIdFilesFileIdAccessRoute,
+}
+
+const ApiOwnerLeadsLeadIdRouteWithChildren =
+  ApiOwnerLeadsLeadIdRoute._addFileChildren(ApiOwnerLeadsLeadIdRouteChildren)
+
+interface ApiOwnerLeadsRouteChildren {
+  ApiOwnerLeadsLeadIdRoute: typeof ApiOwnerLeadsLeadIdRouteWithChildren
+  ApiOwnerLeadsExportRoute: typeof ApiOwnerLeadsExportRoute
+  ApiOwnerLeadsOverviewRoute: typeof ApiOwnerLeadsOverviewRoute
+}
+
+const ApiOwnerLeadsRouteChildren: ApiOwnerLeadsRouteChildren = {
+  ApiOwnerLeadsLeadIdRoute: ApiOwnerLeadsLeadIdRouteWithChildren,
+  ApiOwnerLeadsExportRoute: ApiOwnerLeadsExportRoute,
+  ApiOwnerLeadsOverviewRoute: ApiOwnerLeadsOverviewRoute,
+}
+
+const ApiOwnerLeadsRouteWithChildren = ApiOwnerLeadsRoute._addFileChildren(
+  ApiOwnerLeadsRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AboutRoute: AboutRoute,
+  QuoteRoute: QuoteRoute,
+  OwnerLoginRoute: OwnerLoginRoute,
+  OwnerOverviewRoute: OwnerOverviewRoute,
+  OwnerIndexRoute: OwnerIndexRoute,
+  ApiOwnerLeadsRoute: ApiOwnerLeadsRouteWithChildren,
+  ApiOwnerSessionRoute: ApiOwnerSessionRoute,
+  ApiQuoteCompleteRoute: ApiQuoteCompleteRoute,
+  ApiQuoteInitiateRoute: ApiQuoteInitiateRoute,
+  ApiQuoteUploadRoute: ApiQuoteUploadRoute,
+  OwnerLeadsLeadIdRoute: OwnerLeadsLeadIdRoute,
+  OwnerLeadsNewRoute: OwnerLeadsNewRoute,
+  ApiOwnerLoginRequestCodeRoute: ApiOwnerLoginRequestCodeRoute,
+  ApiOwnerLoginVerifyCodeRoute: ApiOwnerLoginVerifyCodeRoute,
+  OwnerLeadsLeadIdEditRoute: OwnerLeadsLeadIdEditRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}

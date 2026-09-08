@@ -1,35 +1,190 @@
-import owner from "@/assets/owner.jpg";
+import { ArrowLeft, ArrowRight } from "lucide-react";
+import { Link } from "@tanstack/react-router";
 import { DotGrid } from "./DotGrid";
+import ownerPortrait from "@/assets/owner-mohammed-sihabuddin-dark.webp";
+
+const COPPER = "oklch(0.583 0.135 45.5)";
+const NAVY = "#080A1D";
+
+/**
+ * Also reused by the /about page's owner-note portrait placeholder — that
+ * call site passes no `className`, so it keeps its exact current size
+ * (`relative h-9 w-9`) untouched; only this file's own placeholder overrides
+ * it.
+ */
+export function MonogramMark({ className = "relative h-9 w-9" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 85 81" className={className} aria-hidden="true">
+      <path
+        fillRule="evenodd"
+        clipRule="evenodd"
+        d="M21.02 7L0 40.5L21.02 74H64.89L85 39.6625L64.89 7H21.02ZM61 41C61 50.3888 52.94 58 43 58C33.06 58 25 50.3888 25 41C25 31.6112 33.06 24 43 24C52.94 24 61 31.6112 61 41Z"
+        fill={COPPER}
+      />
+    </svg>
+  );
+}
+
+/**
+ * The circular arrow-link CTA treatment (originally "Read Our Full Story"),
+ * extracted so every arrow-button link on the site — including the /about
+ * hero's "Back to Home" — shares one implementation instead of a second
+ * copy of the same styling. Default: copper-outline circle, copper arrow,
+ * warm-neutral (#EDE8D0) label. Hover/focus-visible: circle fills copper,
+ * arrow turns deep navy, label turns copper. The whole group shifts 2px and
+ * the arrow itself an extra 3px in `direction`; both are full literal
+ * Tailwind class strings per branch (not string-interpolated) so the JIT
+ * scanner can see them. `motion-reduce` disables both translations while
+ * leaving the colour transitions untouched.
+ */
+export function ArrowLinkCTA({
+  to,
+  label,
+  direction = "right",
+  className = "",
+}: {
+  to: string;
+  label: string;
+  direction?: "left" | "right";
+  className?: string;
+}) {
+  const ArrowIcon = direction === "left" ? ArrowLeft : ArrowRight;
+  const groupShift =
+    direction === "left"
+      ? "hover:-translate-x-[2px] focus-visible:-translate-x-[2px]"
+      : "hover:translate-x-[2px] focus-visible:translate-x-[2px]";
+  const arrowShift =
+    direction === "left"
+      ? "group-hover:-translate-x-[3px] group-focus-visible:-translate-x-[3px]"
+      : "group-hover:translate-x-[3px] group-focus-visible:translate-x-[3px]";
+
+  return (
+    <Link
+      to={to}
+      className={`group flex items-center gap-3 outline-none transition-transform duration-[320ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:hover:translate-x-0 motion-reduce:focus-visible:translate-x-0 ${groupShift} ${className}`}
+    >
+      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[oklch(0.583_0.135_45.5)]/60 text-[oklch(0.583_0.135_45.5)] transition-[background-color,border-color] duration-[320ms] ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:border-[oklch(0.583_0.135_45.5)] group-hover:bg-[oklch(0.583_0.135_45.5)] group-focus-visible:border-[oklch(0.583_0.135_45.5)] group-focus-visible:bg-[oklch(0.583_0.135_45.5)]">
+        <ArrowIcon
+          className={`h-4 w-4 text-[oklch(0.583_0.135_45.5)] transition-[color,transform] duration-[320ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:group-hover:translate-x-0 motion-reduce:group-focus-visible:translate-x-0 group-hover:text-[#080A1D] group-focus-visible:text-[#080A1D] ${arrowShift}`}
+        />
+      </span>
+      <span className="font-display text-sm font-semibold tracking-[0.14em] text-[#EDE8D0] uppercase transition-colors duration-[320ms] ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:text-[oklch(0.583_0.135_45.5)] group-focus-visible:text-[oklch(0.583_0.135_45.5)]">
+        {label}
+      </span>
+    </Link>
+  );
+}
+
+function IndustryBadge() {
+  return (
+    <svg viewBox="0 0 100 100" className="h-24 w-24 shrink-0" aria-hidden="true">
+      <circle
+        cx="50"
+        cy="50"
+        r="46"
+        fill="none"
+        stroke={COPPER}
+        strokeWidth="1"
+        strokeDasharray="1 4"
+        strokeLinecap="round"
+        opacity="0.7"
+      />
+      <path id="badge-top-arc" d="M 15 50 A 35 35 0 0 1 85 50" fill="none" />
+      <path id="badge-bottom-arc" d="M 85 50 A 35 35 0 0 1 15 50" fill="none" />
+      <text fontSize="7.5" fontWeight="600" fill={COPPER} letterSpacing="1.5">
+        <textPath href="#badge-top-arc" startOffset="50%" textAnchor="middle">
+          YEARS IN
+        </textPath>
+      </text>
+      <text fontSize="7.5" fontWeight="600" fill={COPPER} letterSpacing="1.5">
+        <textPath href="#badge-bottom-arc" startOffset="50%" textAnchor="middle">
+          THE INDUSTRY
+        </textPath>
+      </text>
+      <text
+        x="50"
+        y="59"
+        textAnchor="middle"
+        fontSize="28"
+        fontWeight="700"
+        fill={COPPER}
+        className="font-display"
+      >
+        14
+      </text>
+    </svg>
+  );
+}
 
 export function AboutTeaser() {
   return (
-    <section id="about" className="relative overflow-hidden bg-navy-deep py-28">
-      <DotGrid glow={1.1} />
-      <div className="relative mx-auto max-w-6xl px-6">
-        <div className="glass-panel glass-ring grid items-center gap-10 rounded-3xl p-8 sm:p-12 lg:grid-cols-[300px_1fr]">
-          <img
-            src={owner}
-            alt="Mohammed Sihabuddin, owner of MSM Scrap"
-            loading="lazy"
-            width={1024}
-            height={1024}
-            className="aspect-square w-full rounded-2xl object-cover"
-          />
-          <div>
-            <p className="label-eyebrow text-copper/90">The People Behind MSM</p>
-            <blockquote className="font-display mt-6 text-2xl leading-snug font-medium italic sm:text-3xl">
-              “Every load is weighed in front of the customer. That is how we built fourteen years
-              of trust in this trade.”
-            </blockquote>
-            <p className="font-display mt-8 text-lg font-semibold">Mohammed Sihabuddin</p>
-            <p className="text-muted-foreground">Owner, MSM Scrap</p>
-            <p className="text-copper">14 Years in the Industry</p>
-            <a
-              href="#contact"
-              className="font-display mt-6 inline-block text-sm font-semibold hover:text-copper"
+    <section
+      id="about"
+      className="relative overflow-hidden py-[72px]"
+      style={{ backgroundColor: NAVY }}
+    >
+      <DotGrid glow={0} className="z-0" />
+      <div className="relative z-10 mx-auto max-w-[100rem] px-6">
+        <div
+          className="relative grid items-stretch gap-10 px-6 py-3 sm:px-10 sm:py-4 lg:min-h-[450px] lg:grid-cols-[300px_1fr]"
+          style={{
+            backdropFilter: "blur(12px)",
+            WebkitBackdropFilter: "blur(12px)",
+            border: "1px solid rgba(255, 255, 255, 0.18)",
+            backgroundImage:
+              "linear-gradient(135deg, rgba(255, 255, 255, 0.16) 0%, rgba(255, 255, 255, 0.03) 45%, rgba(255, 255, 255, 0) 65%)",
+            boxShadow:
+              "inset 0 1px 0 rgba(255, 255, 255, 0.25), inset 0 -1px 0 rgba(255, 255, 255, 0.05)",
+          }}
+        >
+          <DotGrid glow={0} interactive={false} className="z-0" />
+          <div
+            className="relative z-10 flex h-full w-full items-center justify-center overflow-hidden border"
+            style={{
+              backgroundColor: "oklch(0.195 0.055 265.5)",
+              borderColor: "oklch(0.583 0.135 45.5 / 0.45)",
+            }}
+          >
+            <img
+              src={ownerPortrait}
+              alt="Mohammed Sihabuddin, Owner of MSM Scrap"
+              className="h-full w-full object-cover object-[center_top]"
+            />
+          </div>
+          <div className="relative z-10 flex flex-col">
+            <div className="flex items-center gap-4">
+              <p className="label-eyebrow shrink-0 text-[oklch(0.583_0.135_45.5)]">
+                The People Behind MSM
+              </p>
+              <span className="h-px flex-1 bg-[oklch(0.583_0.135_45.5)]/40" aria-hidden="true" />
+              <IndustryBadge />
+            </div>
+
+            <blockquote
+              className="mt-8 text-2xl leading-snug font-semibold text-[#EDE8D0] italic sm:text-3xl"
+              style={{ fontFamily: '"Baskerville", "Baskerville Old Face", Georgia, serif' }}
             >
-              Read our full story →
-            </a>
+              “In this trade, trust is earned at the scale—through fair weights, clear dealing and
+              every commitment kept.”
+            </blockquote>
+
+            <div className="mt-8 flex items-start gap-4">
+              <span
+                className="mt-1 h-16 w-px shrink-0 bg-[oklch(0.583_0.135_45.5)]"
+                aria-hidden="true"
+              />
+              <div>
+                <p className="font-display text-lg font-bold text-[#EDE8D0]">Mohammed Sihabuddin</p>
+                <p className="text-foreground/70">Owner – MSM Scrap</p>
+              </div>
+            </div>
+
+            <ArrowLinkCTA
+              to="/about"
+              label="Read Our Full Story"
+              direction="right"
+              className="mt-8 self-end"
+            />
           </div>
         </div>
       </div>
