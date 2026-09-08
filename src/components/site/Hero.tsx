@@ -2,22 +2,24 @@ import { forwardRef, useEffect, useRef } from "react";
 import { Link } from "@tanstack/react-router";
 import msmLogo from "@/assets/msm-logo.svg";
 import scrapTexture from "@/assets/scrap-texture.webp";
+import heroMetalMobile from "@/assets/hero-metal-mobile-v2.webp";
 import { WHATSAPP_URL } from "@/lib/site";
+import { WhatsAppIcon } from "./icons";
 import { DotGrid } from "./DotGrid";
 
 export const Hero = forwardRef<HTMLElement>(function Hero(_props, forwardedRef) {
   const sectionRef = useRef<HTMLElement | null>(null);
   const spotlightRef = useRef<HTMLImageElement | null>(null);
 
+  // CHECKPOINT C2L (hero final interaction lock) — desktop mouse-follow
+  // reveal. BATCH 5M-A: unchanged from before this batch; the only edit
+  // anywhere near it is the `hidden lg:block` visibility class added to
+  // its own <img> markup below, so it never renders on mobile/tablet.
   useEffect(() => {
     const section = sectionRef.current;
     const spotlight = spotlightRef.current;
     if (!section || !spotlight) return;
 
-    // CHECKPOINT C2L (hero final interaction lock) — cursor-follow reveal
-    // is skipped entirely for reduced-motion users: no listeners attached,
-    // spotlight stays at its default opacity-0, leaving a calm static
-    // composition. Everyone else keeps the exact existing behavior.
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
 
     let raf = 0;
@@ -63,14 +65,24 @@ export const Hero = forwardRef<HTMLElement>(function Hero(_props, forwardedRef) 
       // sm:pt-[72px] is a real 40px reduction via layout padding, not a
       // transform, and sm:pb-16(64px) -> sm:pb-10(40px) trims the now-empty
       // space left below the CTA row after removing the scroll chevron.
-      className="absolute inset-0 flex min-h-screen items-center overflow-hidden bg-[#080A1D] pt-24 pb-16 sm:pt-[72px] sm:pb-10"
+      // BATCH 5M-A: `touch-pan-y` added — mouse-only on desktop (no-op
+      // there), and on any touch-capable device tells the browser this
+      // section may still be panned/scrolled vertically as normal even
+      // though it also listens for touchstart/touchmove itself.
+      // `pt-24` (the un-prefixed/mobile-only value) becomes a safe-area-aware
+      // arbitrary value instead of a bare class — this only ever affects
+      // widths below `sm:`, since `sm:pt-[72px]` still overrides it above
+      // that breakpoint exactly as before (an inline `style` here would
+      // have out-specificity'd `sm:pt-[72px]` at every width, silently
+      // breaking the desktop-locked padding — deliberately not done).
+      className="absolute inset-0 flex min-h-screen touch-pan-y items-center overflow-hidden bg-[#080A1D] pt-[max(6rem,calc(env(safe-area-inset-top)+3rem))] pb-16 sm:pt-[72px] sm:pb-10"
     >
       <img
         ref={spotlightRef}
         src={scrapTexture}
         alt=""
         aria-hidden="true"
-        className="pointer-events-none absolute inset-0 h-full w-full object-cover opacity-0 transition-opacity duration-300"
+        className="pointer-events-none absolute inset-0 hidden h-full w-full object-cover opacity-0 transition-opacity duration-300 lg:block"
         style={{
           maskImage:
             "radial-gradient(circle 180px at var(--mouse-x, 50%) var(--mouse-y, 50%), black 0%, black 55%, transparent 100%)",
@@ -79,49 +91,147 @@ export const Hero = forwardRef<HTMLElement>(function Hero(_props, forwardedRef) 
         }}
       />
 
-      <DotGrid glow={0} interactive={false} />
+      {/* BATCH 5M-A5 — the mobile reveal experiment (auto ignition + manual
+          touch/drag) is rejected; this is now a single, permanently visible
+          photographic layer. No mask, no ref, no opacity animation — the
+          mobile-only scrim below (not this image) carries all of the
+          text-contrast work. */}
+      <img
+        src={heroMetalMobile}
+        alt=""
+        aria-hidden="true"
+        width={941}
+        height={1672}
+        className="pointer-events-none absolute inset-0 h-full w-full object-cover object-center lg:hidden"
+      />
+
+      <DotGrid glow={0} interactive={false} className="opacity-40 lg:opacity-100" />
 
       {/* CHECKPOINT C2L (hero final interaction lock) — smallest
           content-safe scrim: a soft radial navy fade centered on the text
           column (not a hard-edged box), sitting above the moving scrap
           reveal but beneath the text below it. Protects headline/paragraph/
           CTA legibility at any cursor-reveal position without dimming the
-          full Hero or flattening the image elsewhere. */}
+          full Hero or flattening the image elsewhere. Desktop-only radial
+          position is unchanged; mobile gets its own left-weighted scrim
+          (BATCH 5M-A) since mobile text is left-aligned, not centred. */}
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute inset-0"
+        className="pointer-events-none absolute inset-0 hidden lg:block"
         style={{
-          background: "radial-gradient(55% 50% at 50% 50%, rgba(8,10,29,0.55) 0%, rgba(8,10,29,0.22) 50%, rgba(8,10,29,0) 78%)",
+          background:
+            "radial-gradient(55% 50% at 50% 50%, rgba(8,10,29,0.55) 0%, rgba(8,10,29,0.22) 50%, rgba(8,10,29,0) 78%)",
+        }}
+      />
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 lg:hidden"
+        style={{
+          background:
+            "linear-gradient(180deg, rgba(8,10,29,0.22) 0%, rgba(8,10,29,0.42) 45%, rgba(8,10,29,0.6) 100%)",
         }}
       />
 
-      <div className="relative mx-auto flex max-w-4xl flex-col items-center px-6 text-center">
-        <p className="label-eyebrow text-[oklch(0.72_0.13_60)]">Based in Sharjah · Serving all Emirates</p>
+      {/* Shared content column. Alignment itself is responsive (left/start
+          on mobile for the new editorial composition, centred at lg+ —
+          the exact desktop arrangement, unchanged); a handful of children
+          below carry their own `lg:hidden` / `hidden lg:*` pairs so each
+          breakpoint shows only its own copy and CTA styling, while the
+          heading stays the one shared <h1> the whole page has. */}
+      <div className="relative mx-auto flex w-full max-w-4xl flex-col items-start px-6 text-left lg:items-center lg:text-center">
+        <p className="label-eyebrow text-[oklch(0.72_0.13_60)]">
+          <span className="lg:hidden">Sharjah · All 7 Emirates</span>
+          <span className="hidden lg:inline">Based in Sharjah · Serving all Emirates</span>
+        </p>
 
-        <div className="mt-6">
+        <div className="mt-6 hidden lg:block">
           {/* CHECKPOINT C2L (hero addendum) — ~13% smaller than the previous
               w-64/sm:w-80 (256px/320px), same aspect ratio, to help the
               whole composition sit higher without a layout-emptying
-              transform. */}
+              transform. BATCH 5M-A: desktop-only now — the mobile
+              hierarchy goes straight from eyebrow to heading (the small
+              logo already sits in the mobile sticky header at all times,
+              so repeating a large wordmark mid-hero would just add
+              height without adding information). */}
           <img
             src={msmLogo}
             alt="MSM Scrap — Mohammed Sihabuddin Metal Scrap Trading LLC"
             width={1174}
             height={417}
-            className="w-[224px] sm:w-[276px]"
+            className="w-[276px]"
           />
         </div>
 
-        <h1 className="font-display mt-8 text-[2.6rem] leading-[1.08] font-bold tracking-[-0.02em] sm:text-[3.5rem]">
-          <span className="text-copper-metal">14+ Years</span> of Trusted Scrap Metal Trading in the UAE
+        <h1 className="font-display mt-5 text-[clamp(1.9rem,8.5vw,2.6rem)] leading-[0.98] font-bold tracking-[-0.02em] text-foreground sm:text-[3.1rem] lg:mt-8 lg:text-[3.5rem] lg:leading-[1.08]">
+          <span className="lg:hidden">
+            <span className="block whitespace-nowrap">SCRAP TRADING.</span>
+            <span className="block whitespace-nowrap">
+              BUILT ON{" "}
+              <span
+                className="text-copper-metal"
+                style={{
+                  backgroundImage:
+                    "linear-gradient(100deg, oklch(0.58 0.11 42) 0%, oklch(0.68 0.13 50) 22%, oklch(0.9 0.07 75) 50%, oklch(0.68 0.13 50) 78%, oklch(0.58 0.11 42) 100%)",
+                }}
+              >
+                TRUST.
+              </span>
+            </span>
+          </span>
+          <span className="hidden lg:inline">
+            <span className="text-copper-metal">14+ Years</span> of Trusted Scrap Metal Trading in the UAE
+          </span>
         </h1>
 
-        <p className="font-display mt-6 max-w-2xl text-base leading-[1.5] font-medium text-foreground/90 sm:text-lg">
-          We buy, sell, import and export copper, aluminium, steel and lead scrap—with transparent
-          weighing and UAE-wide pickup.
+        {/* BATCH 5M-A — mobile-only supporting proof line: the "14+ years"
+            trust claim removed from the mobile header (no more large
+            badge obstructing content) resurfaces here instead, exactly as
+            planned, immediately under the heading where it reads as
+            supporting proof rather than decoration. */}
+        <p className="mt-4 max-w-md text-[17px] leading-[1.5] font-medium text-foreground/90 lg:hidden">
+          14+ years of trusted metal trading across the UAE.
         </p>
 
-        <div className="mt-8 flex flex-wrap items-center justify-center gap-4">
+        <p className="font-display mt-4 max-w-2xl text-[17px] leading-[1.5] font-medium text-foreground/75 lg:mt-6 lg:text-lg lg:text-foreground/90">
+          <span className="lg:hidden">
+            Copper, aluminium, steel and lead—with transparent weighing and dependable UAE‑wide
+            coordination.
+          </span>
+          <span className="hidden lg:inline">
+            We buy, sell, import and export copper, aluminium, steel and lead scrap—with transparent
+            weighing and UAE-wide pickup.
+          </span>
+        </p>
+
+        {/* Mobile CTAs — full-width within the content margins, stacked,
+            each with its own fixed comfortable tap height. Only one is
+            ever the dominant "quote" action (the copper-filled primary);
+            WhatsApp stays a clearly secondary outlined action. */}
+        <div className="mt-6 flex w-full flex-col gap-3 lg:hidden">
+          <Link
+            id="hero-cta-mobile"
+            to="/"
+            search={{ quote: true, source: "hero" }}
+            mask={{ to: "/quote", search: { source: "hero" } }}
+            className="group font-display flex h-14 items-center justify-center rounded-full bg-[image:var(--gradient-copper-cta)] shadow-[0_10px_24px_-10px_oklch(0.46_0.11_42/0.55)]"
+          >
+            <span className="text-sm font-bold tracking-[0.1em] text-[#080A1D] uppercase">
+              Get a Quote →
+            </span>
+          </Link>
+          <a
+            href={WHATSAPP_URL}
+            target="_blank"
+            rel="noreferrer"
+            className="font-display flex h-[54px] items-center justify-center gap-2 rounded-full border border-foreground/34 bg-[#080A1D]/18 text-sm font-semibold tracking-[0.1em] text-foreground/90 uppercase outline-none transition-colors hover:border-[#25D366]/70 hover:bg-[#25D366]/10 hover:text-[#25D366] focus-visible:border-[#25D366]/70 focus-visible:bg-[#25D366]/10 focus-visible:text-[#25D366]"
+          >
+            <WhatsAppIcon />
+            Chat on WhatsApp
+          </a>
+        </div>
+
+        {/* Desktop CTAs — unchanged markup/classes from before this batch. */}
+        <div className="mt-8 hidden flex-wrap items-center justify-center gap-4 lg:flex">
           <Link
             to="/"
             search={{ quote: true, source: "hero" }}
@@ -142,16 +252,7 @@ export const Hero = forwardRef<HTMLElement>(function Hero(_props, forwardedRef) 
               Get a Quote →
             </span>
           </Link>
-          {/* CHECKPOINT C2L (hero final interaction lock) — no genuine
-              WhatsApp brand icon asset exists anywhere in this codebase to
-              reuse (checked: no src/assets/whatsapp*, no inline
-              brand-glyph SVG, the footer's own "WhatsApp" is plain text
-              with no icon), so this is a compact inline SVG of the
-              standard WhatsApp glyph, not a new dependency. fill="currentColor"
-              means it automatically inherits this link's own neutral rest
-              colour and green hover/focus colour — no separate icon-hover
-              classes needed. Decorative (aria-hidden); the link's own
-              accessible name stays "Chat on WhatsApp". Neutral/outlined at
+          {/* CHECKPOINT C2L (hero final interaction lock) — neutral/outlined at
               rest; authentic WhatsApp green (#25D366) — text/border only, a
               very light transparent tint, never a full fill — on hover AND
               keyboard focus. */}
@@ -161,14 +262,7 @@ export const Hero = forwardRef<HTMLElement>(function Hero(_props, forwardedRef) 
             rel="noreferrer"
             className="font-display inline-flex items-center gap-2 rounded-full border border-foreground/35 px-7 py-3.5 text-sm font-semibold tracking-[0.14em] uppercase outline-none transition-colors hover:border-[#25D366]/70 hover:bg-[#25D366]/10 hover:text-[#25D366] hover:shadow-[0_0_16px_-4px_oklch(0.72_0.19_150/0.5)] focus-visible:border-[#25D366]/70 focus-visible:bg-[#25D366]/10 focus-visible:text-[#25D366] focus-visible:shadow-[0_0_16px_-4px_oklch(0.72_0.19_150/0.5)]"
           >
-            <svg
-              viewBox="0 0 24 24"
-              fill="currentColor"
-              aria-hidden="true"
-              className="size-[18px] shrink-0"
-            >
-              <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413" />
-            </svg>
+            <WhatsAppIcon />
             Chat on WhatsApp
           </a>
         </div>
