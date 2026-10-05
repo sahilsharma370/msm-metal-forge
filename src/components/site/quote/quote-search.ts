@@ -44,6 +44,16 @@ export type QuoteContextSearch = z.infer<typeof quoteContextSearchSchema>;
 /** "/" adds the overlay-open flag on top of the shared context fields. */
 export const indexSearchSchema = quoteContextSearchSchema.extend({
   quote: z.literal(true).optional().catch(undefined),
+  // Query-gated desktop smooth-scroll preview (`?smoothPreview=1`) — see
+  // SmoothScrollPreview.tsx. Homepage-only by design: this field lives on
+  // indexSearchSchema, not quoteContextSearchSchema, so `/quote` and every
+  // other route never parse or react to it. The router's default search
+  // parser runs each raw query value through `JSON.parse` before this
+  // schema sees it (confirmed in @tanstack/router-core's
+  // `defaultParseSearch`), the same mechanism that already turns `?quote=true`
+  // into the boolean above — so the literal URL `?smoothPreview=1` arrives
+  // here as the number `1`, matching `z.literal(1)` exactly.
+  smoothPreview: z.literal(1).optional().catch(undefined),
 });
 
 export type IndexSearch = z.infer<typeof indexSearchSchema>;

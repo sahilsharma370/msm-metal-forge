@@ -15,6 +15,13 @@ interface QuotePhotoPickerProps {
   onChange: (files: QuoteLocalFile[]) => void;
   maxFiles: number;
   allowPdf?: boolean;
+  /** Buyer Documents polish pass — opts this picker's added/over-limit
+   * feedback into the compact two-sentence wording ("3 files added. 2
+   * weren’t added — maximum 3 files.") instead of the original single
+   * clause-list wording ("3 of 5 selected files were added; 2 exceeded
+   * the 3-file limit."). Omitted everywhere else (seller Photos), so that
+   * wording — and every other rejection reason's wording — is unchanged. */
+  compactLimitMessage?: boolean;
 }
 
 function createLocalFile(file: File): QuoteLocalFile {
@@ -36,6 +43,7 @@ export function QuotePhotoPicker({
   onChange,
   maxFiles,
   allowPdf = false,
+  compactLimitMessage = false,
 }: QuotePhotoPickerProps) {
   const inputId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -76,8 +84,13 @@ export function QuotePhotoPicker({
 
     if (hasAnyRejection) {
       const parts: string[] = [];
-      if (toAdd.length > 0)
-        parts.push(`${toAdd.length} of ${incoming.length} selected files were added`);
+      if (toAdd.length > 0) {
+        parts.push(
+          compactLimitMessage
+            ? `${toAdd.length} files added`
+            : `${toAdd.length} of ${incoming.length} selected files were added`,
+        );
+      }
       if (rejectedType > 0) {
         parts.push(
           allowPdf
@@ -88,9 +101,13 @@ export function QuotePhotoPicker({
       if (rejectedSize > 0)
         parts.push(`${rejectedSize} file${rejectedSize === 1 ? "" : "s"} over 8 MB rejected`);
       if (rejectedForCapacity > 0) {
-        parts.push(`${rejectedForCapacity} exceeded the ${maxFiles}-${singularNoun} limit`);
+        parts.push(
+          compactLimitMessage
+            ? `${rejectedForCapacity} weren’t added — maximum ${maxFiles} ${singularNoun}s`
+            : `${rejectedForCapacity} exceeded the ${maxFiles}-${singularNoun} limit`,
+        );
       }
-      setError(`${parts.join("; ")}.`);
+      setError(`${parts.join(compactLimitMessage ? ". " : "; ")}.`);
     } else if (toAdd.length > 0) {
       // Fix 1: the latest selection/drop was fully valid — clear any stale error from a prior attempt.
       setError(undefined);
@@ -125,7 +142,7 @@ export function QuotePhotoPicker({
           (large icon/title/browseLabel/acceptLine stack). browseLabel and
           acceptLine move to quiet helper text below the row instead of
           living inside the tile itself. */}
-      <div className="mt-2 flex flex-wrap items-start gap-3">
+      <div className="mt-2 flex flex-wrap items-start gap-2 sm:gap-3">
         {!atCapacity && (
           <label
             htmlFor={inputId}
@@ -139,7 +156,7 @@ export function QuotePhotoPicker({
               setDragActive(false);
               handleFiles(e.dataTransfer.files);
             }}
-            className={`flex h-32 w-32 shrink-0 cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed px-2 text-center transition-colors ${
+            className={`flex h-20 w-20 shrink-0 cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed px-2 text-center transition-colors sm:h-32 sm:w-32 ${
               dragActive
                 ? "border-copper bg-[oklch(0.583_0.135_45.5/0.06)]"
                 : "border-white/20 hover:border-copper/50"
@@ -157,7 +174,7 @@ export function QuotePhotoPicker({
             {files.map((f) => (
               <li
                 key={f.id}
-                className="relative h-32 w-32 shrink-0 overflow-hidden rounded-xl border border-white/12 bg-white/5"
+                className="relative h-20 w-20 shrink-0 overflow-hidden rounded-xl border border-white/12 bg-white/5 sm:h-32 sm:w-32"
               >
                 {f.previewUrl ? (
                   <img
@@ -177,9 +194,19 @@ export function QuotePhotoPicker({
                   type="button"
                   onClick={() => removeFile(f.id)}
                   aria-label={`Remove ${f.name}`}
-                  className="absolute top-1 right-1 flex h-6 w-6 items-center justify-center rounded-full bg-[#080A1D]/85 text-foreground/90 transition-colors hover:bg-[#080A1D] focus-visible:outline focus-visible:outline-2 focus-visible:outline-copper"
+                  className="group absolute top-0 right-0 h-11 w-11 rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-copper sm:top-1 sm:right-1 sm:h-6 sm:w-6"
                 >
-                  <X aria-hidden="true" className="h-3.5 w-3.5" />
+                  {/* Final correction pass — the button above is the ~44px
+                      mobile tap target (contained inside this 80px tile, so
+                      it never reaches the neighbouring thumbnail's own
+                      target); this inner span is the original 24px visible
+                      circle, repositioned so it lands in exactly the same
+                      spot on screen at every breakpoint — `sm:` collapses
+                      the button itself back to the original 24px box, so
+                      desktop is pixel-identical to before. */}
+                  <span className="absolute top-1 right-1 flex h-6 w-6 items-center justify-center rounded-full bg-[#080A1D]/85 text-foreground/90 transition-colors group-hover:bg-[#080A1D] sm:top-0 sm:right-0">
+                    <X aria-hidden="true" className="h-3.5 w-3.5" />
+                  </span>
                 </button>
               </li>
             ))}
@@ -206,7 +233,7 @@ export function QuotePhotoPicker({
       )}
 
       {error && (
-        <p role="alert" className="mt-2 text-[0.8rem] font-medium text-destructive">
+        <p role="alert" className="mt-2 text-[0.8rem] font-medium" style={{ color: "#C9655A" }}>
           {error}
         </p>
       )}

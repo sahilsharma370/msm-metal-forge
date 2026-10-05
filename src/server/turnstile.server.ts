@@ -38,10 +38,38 @@ const siteverifyResponseSchema = z.object({
   success: z.boolean(),
   action: z.string().optional(),
   hostname: z.string().optional(),
-  // "error-codes" and challenge_ts/cdata are intentionally not modeled —
-  // this module never forwards Cloudflare's raw error codes to the
-  // customer, so there is nothing to gain from parsing them strictly.
+  // "error-codes" is read ONLY to compute the fixed diagnostic label below
+  // (mapSiteverifyErrorCodes) — the raw array itself is never logged,
+  // returned to the customer, or forwarded anywhere. challenge_ts/cdata
+  // are still intentionally not modeled; there is nothing to gain from
+  // parsing them.
+  "error-codes": z.array(z.string()).optional(),
 });
+
+/** The one place Cloudflare's raw Siteverify error-codes get collapsed into — never logged or returned raw, only this fixed label is. */
+export type SiteverifyFailureLabel =
+  | "invalid_secret"
+  | "invalid_response"
+  | "timeout_or_duplicate"
+  | "other_siteverify_failure";
+
+const INVALID_SECRET_ERROR_CODES = new Set(["missing-input-secret", "invalid-input-secret", "invalid-parsed-secret"]);
+const INVALID_RESPONSE_ERROR_CODES = new Set(["missing-input-response", "invalid-input-response"]);
+
+/**
+ * Maps Cloudflare's documented Siteverify `error-codes` values
+ * (https://developers.cloudflare.com/turnstile/get-started/server-side-validation/)
+ * to one fixed, privacy-safe diagnostic label. Never returns or logs the
+ * raw codes themselves — only this closed four-value label, so a caller
+ * that only ever logs the return value can never leak anything else.
+ */
+export function mapSiteverifyErrorCodes(errorCodes: readonly string[] | undefined): SiteverifyFailureLabel {
+  if (!errorCodes || errorCodes.length === 0) return "other_siteverify_failure";
+  if (errorCodes.some((code) => INVALID_SECRET_ERROR_CODES.has(code))) return "invalid_secret";
+  if (errorCodes.some((code) => INVALID_RESPONSE_ERROR_CODES.has(code))) return "invalid_response";
+  if (errorCodes.includes("timeout-or-duplicate")) return "timeout_or_duplicate";
+  return "other_siteverify_failure";
+}
 
 export interface TurnstileVerifierConfig {
   readonly secretKey: string;
@@ -81,9 +109,20 @@ export function createCloudflareTurnstileVerifier(
   config: TurnstileVerifierConfig,
   fetchImpl: typeof fetch = fetch,
 ): TurnstileVerifier {
+  // Diagnostic logging only — logs exactly the fixed failure-category enum
+  // and nothing else: never the raw Siteverify response, the token, the
+  // request body, an email/IP, or any secret value. No success log (a
+  // passing verification is not logged at all). Every `ok: false` return
+  // below funnels through this one helper so the shape is guaranteed
+  // identical regardless of which check rejected the token.
+  function reject(reason: TurnstileFailureReason): TurnstileVerifyResult {
+    console.log(JSON.stringify({ event: "quote.turnstile_rejected", reason }));
+    return { ok: false, reason };
+  }
+
   return {
     async verify(token: string): Promise<TurnstileVerifyResult> {
-      if (!token) return { ok: false, reason: "missing_token" };
+      if (!token) return reject("missing_token");
 
       let response: Response;
       try {
@@ -93,23 +132,23 @@ export function createCloudflareTurnstileVerifier(
           body: new URLSearchParams({ secret: config.secretKey, response: token }),
         });
       } catch {
-        return { ok: false, reason: "service_unavailable" };
+        return reject("service_unavailable");
       }
 
       if (!response.ok) {
-        return { ok: false, reason: "service_unavailable" };
+        return reject("service_unavailable");
       }
 
       let json: unknown;
       try {
         json = await response.json();
       } catch {
-        return { ok: false, reason: "service_unavailable" };
+        return reject("service_unavailable");
       }
 
       const parsed = siteverifyResponseSchema.safeParse(json);
       if (!parsed.success) {
-        return { ok: false, reason: "service_unavailable" };
+        return reject("service_unavailable");
       }
 
       // Single-use/expiry is Cloudflare's own guarantee, not something this
@@ -120,7 +159,13 @@ export function createCloudflareTurnstileVerifier(
       // this one check is sufficient and this module never needs its own
       // consumed-token cache.
       if (!parsed.data.success) {
-        return { ok: false, reason: "invalid_or_expired_token" };
+        // Diagnostic refinement only — the public reason stays the fixed
+        // "invalid_or_expired_token" below (fail closed, generic to the
+        // caller). This extra log line carries only the mapped label, never
+        // the raw error-codes array, response, token, keys, IP, or form data.
+        const failureLabel = mapSiteverifyErrorCodes(parsed.data["error-codes"]);
+        console.log(JSON.stringify({ event: "quote.turnstile_siteverify_failure", label: failureLabel }));
+        return reject("invalid_or_expired_token");
       }
 
       // CHECKPOINT C2G-LT — the ONE narrow carve-out: only when
@@ -137,10 +182,10 @@ export function createCloudflareTurnstileVerifier(
 
       if (!isSyntheticTestKeyResponse) {
         if (parsed.data.action !== config.expectedAction) {
-          return { ok: false, reason: "action_mismatch" };
+          return reject("action_mismatch");
         }
         if (!parsed.data.hostname || !config.allowedHostnames.includes(parsed.data.hostname)) {
-          return { ok: false, reason: "hostname_mismatch" };
+          return reject("hostname_mismatch");
         }
       }
       return { ok: true };

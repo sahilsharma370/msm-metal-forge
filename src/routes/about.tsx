@@ -5,6 +5,7 @@ import { ContactFooter } from "@/components/site/ContactFooter";
 import { ArrowLinkCTA } from "@/components/site/AboutTeaser";
 import craneBackground from "@/assets/trust-industrial-crane.webp";
 import ownerPortrait from "@/assets/owner-mohammed-sihabuddin-dark.webp";
+import aboutOwnerYard from "@/assets/msm-about-owner-yard.webp";
 
 const title = "About MSM Scrap | Metal Scrap Trading in the UAE";
 const description =
@@ -88,22 +89,64 @@ function AboutPage() {
               backgroundSize: "22px 22px",
             }}
           />
-          <div className="relative mx-auto max-w-3xl px-6">
-            <p className="label-eyebrow text-[oklch(0.583_0.135_45.5)]">Our Story</p>
-            <h2 className="font-display mt-4 text-2xl font-bold tracking-[0.02em] text-[#080A1D] uppercase sm:text-3xl">
-              A practical business, built relationship by relationship.
-            </h2>
-            <p className="font-display mt-6 text-base leading-[1.7] font-medium text-[#080A1D]/85 sm:text-lg">
-              MSM began with a simple operating principle: make every transaction clear, fair and
-              easy to follow. That principle continues to guide how we assess material, coordinate
-              collection and keep customers informed.
-            </p>
-            <p className="font-display mt-5 text-base leading-[1.7] font-medium text-[#080A1D]/85 sm:text-lg">
-              Led by Mohammed Sihabuddin, the business supports individuals, contractors, workshops
-              and commercial partners with buying, selling, import and export coordination. Whether
-              the requirement is a single pickup or an ongoing supply relationship, the focus
-              remains the same: understand the material, agree the process and follow through.
-            </p>
+          <div className="relative mx-auto max-w-5xl px-6">
+            {/* Mobile (below `sm`, matching this page's own Owner's Note
+                breakpoint below): single column, text then photo — the
+                existing text order is untouched, the photo is simply a new
+                block after it, full content width. Desktop: two balanced
+                columns via that same `sm:grid-cols-2`, text left (DOM
+                order already puts it first, no order-* override needed),
+                photo right. */}
+            <div className="relative grid grid-cols-1 items-center gap-10 sm:grid-cols-2 sm:gap-14">
+              <div>
+                <p className="label-eyebrow text-[oklch(0.583_0.135_45.5)]">Our Story</p>
+                <h2 className="font-display mt-4 text-2xl font-bold tracking-[0.02em] text-[#080A1D] uppercase sm:text-3xl">
+                  A practical business, built relationship by relationship.
+                </h2>
+                <p className="font-display mt-6 text-base leading-[1.7] font-medium text-[#080A1D]/85 sm:text-lg">
+                  MSM began with a simple operating principle: make every transaction clear, fair and
+                  easy to follow. That principle continues to guide how we assess material, coordinate
+                  collection and keep customers informed.
+                </p>
+                <p className="font-display mt-5 text-base leading-[1.7] font-medium text-[#080A1D]/85 sm:text-lg">
+                  Led by Mohammed Sihabuddin, the business supports individuals, contractors, workshops
+                  and commercial partners with buying, selling, import and export coordination. Whether
+                  the requirement is a single pickup or an ongoing supply relationship, the focus
+                  remains the same: understand the material, agree the process and follow through.
+                </p>
+              </div>
+              {/* Desktop only: taken out of grid flow (`sm:absolute`) so it
+                  can bleed past this row's own `max-w-5xl` column track
+                  toward the viewport edge, while the text column above stays
+                  exactly as laid out by the grid. `sm:left-[calc(50%+28px)]`
+                  reproduces this row's own column-2 start (50% of the row's
+                  width + half of `gap-14`'s 56px) — exact at any viewport
+                  width because the row is always centered by its `mx-auto`
+                  ancestor, so this works whether that ancestor is at its
+                  `max-w-5xl` cap or still fluid. `sm:w-[calc(46vw-28px)]`
+                  then closes the gap out to `4vw` from the true viewport
+                  edge (independent of the row's own capped width). Height
+                  comes from `sm:inset-y-0` (top/bottom: 0): with the image
+                  removed from grid flow, the row's only remaining in-flow
+                  item is the text column, so the row's rendered height is
+                  exactly the text's height — i.e. eyebrow-top to
+                  last-line-bottom, with no manual measurement needed.
+                  Mobile keeps the original `w-full`/`aspect-[4/3]` box and
+                  its existing 2px navy border unchanged — only `sm:` adds
+                  the new 1px navy outline this request asked for on the
+                  resized desktop frame (`border-2` stays the mobile width;
+                  `sm:border` overrides it to 1px at the same breakpoint
+                  where the frame itself resizes). */}
+              <div
+                className="w-full aspect-[4/3] overflow-hidden rounded-2xl border-2 border-[#0B1024] sm:absolute sm:inset-y-0 sm:left-[calc(50%_+_28px)] sm:aspect-auto sm:w-[calc(46vw_-_28px)] sm:border"
+              >
+                <img
+                  src={aboutOwnerYard}
+                  alt="Mohammed Sihabuddin with a team member working at the MSM Scrap yard"
+                  className="h-full w-full object-cover"
+                />
+              </div>
+            </div>
           </div>
         </section>
 

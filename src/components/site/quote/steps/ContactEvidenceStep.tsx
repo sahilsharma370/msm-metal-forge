@@ -1,6 +1,7 @@
 import { useState } from "react";
+import type { ReactElement } from "react";
 import { useFormContext } from "react-hook-form";
-import { Plus } from "lucide-react";
+import { MessageCircle, Phone, Plus, Mail } from "lucide-react";
 import type { QuoteFormValues } from "../quote-schema";
 import { PREFERRED_CONTACTS, PREFERRED_CONTACT_LABELS, getStageEyebrow } from "../quote-options";
 import { QuotePillGroup } from "../QuotePillGroup";
@@ -17,15 +18,26 @@ interface ContactEvidenceStepProps {
   unresolvedFilenames?: readonly string[];
 }
 
+// Reference-pack update — the reference shows a small glyph inside each
+// preferred-contact pill; the pill stays the existing rounded-full shape
+// (QuotePillGroup's default "pill" variant already supports an optional
+// per-option icon now), only an icon is added, nothing structural changes.
+const PREFERRED_CONTACT_ICON: Record<(typeof PREFERRED_CONTACTS)[number], ReactElement> = {
+  whatsapp: <MessageCircle aria-hidden="true" className="h-3.5 w-3.5" />,
+  call: <Phone aria-hidden="true" className="h-3.5 w-3.5" />,
+  email: <Mail aria-hidden="true" className="h-3.5 w-3.5" />,
+};
+
 const PREFERRED_CONTACT_OPTIONS = PREFERRED_CONTACTS.map((c) => ({
   value: c,
   label: PREFERRED_CONTACT_LABELS[c],
+  icon: PREFERRED_CONTACT_ICON[c],
 }));
 
 function FieldError({ id, message }: { id: string; message: string | undefined }) {
   if (!message) return null;
   return (
-    <p id={id} role="alert" className="mt-1.5 text-[0.8rem] font-medium text-destructive">
+    <p id={id} role="alert" className="mt-1.5 text-[0.8rem] font-medium" style={{ color: "#C9655A" }}>
       {message}
     </p>
   );
@@ -72,7 +84,12 @@ export function ContactEvidenceStep({
       {unresolvedFilenames.length > 0 && (
         <p
           role="alert"
-          className="mt-3 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-2.5 text-xs leading-relaxed text-foreground/85"
+          className="mt-3 rounded-xl border px-4 py-2.5 text-xs leading-relaxed text-foreground/85"
+          style={{
+            borderColor: "rgba(201, 101, 90, 0.32)",
+            backgroundColor: "rgba(104, 45, 49, 0.14)",
+            boxShadow: "inset 0 1px 0 rgba(227, 148, 139, 0.035)",
+          }}
         >
           {isSeller
             ? `Please add ${unresolvedFilenames.length === 1 ? "this photo" : "these photos"} again before submitting: `
@@ -87,11 +104,15 @@ export function ContactEvidenceStep({
         </p>
       )}
 
-      {/* Primary block: Name/Contact person + Phone stay direct and visible. */}
-      <div className="mt-6 grid gap-6 sm:grid-cols-2">
+      {/* Primary block: Name/Contact person + Phone stay direct and visible.
+          Final correction pass — explicit `grid-cols-1` at the base
+          breakpoint (same fix as Step 3's Area+Pickup row): Tailwind's
+          `minmax(0,1fr)` tracks let a wide input shrink instead of forcing
+          this row wider than the viewport. `sm:grid-cols-2` unchanged. */}
+      <div className="mt-4 grid grid-cols-1 gap-4 sm:mt-6 sm:grid-cols-2 sm:gap-6">
         {isSeller ? (
           <>
-            <div>
+            <div className="min-w-0">
               <Label htmlFor="sellerName" className="text-sm font-semibold text-foreground/90">
                 Name
               </Label>
@@ -104,7 +125,7 @@ export function ContactEvidenceStep({
               />
               <FieldError id="sellerName-error" message={errors.sellerName?.message} />
             </div>
-            <div>
+            <div className="min-w-0">
               <Label htmlFor="sellerPhone" className="text-sm font-semibold text-foreground/90">
                 Phone / WhatsApp
               </Label>
@@ -172,8 +193,9 @@ export function ContactEvidenceStep({
         )}
       </div>
 
-      <div className="mt-6">
+      <div className="mt-4 sm:mt-6">
         <QuotePillGroup
+          id={isSeller ? "sellerPreferredContact" : "buyerPreferredContact"}
           label="Preferred contact"
           options={PREFERRED_CONTACT_OPTIONS}
           value={preferredContact}
@@ -249,7 +271,7 @@ export function ContactEvidenceStep({
           oversized bordered panel, and the trigger now shows a plain
           heading plus one separate "Recommended" badge instead of a
           combined "Recommended · optional" string. */}
-      <Collapsible open={evidenceOpen} onOpenChange={setEvidenceOpen} className="mt-6">
+      <Collapsible open={evidenceOpen} onOpenChange={setEvidenceOpen} className="mt-4 sm:mt-6">
         <CollapsibleTrigger className="flex w-full items-center justify-between gap-3 rounded-xl border border-white/10 bg-navy-deep/95 px-4 py-3 text-left transition-colors hover:border-copper/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-copper">
           <span className="flex min-w-0 items-center gap-2">
             <Plus
@@ -295,6 +317,7 @@ export function ContactEvidenceStep({
                 onChange={(files) => form.setValue("buyerDocuments", files, { shouldDirty: true })}
                 maxFiles={3}
                 allowPdf
+                compactLimitMessage
               />
             )}
           </div>

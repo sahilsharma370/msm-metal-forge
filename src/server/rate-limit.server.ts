@@ -138,13 +138,48 @@ export async function checkRateLimit(
   }
 }
 
+/** Loopback hostnames a genuine production/staging deployment never serves real traffic on — same allowlist shape as turnstile.server.ts's own local-test carve-out. */
+const LOCAL_DEV_CLIENT_IP_FALLBACK_HOSTNAMES = new Set(["localhost", "127.0.0.1"]);
+
+/** Never a real client IP — used only as a fixed local-identity key for the rate limiter, never logged or shown to a user. */
+const LOCAL_DEV_CLIENT_IP_FALLBACK_VALUE = "127.0.0.1";
+
 /**
  * The one Cloudflare-verified client-identity header — set authoritatively
  * by Cloudflare's edge on every request that reaches this Worker, and
  * overwritten (never passed through from the original client) if a
  * requester tries to forge it. X-Forwarded-For is deliberately never read
  * anywhere in this codebase: it is client-suppliable and trivially spoofed.
+ *
+ * CHECKPOINT C2I-A-LT — narrow local-dev carve-out. `wrangler dev`'s local
+ * Miniflare/workerd emulation does not *reliably* synthesize
+ * `cf-connecting-ip` on every request the way a real Cloudflare edge always
+ * does (confirmed empirically: identical local requests against the same
+ * running Worker returned this header on some calls and not others), which
+ * made every rate-limited route — including a plain browser submitting the
+ * owner login form — fail closed with a generic 500 non-deterministically
+ * in local dev, even though nothing in the request or app config changed.
+ * This fallback activates only when BOTH hold:
+ *   1. `LOCAL_DEV_CLIENT_IP_FALLBACK` is explicitly set to "true" (opt-in;
+ *      never present in a real deployment's env — see .env.example).
+ *   2. This request's own hostname (from `request.url`) is a loopback
+ *      address — never true for real Cloudflare-routed production/staging
+ *      traffic, so a stray "true" left in a real environment still changes
+ *      nothing.
+ * The fallback value is a fixed, non-identifying placeholder, never derived
+ * from the request — this only makes the local rate-limit bucket key
+ * deterministic, it does not (and structurally cannot) relax production's
+ * fail-closed behavior or weaken real per-client rate limiting.
  */
 export function getCloudflareClientIp(request: Request): string | null {
-  return request.headers.get("cf-connecting-ip");
+  const header = request.headers.get("cf-connecting-ip");
+  if (header) return header;
+
+  const isLocalDevFallbackEnabled = process.env["LOCAL_DEV_CLIENT_IP_FALLBACK"] === "true";
+  if (!isLocalDevFallbackEnabled) return null;
+
+  const requestHostname = new URL(request.url).hostname;
+  if (!LOCAL_DEV_CLIENT_IP_FALLBACK_HOSTNAMES.has(requestHostname)) return null;
+
+  return LOCAL_DEV_CLIENT_IP_FALLBACK_VALUE;
 }

@@ -170,7 +170,14 @@ describe("OwnerShell — authorized", () => {
       </OwnerShell>,
     );
     await screen.findByAltText(/msm scrap/i);
-    await screen.findByRole("link", { name: /enquiries/i });
+    // CHECKPOINT OWNER ENQUIRIES REFERENCE PASS — two "Enquiries" nav
+    // links now exist in the DOM at once (the mobile/tablet glass-pill
+    // nav and the desktop underline nav, toggled via `lg:hidden`/
+    // `hidden lg:flex` — only one is ever visible/exposed to assistive
+    // tech at a given real viewport; jsdom has no layout engine so both
+    // are present here), so this asserts at least one rather than
+    // exactly one.
+    expect((await screen.findAllByRole("link", { name: /enquiries/i })).length).toBeGreaterThan(0);
     await screen.findByText(/signed in as owner/i);
     expect(screen.queryByText(/\$[0-9]/)).not.toBeInTheDocument();
     expect(screen.queryByText(/total leads/i)).not.toBeInTheDocument();

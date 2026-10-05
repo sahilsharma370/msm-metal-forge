@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Check } from "lucide-react";
+import { ArrowRight, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface QuoteOptionCardProps {
@@ -10,6 +10,8 @@ interface QuoteOptionCardProps {
   selected: boolean;
   onSelect: () => void;
   className?: string;
+  /** Request step only — shows a small trailing arrow once selected, matching the reference's "this is the direction you're going" accent. Every other call site omits this and is unaffected. */
+  showArrowWhenSelected?: boolean;
 }
 
 /** Shared selectable-card look for Step 1 (intent) and Step 2 (material). */
@@ -21,6 +23,7 @@ export function QuoteOptionCard({
   selected,
   onSelect,
   className,
+  showArrowWhenSelected = false,
 }: QuoteOptionCardProps) {
   return (
     <button
@@ -40,11 +43,21 @@ export function QuoteOptionCard({
           <Check aria-hidden="true" strokeWidth={3} className="h-3 w-3" />
         </span>
       )}
-      {icon}
+      {icon && (
+        <span className={selected ? "text-copper-bright" : "text-foreground/70"}>{icon}</span>
+      )}
       {eyebrow && <p className="label-eyebrow text-copper-bright text-[0.65rem]">{eyebrow}</p>}
       <p className="font-display text-lg font-bold text-foreground">{title}</p>
       {description && (
-        <p className="text-sm leading-relaxed font-normal text-foreground/70">{description}</p>
+        <span className="flex w-full items-end justify-between gap-2">
+          <p className="text-sm leading-relaxed font-normal text-foreground/70">{description}</p>
+          {showArrowWhenSelected && selected && (
+            <ArrowRight
+              aria-hidden="true"
+              className="h-4 w-4 shrink-0 text-copper-bright"
+            />
+          )}
+        </span>
       )}
     </button>
   );

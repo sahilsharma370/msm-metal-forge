@@ -1,5 +1,6 @@
 import {
   EMIRATE_LABELS,
+  FULFILMENT_DISPLAY_EXPORT,
   FULFILMENT_LABELS,
   PREFERRED_CONTACT_LABELS,
   PREFERRED_PORT_LABELS,
@@ -198,7 +199,13 @@ function buyerLogisticsLabel(values: QuoteFormValues): string | undefined {
     values.buyerTradeRequirement === "local"
       ? values.buyerFulfilment
       : values.buyerLogisticsRequirement;
-  return requirement ? FULFILMENT_LABELS[requirement] : undefined;
+  if (!requirement) return undefined;
+  // Export uses its own shipping-specific wording (e.g. "MSM-arranged
+  // shipment"), matching the Logistics card and Review; local/import
+  // keep the existing generic FULFILMENT_LABELS.
+  return values.buyerTradeRequirement === "export"
+    ? FULFILMENT_DISPLAY_EXPORT[requirement]
+    : FULFILMENT_LABELS[requirement];
 }
 
 /**

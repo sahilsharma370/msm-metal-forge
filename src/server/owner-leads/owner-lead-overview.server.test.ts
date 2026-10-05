@@ -59,6 +59,8 @@ describe("computeOwnerLeadOverview — zero data", () => {
     for (const channel of OWNER_LEAD_CAPTURE_CHANNEL_VALUES) expect(result.byCaptureChannel[channel]).toBe(0);
     expect(result.dailyCounts).toHaveLength(7);
     expect(result.dailyCounts.every((day) => day.count === 0)).toBe(true);
+    expect(result.dailyCounts30).toHaveLength(30);
+    expect(result.dailyCounts30.every((day) => day.count === 0)).toBe(true);
     expect(result.stale).toEqual({ thresholdHours: 72, count: 0 });
     expect(result.attentionCount).toBe(0);
     expect(result.attentionLeads).toEqual([]);
@@ -98,6 +100,11 @@ describe("computeOwnerLeadOverview — daily bucketing (UAE boundary)", () => {
     const totalBucketed = result.dailyCounts.reduce((sum, day) => sum + day.count, 0);
     expect(totalBucketed).toBe(1); // the out-of-window row contributes to totals but not to any daily bucket
     expect(result.totals.total).toBe(2);
+
+    // dailyCounts30 shares the same underlying bucket map — the last 7 of its 30 entries must equal dailyCounts exactly, and the 2026-01-01 row is outside even the 30-day window.
+    expect(result.dailyCounts30).toHaveLength(30);
+    expect(result.dailyCounts30.slice(-7)).toEqual(result.dailyCounts);
+    expect(result.dailyCounts30.reduce((sum, day) => sum + day.count, 0)).toBe(1);
   });
 });
 

@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="390" height="370" viewBox="0 0 390 370" role="img" aria-labelledby="title desc">
+  <title id="title">MSM Our Services mobile route geometry</title>
+  <desc id="desc">Four symmetrical circular endpoints join a central copper diamond with straight, rounded, diagonal, rounded connector paths. Import is active in copper; all other branches are muted. No arrows.</desc>
+  <defs>
+    <pattern id="dots" width="26" height="26" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" fill="#20263D" opacity=".34"/></pattern>
+    <filter id="softGlow" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="3.5"/></filter>
+  </defs>
+  <rect width="390" height="370" fill="#080B1C"/>
+  <rect width="390" height="370" fill="url(#dots)"/>
+
+  <!-- Labels are placement guides. The live site keeps its labels and cards as DOM. -->
+  <g font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700" letter-spacing="1.8" fill="#8D93A6">
+    <text x="24" y="29">01  BUY</text>
+    <text x="366" y="29" text-anchor="end">02  SELL</text>
+    <text x="24" y="311" fill="#E99A56">03  IMPORT</text>
+    <text x="366" y="311" text-anchor="end">04  EXPORT</text>
+  </g>
+
+  <!-- Each branch: short horizontal lead, rounded bend, straight diagonal, gentle centre entry. -->
+  <g fill="none" stroke="#394154" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+    <path id="buy" d="M 98 60 H 111 C 123 60 129 67 135 79 L 164 132 C 170 143 174 150 180 157"/>
+    <path id="sell" d="M 292 60 H 279 C 267 60 261 67 255 79 L 226 132 C 220 143 216 150 210 157"/>
+    <path id="export" d="M 292 268 H 279 C 267 268 261 261 255 249 L 226 196 C 220 185 216 178 210 171"/>
+  </g>
+  <path id="import-glow" d="M 98 268 H 111 C 123 268 129 261 135 249 L 164 196 C 170 185 174 178 180 171" fill="none" stroke="#E8934B" stroke-width="8" opacity=".23" filter="url(#softGlow)"/>
+  <path id="import" d="M 98 268 H 111 C 123 268 129 261 135 249 L 164 196 C 170 185 174 178 180 171" fill="none" stroke="#E8934B" stroke-width="2.7" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <g fill="#080B1C" stroke="#394154" stroke-width="2.7">
+    <circle cx="84" cy="60" r="12"/>
+    <circle cx="306" cy="60" r="12"/>
+    <circle cx="306" cy="268" r="12"/>
+  </g>
+  <circle cx="84" cy="268" r="12" fill="#080B1C" stroke="#E8934B" stroke-width="2.8"/>
+
+  <!-- Hub masks all path ends; copper stem continues cleanly to the content card. -->
+  <path d="M 195 189 V 359" fill="none" stroke="#E8934B" stroke-width="2.5"/>
+  <rect x="176" y="145" width="38" height="38" rx="6" transform="rotate(45 195 164)" fill="#0A0E23" stroke="#E8934B" stroke-width="2.7"/>
+</svg>

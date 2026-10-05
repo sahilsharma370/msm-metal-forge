@@ -1,7 +1,8 @@
-import { CircleCheck, MessageCircle } from "lucide-react";
+import { Check, MessageCircle } from "lucide-react";
 import type { QuoteFormValues } from "../quote-schema";
 import { COMPANY_WHATSAPP_NUMBER } from "@/lib/site";
 import { buildSmartBrief, buildWhatsAppUrl } from "../quote-summary";
+import { PREFERRED_CONTACT_LABELS } from "../quote-options";
 
 interface QuoteConfirmationProps {
   values: QuoteFormValues;
@@ -31,33 +32,65 @@ export function QuoteConfirmation({
   );
 
   return (
-    <div>
-      <div className="flex items-center gap-2 rounded-full border border-copper/30 bg-[oklch(0.583_0.135_45.5/0.08)] px-4 py-2">
-        <CircleCheck aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-copper-bright" />
-        <p className="text-[0.7rem] font-semibold text-foreground/85">Enquiry received</p>
-      </div>
-
-      <p className="label-eyebrow mt-8 text-copper-bright">Request Confirmed</p>
-      <h2 className="font-display mt-3 text-2xl font-bold text-foreground sm:text-3xl">
+    <div className="flex flex-col items-center text-center">
+      {/* Batch C (confirmation cleanup) — the "Enquiry received" caption
+          and the second "Request Confirmed" eyebrow are gone: the header
+          progress rail (QuoteProgress, complete=true) already shows
+          "Request Confirmed" once, so repeating it here (plus a third
+          near-duplicate "received" caption) only added vertical noise for
+          the same single fact. The summary card and reference card are
+          now one combined receipt panel (divider between the two
+          sections) instead of two separate boxes. Gaps below are
+          rebalanced for this shorter, calmer stack — still comfortably
+          inside the ~499px available height (md:h-[min(74dvh,620px)]
+          minus header, no footer on this stage) with room to spare; no
+          copy, font size, or modal dimension touched. */}
+      <span className="flex h-12 w-12 items-center justify-center rounded-full border-2 border-copper/60 text-copper-bright">
+        <Check aria-hidden="true" strokeWidth={2.5} className="h-5 w-5" />
+      </span>
+      <h2 className="font-display mt-4 text-2xl font-bold text-foreground sm:text-3xl">
         Thanks — your enquiry is in
       </h2>
-      <p className="font-display mt-4 rounded-2xl border border-white/10 bg-navy-deep/95 px-5 py-4 text-sm font-semibold text-foreground/90">
-        {buildSmartBrief(values)}
-      </p>
 
-      <div className="mt-6 flex items-center justify-between rounded-2xl border border-white/10 px-5 py-4">
-        <span className="text-sm text-foreground/60">Your reference</span>
-        <span className="font-display text-sm font-bold tracking-[0.06em] text-copper-bright">
+      <div className="mt-4 w-full max-w-md rounded-2xl border border-white/10 bg-navy-deep/95 px-5 py-4">
+        <p className="font-display text-sm font-semibold text-foreground/90">
+          {buildSmartBrief(values)}
+        </p>
+        <div className="my-3 h-px w-full bg-white/10" aria-hidden="true" />
+        <p className="text-[0.68rem] font-semibold tracking-[0.1em] text-foreground/50 uppercase">
+          Your reference
+        </p>
+        <p className="font-display mt-1 text-base font-bold tracking-[0.06em] text-copper-bright">
           {reference}
-        </span>
+        </p>
       </div>
 
-      <p className="mt-4 text-xs leading-relaxed text-foreground/55">
-        Final price or availability is confirmed after MSM reviews the material details, grade,
-        weight or quantity, condition and logistics.
-      </p>
+      <div className="mt-4 max-w-md space-y-1">
+        <p className="text-xs leading-relaxed text-foreground/55">
+          {/* Batch A (buyer copy fix) — same rationale as ReviewStep's
+              identical disclaimer: seller's wording is unchanged, buyer's
+              drops "condition" (never collected from a buyer) for an
+              accurate equivalent, same hedged tone, no new promise. */}
+          {values.intent === "buy"
+            ? "Final price or availability is confirmed after MSM reviews the material details, quantity, specification and logistics."
+            : "Final price or availability is confirmed after MSM reviews the material details, grade, weight or quantity, condition and logistics."}
+        </p>
 
-      <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+        {/* Batch B (buyer confirmation clarity) — buyer-only, seller
+            unchanged. Explains the actions below: WhatsApp is one
+            optional way to reach MSM, not the confirmed contact channel.
+            States the submitted preference as a fact, not an operational
+            promise of when/how MSM will respond — so "Chat on WhatsApp"
+            can't be mistaken for a required next step when Call or Email
+            was chosen instead. */}
+        {values.intent === "buy" && values.buyerPreferredContact && (
+          <p className="text-[0.7rem] font-medium text-foreground/50">
+            Preferred contact: {PREFERRED_CONTACT_LABELS[values.buyerPreferredContact]}
+          </p>
+        )}
+      </div>
+
+      <div className="mt-4 flex w-full max-w-md flex-col gap-3 sm:flex-row">
         <a
           href={whatsappUrl}
           target="_blank"
@@ -65,7 +98,12 @@ export function QuoteConfirmation({
           className="font-display inline-flex flex-1 items-center justify-center gap-2 rounded-full border border-[#25D366]/50 px-6 py-3 text-xs font-bold tracking-[0.1em] text-[#25D366] uppercase transition-colors hover:border-[#25D366] hover:bg-[#25D366]/10"
         >
           <MessageCircle aria-hidden="true" className="h-4 w-4" />
-          Continue on WhatsApp
+          {/* Batch A — buyer-only label change ("Chat on WhatsApp", an
+              obviously optional action) so it never reads as a required
+              continuation when the buyer's actual preferred contact was
+              Call or Email; seller keeps its exact existing label and
+              this is still the exact same link/action either way. */}
+          {values.intent === "buy" ? "Chat on WhatsApp" : "Continue on WhatsApp"}
         </a>
         <button
           type="button"

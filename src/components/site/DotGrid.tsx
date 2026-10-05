@@ -1,6 +1,19 @@
 import { useEffect, useRef } from "react";
 
-type Props = { className?: string; glow?: number; glowColor?: string; interactive?: boolean };
+type Props = {
+  className?: string;
+  glow?: number;
+  glowColor?: string;
+  interactive?: boolean;
+  // Colour/alpha used for every dot at rest (i.e. always, when
+  // interactive=false — touch/pointer proximity is what would otherwise
+  // brighten a dot toward the copper `intensity>0.02` branch below).
+  // Defaulted to the pre-existing hardcoded values so every current
+  // call site renders pixel-identically unless it explicitly opts into
+  // its own resting look.
+  restingColor?: string;
+  restingAlpha?: number;
+};
 
 /** Interactive dot grid: dots ease toward the cursor and glow softly nearby. */
 export function DotGrid({
@@ -8,6 +21,8 @@ export function DotGrid({
   glow = 1,
   glowColor = "193, 98, 46",
   interactive = true,
+  restingColor = "178, 195, 225",
+  restingAlpha = 0.16,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -74,11 +89,11 @@ export function DotGrid({
             oy = (dy / (dist || 1)) * push;
           }
           const size = 1 + intensity * 1.4;
-          const alpha = 0.16 + intensity * 0.75;
+          const alpha = restingAlpha + intensity * 0.75;
           ctx.beginPath();
           ctx.arc(x + ox, y + oy, size, 0, Math.PI * 2);
           ctx.fillStyle =
-            intensity > 0.02 ? `rgba(216, 138, 82, ${alpha})` : `rgba(178, 195, 225, ${alpha})`;
+            intensity > 0.02 ? `rgba(216, 138, 82, ${alpha})` : `rgba(${restingColor}, ${alpha})`;
           ctx.fill();
         }
       }
@@ -101,7 +116,7 @@ export function DotGrid({
         window.removeEventListener("pointerleave", onLeave);
       }
     };
-  }, [glow, glowColor, interactive]);
+  }, [glow, glowColor, interactive, restingColor, restingAlpha]);
 
   return (
     <canvas

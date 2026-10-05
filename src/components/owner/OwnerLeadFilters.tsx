@@ -38,13 +38,20 @@ import type { OwnerLeadListFilters } from "./use-owner-lead-list";
 const ALL_VALUE = "__all__";
 const SEARCH_DEBOUNCE_MS = 400;
 
-/** Quote UI's current matte control recipe — solid `bg-navy-deep/95` + `border-white/15`, never a translucent glass tint, so a control stays readable on its own against the matte panel behind it. */
+/** Quote UI's current matte control recipe — solid `bg-navy-deep/95` + `border-white/15`, never a translucent glass tint, so a control stays readable on its own against the matte panel behind it. `lg:` bumps height/radius slightly (8px/32px -> 10px/36px) to match the reference's command-bar controls; below `lg` unchanged. */
+// `font-normal leading-normal` on the trigger/item classes below is
+// deliberately explicit, not a reliance on inherited defaults — both read
+// as `text-sm` either way, but pinning weight/line-height directly on the
+// control guarantees it matches the Owner page's normal body text
+// (OwnerPageHeader's own description text: text-sm, no weight override, no
+// leading override) regardless of whatever ancestor happens to be in scope
+// wherever this control is rendered, including through a Radix Portal.
 const SELECT_TRIGGER_CLASS_NAME =
-  "h-8 w-full min-w-0 rounded-lg border-white/15 bg-navy-deep/95 px-2.5 text-sm shadow-sm transition-colors hover:border-white/25 focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50";
+  "h-8 w-full min-w-0 rounded-lg border-white/15 bg-navy-deep/95 px-2.5 text-sm font-normal leading-normal shadow-sm transition-colors hover:border-white/25 focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50 lg:h-9 lg:rounded-[10px]";
 /** Dark matte popover — the same navy/border pairing as every other floating panel in this batch (quote-modal-matte's own recipe, referenced by token rather than duplicated as a literal colour). */
 const SELECT_CONTENT_CLASS_NAME = "border-white/10 bg-navy-deep/95 text-foreground";
-/** Focus/hover uses a restrained copper tint (never the bright primary-button fill); the checked item's own text turns copper-bright so the current selection reads clearly against the list. */
-const SELECT_ITEM_CLASS_NAME = "text-foreground/85 focus:bg-copper/15 focus:text-foreground data-[state=checked]:font-medium data-[state=checked]:text-copper-bright";
+/** Focus/hover uses a restrained copper tint (never the bright primary-button fill); the checked item's own text turns copper-bright so the current selection reads clearly against the list. `font-normal leading-normal` is the same explicit body-text pin as SELECT_TRIGGER_CLASS_NAME — `data-[state=checked]:font-medium` still intentionally overrides it for the one selected option. */
+const SELECT_ITEM_CLASS_NAME = "text-foreground/85 font-normal leading-normal focus:bg-copper/15 focus:text-foreground data-[state=checked]:font-medium data-[state=checked]:text-copper-bright";
 
 /**
  * CHECKPOINT OWNER DESKTOP CORRECTION (Inbox status filter cleanup) — the
@@ -59,7 +66,7 @@ const SELECT_ITEM_CLASS_NAME = "text-foreground/85 focus:bg-copper/15 focus:text
 const STATUS_FILTER_CONTENT_CLASS_NAME =
   "max-h-[min(260px,var(--radix-select-content-available-height))] border-white/10 bg-navy-deep text-foreground";
 const STATUS_FILTER_ITEM_CLASS_NAME =
-  "text-foreground/85 focus:bg-white/10 focus:text-foreground data-[state=checked]:font-medium data-[state=checked]:text-copper-bright";
+  "text-foreground/85 font-normal leading-normal focus:bg-white/10 focus:text-foreground data-[state=checked]:font-medium data-[state=checked]:text-copper-bright";
 
 export interface OwnerLeadFiltersProps {
   readonly draftFilters: OwnerLeadListFilters;
@@ -132,7 +139,7 @@ export function OwnerLeadFilters({
         if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
         onApply(draftFilters);
       }}
-      className="grid grid-cols-1 items-end gap-3 sm:grid-cols-[minmax(240px,1.6fr)_repeat(4,minmax(0,1fr))_auto]"
+      className="grid grid-cols-1 items-end gap-3 sm:grid-cols-[minmax(240px,1.6fr)_repeat(4,minmax(0,1fr))_auto] lg:flex-1 lg:grid-cols-[minmax(220px,1.7fr)_minmax(0,0.85fr)_minmax(0,0.85fr)_minmax(0,0.85fr)_minmax(0,1fr)_auto] lg:gap-4"
     >
       {/* CHECKPOINT OWNER DESKTOP CORRECTION (small fixes pass) — Search
           gets a genuinely wider, fluid grid column (1.6fr) instead of a
@@ -141,9 +148,12 @@ export function OwnerLeadFilters({
           (1fr each) instead of leaving a large unused gap on the right.
           Below `sm`, controls simply stack in one column (mobile is out of
           this batch's scope; this is purely "don't regress" preservation
-          of the original flex-wrap-to-full-width behaviour). */}
+          of the original flex-wrap-to-full-width behaviour). `lg:flex-1`
+          on the form itself (above) lets it share one row with the
+          Inbox/Archived/Trash tabs (see OwnerLeadInbox.tsx) while this
+          grid, unchanged, still governs its own children's proportions. */}
       <div className="flex flex-col gap-1">
-        <Label htmlFor="owner-lead-search" className="text-xs">
+        <Label htmlFor="owner-lead-search" className="text-xs font-normal leading-normal">
           Search
         </Label>
         <div className="relative">
@@ -154,7 +164,7 @@ export function OwnerLeadFilters({
             placeholder="Reference, name or phone"
             value={draftFilters.q ?? ""}
             onChange={(event) => handleSearchChange(event.target.value)}
-            className="h-8 w-full rounded-lg border-white/15 bg-navy-deep/95 pl-8 text-sm"
+            className="h-8 w-full rounded-lg border-white/15 bg-navy-deep/95 pl-8 text-sm font-normal leading-normal lg:h-9 lg:rounded-[10px]"
             maxLength={60}
             disabled={isBusy}
           />
@@ -162,7 +172,7 @@ export function OwnerLeadFilters({
       </div>
 
       <div className="flex flex-col gap-1">
-        <Label htmlFor="owner-lead-status" className="text-xs">
+        <Label htmlFor="owner-lead-status" className="text-xs font-normal leading-normal">
           Status
         </Label>
         <Select value={draftFilters.status ?? ALL_VALUE} onValueChange={(value) => applySelectChange("status", value === ALL_VALUE ? "" : (value as OwnerLeadListFilters["status"]))} disabled={isBusy}>
@@ -183,7 +193,7 @@ export function OwnerLeadFilters({
       </div>
 
       <div className="flex flex-col gap-1">
-        <Label htmlFor="owner-lead-intent" className="text-xs">
+        <Label htmlFor="owner-lead-intent" className="text-xs font-normal leading-normal">
           Type
         </Label>
         <Select value={draftFilters.intent ?? ALL_VALUE} onValueChange={(value) => applySelectChange("intent", value === ALL_VALUE ? "" : (value as OwnerLeadListFilters["intent"]))} disabled={isBusy}>
@@ -204,7 +214,7 @@ export function OwnerLeadFilters({
       </div>
 
       <div className="flex flex-col gap-1">
-        <Label htmlFor="owner-lead-material" className="text-xs">
+        <Label htmlFor="owner-lead-material" className="text-xs font-normal leading-normal">
           Material
         </Label>
         <Select value={draftFilters.material ?? ALL_VALUE} onValueChange={(value) => applySelectChange("material", value === ALL_VALUE ? "" : (value as OwnerLeadListFilters["material"]))} disabled={isBusy}>
@@ -225,7 +235,7 @@ export function OwnerLeadFilters({
       </div>
 
       <div className="flex flex-col gap-1">
-        <Label htmlFor="owner-lead-channel" className="text-xs">
+        <Label htmlFor="owner-lead-channel" className="text-xs font-normal leading-normal">
           Channel
         </Label>
         <Select

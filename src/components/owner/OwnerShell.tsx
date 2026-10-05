@@ -118,23 +118,27 @@ export function OwnerShell({ authClient, sessionChecker, onUnauthorized, childre
   }
 
   return (
-    // CHECKPOINT C2L-V3 — the exact public/Quote canvas (#080A1D, a
-    // deliberate literal in this codebase — see QuoteExperience.tsx's own
-    // identical bg-[#080A1D] — never any --background/--navy* token, which
-    // render visibly lighter/bluer). Flat and uniform everywhere: elevation
-    // comes entirely from the glass panels floating on top (this shell's
-    // own precedent — QuoteExperience.tsx has no separate ambient/radial
-    // treatment either), never from stepped background tones.
-    <div className="flex min-h-screen flex-col bg-[#080A1D]">
-      <header className="sticky top-0 z-40 h-[70px] bg-[#080A1D]">
-        <div className={`${OWNER_CONTAINER_CLASS} grid h-full grid-cols-[1fr_auto_1fr] items-center gap-3`}>
+    // Base canvas is still the exact #080A1D literal; a very restrained
+    // top-centre navy radial (not a bright/orange gradient) adds the
+    // reference's subtle tonal depth on top of it.
+    <div
+      className="flex min-h-screen flex-col bg-[#080A1D]"
+      style={{ backgroundImage: "radial-gradient(120% 55% at 50% -10%, oklch(0.27 0.05 265 / 0.35), transparent 60%)" }}
+    >
+      {/* h-[86px]/lg: only; 70px unchanged below lg. Subtle bottom border
+          matches the reference's header-bottom line. */}
+      <header className="sticky top-0 z-40 h-[70px] border-b border-white/10 bg-[#080A1D] lg:h-[86px]">
+        {/* minmax(0,1fr) (not plain 1fr) on both outer columns so the
+            centre nav stays visually centred even though the left (logo)
+            and right (actions) content widths differ. */}
+        <div className={`${OWNER_CONTAINER_CLASS} grid h-full grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3`}>
           <div className="flex min-w-0 items-center">
-            <img src={msmLogo} alt="MSM Scrap" width={1174} height={417} className="h-7 w-auto shrink-0" />
+            <img src={msmLogo} alt="MSM Scrap" width={1174} height={417} className="h-7 w-auto shrink-0 lg:h-8" />
           </div>
 
           <OwnerNav />
 
-          <div className="flex shrink-0 items-center justify-end gap-2">
+          <div className="flex shrink-0 items-center justify-end gap-2 lg:gap-3">
             {/* Secondary to the primary action below: ghost/` ` text-only,
                 smaller footprint, never competes with + Add enquiry. */}
             {refreshHandler ? (
@@ -151,6 +155,9 @@ export function OwnerShell({ authClient, sessionChecker, onUnauthorized, childre
                 <span className="hidden lg:inline">Refresh</span>
               </Button>
             ) : null}
+            {/* Subtle vertical divider between Refresh and Log out, matching
+                the reference — desktop only, purely decorative. */}
+            <span aria-hidden="true" className="hidden h-5 w-px bg-white/15 lg:block" />
             <Button
               type="button"
               variant="ghost"
@@ -175,14 +182,20 @@ export function OwnerShell({ authClient, sessionChecker, onUnauthorized, childre
                 disabled button announcing an action the owner can't take
                 on the page already showing it. */}
             {hideAddEnquiryCta ? (
-              <Button asChild variant="brand" size="sm" className="ml-1 invisible gap-1.5 pointer-events-none" aria-hidden="true">
+              <Button
+                asChild
+                variant="brand"
+                size="sm"
+                className="ml-1 invisible gap-1.5 bg-copper pointer-events-none hover:bg-copper/90"
+                aria-hidden="true"
+              >
                 <span tabIndex={-1}>
                   <Plus className="size-4" aria-hidden="true" />
                   Add enquiry
                 </span>
               </Button>
             ) : (
-              <Button asChild variant="brand" size="sm" className="ml-1 gap-1.5">
+              <Button asChild variant="brand" size="sm" className="ml-1 gap-1.5 bg-copper hover:bg-copper/90">
                 <Link to="/owner/leads/new">
                   <Plus className="size-4" aria-hidden="true" />
                   Add enquiry

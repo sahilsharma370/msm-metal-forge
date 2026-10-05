@@ -72,6 +72,15 @@
 :root {
   --radius: 0.625rem;
 
+  /* BATCH MATERIALS-PILL-H — single shared height for the desktop Materials
+     card's material-selector tabs AND specification tags, so both are
+     driven by one number instead of two independently-computed ones that
+     could drift apart. Derived from the tabs' own `py-2.5 text-sm
+     font-semibold rounded-full border` box: 20px line-height (text-sm) +
+     20px padding (py-2.5, 10px top/bottom) + 2px border (1px top/bottom) =
+     42px border-box height. */
+  --materials-pill-h: 42px;
+
   /* Brand */
   --navy: oklch(0.245 0.062 265.5);
   --navy-deep: oklch(0.195 0.055 265.5);
@@ -133,6 +142,22 @@
     oklch(0.583 0.135 45.5) 78%,
     oklch(0.46 0.11 42) 100%
   );
+  /* Get Quote-only error/warning palette — reuses the exact same colour
+     already used by "Discard and close"/"Discard and start over" in the
+     Leave Quote/Start Over dialogs (#C9655A), not a separate invented
+     hue, so every Get Quote error surface reads as one consistent
+     restrained coral instead of the shared --destructive token (kept
+     as-is, still bright/saturated, everywhere else it's used — e.g.
+     Owner Dashboard). Referenced only by the .quote-error-* selectors
+     below and only ever used inside src/components/site/quote/**.
+     --quote-error-bg is deliberately untouched (banner background stays
+     as-is); --quote-error-border keeps its existing 0.32 opacity, just
+     recomputed from this same #C9655A (rgb 201,101,90). */
+  --quote-error: #c9655a;
+  --quote-error-strong: #c9655a;
+  --quote-error-border: rgba(201, 101, 90, 0.32);
+  --quote-error-bg: rgba(104, 45, 49, 0.14);
+  --quote-error-inset: rgba(227, 148, 139, 0.035);
   --chart-1: oklch(0.646 0.222 41.116);
   --chart-2: oklch(0.6 0.118 184.704);
   --chart-3: oklch(0.398 0.07 227.392);
@@ -186,6 +211,30 @@
 @layer base {
   * {
     border-color: var(--color-border);
+  }
+
+  /* Mobile rubber-band fix — `html` had no background-color of its own, so
+     iOS/Android's overscroll bounce at the very top/bottom of the page
+     revealed the browser's own default canvas (a pale blue-ish tint) past
+     `body`'s edge instead of the site's navy. Matches the same navy used
+     everywhere else in the app (QuoteExperience, Header, ...), not the
+     `--color-background` token — that token resolves differently depending
+     on the active theme scope, where this is the one, unconditional, always-
+     navy site background. `overscroll-behavior-y: none` is a best-effort
+     companion, mobile/tablet only (matches Header.tsx's own
+     `(max-width: 1023.98px)` breakpoint) — it stops Chrome/Android's
+     pull-to-refresh/navigation gesture from the page edges, but iOS Safari
+     does not honor `overscroll-behavior` on the root document scroller, so
+     the native rubber-band stretch itself still happens there; this only
+     ensures what shows through it is the correct colour. */
+  html {
+    background-color: #080a1d;
+  }
+  @media (max-width: 1023.98px) {
+    html,
+    body {
+      overscroll-behavior-y: none;
+    }
   }
 
   body {
@@ -322,6 +371,154 @@
   }
 }
 
+/* BATCH VIEWPORT-STABILITY-2 — `svh` was assumed to be fixed at the
+   browser's own most-collapsed-toolbar state (per spec), but a physical
+   iPhone trace proved otherwise on this device/browser: `100svh` measured
+   778px with the toolbar shown and 678px with it collapsed — the exact same
+   live-tracking behaviour as `dvh`. `--app-vh` (see __root.tsx) is a CSS
+   custom property holding 1% of `window.innerHeight`, captured once by an
+   inline, render-blocking script at initial page load (when the toolbar is
+   still shown, before any scroll) and left untouched by toolbar-only
+   height/`visualViewport` changes afterward — only a genuine width change
+   (real resize or orientation flip) updates it, via a small effect in
+   __root.tsx. `calc(var(--app-vh, 7.6px) * N)` is the replacement for every
+   `Nsvh`/`Ndvh` that used to affect document flow (Hero's own height, the
+   Materials/WhatWeDo mobile narrative and sticky-stage heights) — the
+   `7.6px` fallback only matters for the handful of paints before that
+   script runs (or a browser with scripting disabled entirely). */
+.hero-stage-height {
+  height: calc(var(--app-vh, 7.6px) * 100);
+}
+.hero-stage-min-height {
+  min-height: calc(var(--app-vh, 7.6px) * 100);
+}
+/* ScrollStack.tsx's desktop/motion-enabled entry phase is intentionally
+   shorter than a full viewport (60%) — baked in here, at the exact same
+   `(min-width: 1024px)` + `(prefers-reduced-motion: no-preference)`
+   population ScrollStack.tsx itself targets, so heroWrapper already
+   renders at its final, hydrated-pinned height on first SSR paint with no
+   JS required. See ScrollStack.tsx's own top comment for the bug this
+   fixes: a JS-only resize applied after hydration (which can land 1-2s
+   late) used to make the trigger's own measured end point move out from
+   under an already-scrolling user. Mobile and desktop-reduced-motion fall
+   through to the full-height rule above, untouched. */
+@media (min-width: 1024px) and (prefers-reduced-motion: no-preference) {
+  .hero-stage-height {
+    height: calc(var(--app-vh, 7.6px) * 60);
+  }
+  /* MEASURED ROOT CAUSE (desktop reload "Trust flash" bug): TrustBar's own
+     default/no-JS layout (`lg:absolute lg:inset-0` in TrustBar.tsx) fills
+     its wrapper starting exactly at this 60vh mark — before hydration runs
+     ScrollStack.tsx's `gsap.set(trustBar, { yPercent: 100 })`, Trust's top
+     ~40% sits inside the still-100vh-tall viewport and paints over the
+     bottom of Hero. `.js` (see __root.tsx's `JS_ENABLED_SCRIPT`, same
+     before-first-paint timing as this file's own `--app-vh` script) is the
+     only thing that distinguishes "GSAP will run and animate this back"
+     from a true no-JS load, so only that population gets this transform —
+     matching stageA's own progress-0 state (Trust fully below the
+     viewport) from the very first painted frame, with the exact same
+     `translateY(100%)` GSAP's `yPercent: 100` produces, so there is nothing
+     for hydration to visibly correct. No-JS and reduced-motion both fall
+     through untouched, same as the height rule above. */
+  .js .trust-stage-offset {
+    transform: translateY(100%);
+  }
+}
+
+/* BATCH HERO-GRID-MATCH — Hero's square background grid, geometry-matched
+   to the Our Services desktop grid. Services' grid is baked into
+   src/assets/services-recessed-stage-lowered.webp and stretched to fill
+   its canvas via `object-fit: fill`, so there is no CSS to copy directly —
+   instead this reproduces the SAME proportional geometry via ratios
+   measured from that asset with a local Python/PIL script (median grid
+   period across ~70 sampled rows/columns of the asset's clean upper-wall
+   band, y 5%-35%, well above the illuminated surface line and any card
+   wells/lamp/truck content, none of which are baked into this asset
+   anyway):
+     source asset:            1665 x 936 px
+     measured period:         81px both axes (native, near-square)
+     measured first-line X:   9px   -> offset ratio 9/81   = 11.111% of one cell
+     measured first-line Y:   ~0px  -> offset ratio ~0
+   Ratios used below:
+     cell-x = 81/1665 = 4.8649%   (matches Services' own horizontal stretch)
+     cell-y = 81/936  = 8.6538%   (matches Services' own vertical stretch)
+   `background-size` below is expressed in `vw`/`vh` (not `%`) specifically
+   so this class can be shared by both Hero (which IS the full viewport)
+   and any shorter section without `background-attachment: fixed` — see
+   BATCH OWNER-GRID-REUSE below for why that matters. For Hero itself
+   these are numerically identical: Hero's own box is exactly 100vw wide
+   and ~100dvh tall, so 4.8649% of Hero's own width and 4.8649vw of the
+   viewport are the same number, and likewise for the height axis. No JS,
+   no resize listener, no viewport math beyond what the browser already
+   does for vw/vh.
+   Base rule below is the ORIGINAL, unchanged mobile/base appearance (48px
+   fixed cells, single 0.07-alpha line color at 0.7 container opacity,
+   i.e. an effective 0.049 alpha — kept byte-for-byte equivalent, just
+   expressed as one flat alpha instead of two stacked values). The
+   `min-width: 1024px` block is the only new, desktop-only geometry/
+   visibility change. Line RGB is unchanged (52, 68, 104); alpha at desktop
+   is raised to 0.16 — solved so Hero's own #080A1D base plus this overlay
+   reproduces the *measured* Services line-vs-wall contrast (line
+   ~rgb(10,20,43) over wall ~rgb(2,11,31) in the source asset), since Hero
+   has no lamp to supply that contrast physically. */
+.hero-grid {
+  --hero-grid-line: rgba(52, 68, 104, 0.049);
+  background-image:
+    linear-gradient(var(--hero-grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--hero-grid-line) 1px, transparent 1px);
+  background-size: 48px 48px;
+}
+
+@media (min-width: 1024px) {
+  .hero-grid {
+    --hero-grid-line: rgba(52, 68, 104, 0.16);
+    background-image:
+      linear-gradient(var(--hero-grid-line) 1px, transparent 1px),
+      linear-gradient(
+        90deg,
+        transparent 0%,
+        transparent calc(11.111% - 1px),
+        var(--hero-grid-line) calc(11.111% - 1px),
+        var(--hero-grid-line) 11.111%,
+        transparent 11.111%,
+        transparent 100%
+      );
+    background-size: 4.8649vw 8.6538vh;
+  }
+}
+
+/* BATCH OWNER-MOBILE-GRID — one continuous grid for the mobile Owner
+   section only (msm-owner-mobile-target.png shows the same square grid
+   running underneath the whole section, panel included, not just inside
+   it). Deliberately a separate class from `.hero-grid` above: that class's
+   own mobile rule is shared with Hero.tsx's mobile grid, which must stay
+   exactly as it already is. Same line RGB family as `.hero-grid`, raised to
+   a legible-but-subtle alpha and a slightly larger ~39px cell (mockup's own
+   mobile cell size), so it reads clearly both outside the panel and through
+   its interior. */
+.owner-mobile-grid {
+  --owner-grid-line: rgba(52, 68, 104, 0.16);
+  background-image:
+    linear-gradient(var(--owner-grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--owner-grid-line) 1px, transparent 1px);
+  background-size: 39px 39px;
+}
+
+/* BATCH OWNER-GRID-DRIFT-FIX — a shorter section (the Owner section's own
+   box, unlike Hero's 100dvh section) used to reuse `.hero-grid` via an
+   extra `.hero-grid-fixed` class that set `background-attachment: fixed`,
+   so the old percentage-based `background-size` would resolve against the
+   viewport instead of the section's own shorter box. The side effect:
+   `background-attachment: fixed` anchors the background to the viewport,
+   not the element, so as the page scrolled the section moved but its grid
+   didn't track with it — it visibly drifted relative to the section. That
+   class and its only two call sites (both in AboutTeaser.tsx) are gone.
+   `.hero-grid` no longer needs any section-specific companion class at
+   all: now that its own `background-size` is in `vw`/`vh` (see above)
+   instead of `%`, the cell size is already viewport-relative on its own,
+   with the default `background-attachment: scroll` — the grid scrolls
+   normally with its section, no drift, no viewport-fixed positioning. */
+
 /* CHECKPOINT C2L (track record glass) — section-local surface for the four
    Trust/Track Record cards only, deliberately not a shared token or an edit
    to .glass-panel/.glass-ring: those stay exactly as-is for the header nav
@@ -337,9 +534,9 @@
   background:
     linear-gradient(
       165deg,
-      oklch(0.32 0.05 265 / 0.3) 0%,
-      oklch(0.22 0.055 265 / 0.36) 45%,
-      oklch(0.14 0.05 265 / 0.44) 100%
+      oklch(0.32 0.05 265 / 0.38) 0%,
+      oklch(0.22 0.055 265 / 0.44) 45%,
+      oklch(0.14 0.05 265 / 0.52) 100%
     );
   backdrop-filter: blur(22px) saturate(155%);
   -webkit-backdrop-filter: blur(22px) saturate(155%);
@@ -381,77 +578,6 @@
     mask-composite: exclude;
     pointer-events: none;
   }
-}
-
-/* CHECKPOINT C2L (services static + motion refinement) — scoped copy of
-   trust-card-glass/trust-card-ring for the four Services cards, kept as a
-   separate name (not a shared rename) since it's a different section that
-   may need to diverge later; values match exactly for the same restrained
-   premium-glass quality. Sits over a flat navy background here (no photo),
-   so the same tuning reads at least as calm as it does over Trust's photo.
-   CHECKPOINT C2L (readability micro-pass) — DotGrid's moving copper/steel
-   dots sit directly behind these cards (unlike Trust's static photo), so
-   the navy scrim alpha is nudged up one restrained step (+0.08 per stop)
-   to keep dot motion from reducing copy contrast, while blur/saturate/
-   box-shadow/border stay exactly as approved — dots remain subtly visible
-   through the glass, not hidden. */
-@utility service-card-glass {
-  background:
-    linear-gradient(
-      165deg,
-      oklch(0.32 0.05 265 / 0.38) 0%,
-      oklch(0.22 0.055 265 / 0.44) 45%,
-      oklch(0.14 0.05 265 / 0.52) 100%
-    );
-  backdrop-filter: blur(22px) saturate(155%);
-  -webkit-backdrop-filter: blur(22px) saturate(155%);
-  box-shadow:
-    inset 0 1px 0 oklch(1 0 0 / 0.2),
-    inset 0 -1px 0 oklch(0.583 0.135 45.5 / 0.1),
-    0 12px 28px -14px oklch(0.05 0.03 265 / 0.6);
-  border: 1px solid oklch(1 0 0 / 0.08);
-  background-clip: padding-box;
-  position: relative;
-  isolation: isolate;
-}
-
-@utility service-card-ring {
-  &::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    border-radius: inherit;
-    padding: 1px;
-    background: linear-gradient(
-      140deg,
-      oklch(1 0 0 / 0.36) 0%,
-      oklch(1 0 0 / 0.04) 38%,
-      oklch(0.583 0.135 45.5 / 0.375) 100%
-    );
-    -webkit-mask:
-      linear-gradient(#000 0 0) content-box,
-      linear-gradient(#000 0 0);
-    mask:
-      linear-gradient(#000 0 0) content-box,
-      linear-gradient(#000 0 0);
-    -webkit-mask-composite: xor;
-    mask-composite: exclude;
-    pointer-events: none;
-  }
-}
-
-/* Restrained "truck has passed this card" state: a touch more border
-   presence plus one soft, tightly-clamped outer glow layered onto
-   service-card-glass's own box-shadow (not a replacement) — no solid fill,
-   no scale change, no looping animation; the 500ms transition on the card
-   itself is what makes this read as a crossfade rather than a jump. */
-.service-card-active {
-  border-color: oklch(0.583 0.135 45.5 / 0.45);
-  box-shadow:
-    inset 0 1px 0 oklch(1 0 0 / 0.2),
-    inset 0 -1px 0 oklch(0.583 0.135 45.5 / 0.1),
-    0 12px 28px -14px oklch(0.05 0.03 265 / 0.6),
-    0 0 30px -4px oklch(0.583 0.135 45.5 / 0.34);
 }
 
 /* CHECKPOINT C2Q-FINAL-V2 (quote choice-card matte glass) — scoped copy for
@@ -496,6 +622,30 @@
   border: 1px solid oklch(1 0 0 / 0.1);
   background-clip: padding-box;
   position: relative;
+}
+
+/* Get Quote validation/error classes — see --quote-error* tokens above.
+   Ordinary explicit selectors (not Tailwind @utility) so they reliably
+   win over any co-applied Tailwind colour utility, regardless of source
+   order — the previous @utility version did not produce the required
+   visible result. .quote-error-text: inline required-field messages and
+   the upload-overflow warning. .quote-error-text-strong: the validation
+   summary banner's icon only, kept visually stronger than inline
+   messages per spec. .quote-error-banner: the one shared surface for
+   every error/warning banner (validation summary, unresolved-files
+   notice, failed-submission status). The narrow !important on each is
+   intentional and scoped only to these three selectors — nowhere else
+   in this file uses !important. */
+.quote-error-text {
+  color: var(--quote-error) !important;
+}
+.quote-error-text-strong {
+  color: var(--quote-error-strong) !important;
+}
+.quote-error-banner {
+  border-color: var(--quote-error-border) !important;
+  background-color: var(--quote-error-bg) !important;
+  box-shadow: inset 0 1px 0 var(--quote-error-inset);
 }
 
 /* CHECKPOINT C2L-V3 — solid fallback for browsers with no backdrop-filter
@@ -621,9 +771,123 @@
   animation: material-zoom 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
+/* BATCH 7M-DESKTOP-SCENE — desktop info-card content swap: restrained
+   opacity + small vertical settle, distinct from the scale-zoom above. */
+@keyframes material-card-fade {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@utility animate-material-card-fade {
+  animation: material-card-fade 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* BATCH MATERIALS-CARD-NORMALIZE — restrained left-edge copper accent rail
+   on the desktop info panel: a short mark aligned to the vertical centre of
+   the fixed 56px header row, never the full card height, so it reads as a
+   spec-sheet accent rather than a coloured border. `top` is derived from
+   the card's own fixed p-10 (40px) padding + half the fixed 56px header
+   row, minus half this rail's own height — 40 + 28 - 34 = 34px — so it
+   lines up with the title/badge lane exactly, the same way for every
+   material (the header row height no longer varies with content). Needs a
+   real ::before (unreachable from inline styles), so it's the one piece of
+   this refinement that lives here instead of in Materials.tsx. */
+.materials-card-rail::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 34px;
+  width: 2px;
+  height: 68px;
+  background: var(--copper);
+  border-radius: 1px;
+}
+
+/* BATCH 7M — restrained mobile material-switch settle (Materials.tsx vault):
+   fade + small vertical settle, distinct from the desktop scale-zoom above.
+   Only applied via `motion-safe:`, so prefers-reduced-motion swaps instantly. */
+@keyframes material-settle-mobile {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@utility animate-material-settle-mobile {
+  animation: material-settle-mobile 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* BATCH 8M — mobile Founder's Ledger entrance (AboutTeaser.tsx): plays once
+   when the section scrolls into view (IntersectionObserver-gated in JS),
+   never on continuous scroll. Two fixed distances instead of one
+   custom-property-driven keyframe, matching this file's existing
+   fixed-distance rise/drop/settle utilities above. */
+@keyframes founder-rise-eyebrow {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@utility animate-founder-rise-eyebrow {
+  animation: founder-rise-eyebrow 550ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes founder-rise-card {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@utility animate-founder-rise-card {
+  animation: founder-rise-card 600ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
 /* Quote Experience content scroller (E-16): thin, dark, restrained-copper
-   thumb instead of the bright default OS scrollbar, using existing tokens. */
+   thumb instead of the bright default OS scrollbar, using existing tokens.
+   Root-cause fix (file-selection panel-shift bug) — `position: relative`
+   makes this scrolling body the containing block for any absolutely-
+   positioned descendant that doesn't already have its own closer
+   positioned ancestor. Every OTHER `absolute` element in the wizard
+   already sits inside its own local `position: relative` wrapper
+   (QuoteOptionCard's/QuotePillGroup's selected-checkmark badge via
+   `.quote-choice-glass`/the tile button itself, the photo/document
+   remove button via its own `relative` <li>) — the one exception was
+   QuotePhotoPicker's `sr-only` file <input>, a bare sibling with no local
+   positioning context, whose containing block therefore resolved all the
+   way up to the outer 3-row shell grid (header+body+footer). Because
+   that grid — not this scroller — owned the input's position, the input
+   never moved when this element scrolled; when the browser refocuses the
+   input after the native file picker closes, its built-in scroll-into-
+   view logic scrolled this element trying to reveal something that
+   structurally could never become visible that way, overshooting and
+   dragging the visible header/footer out of place. Scoping the
+   containing block to this scroller (its rightful owner, since the
+   input is a DOM descendant of it) fixes the input in place at its
+   correct in-flow position and makes it scroll normally with the rest
+   of the step's content — no transform, no forced scroll reset, no
+   footer/padding hack. */
 .quote-scroll {
+  position: relative;
   scrollbar-width: thin;
   scrollbar-color: oklch(0.583 0.135 45.5 / 0.4) transparent;
 }
@@ -677,6 +941,26 @@
   caret-color: var(--foreground);
 }
 
+/* Batch A — the browser's own default calendar-picker-indicator glyph on
+   `input[type="date"]` is a dark/black icon with no colour override
+   available via any standard CSS property; on this navy field background
+   it reads as nearly invisible. `filter: invert(1)` recolours the glyph
+   to a light tone (a pure rendering filter — it does not touch hit-testing
+   or the native picker's own behaviour, so the date picker itself is
+   unaffected) with a small brightness/opacity trim so it reads as a muted
+   icon rather than pure white. Scoped to `.quote-scroll`, same convention
+   as the autofill fix above — no other date input on the site is
+   affected. */
+.quote-scroll input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(1) brightness(1.4);
+  opacity: 0.7;
+  cursor: pointer;
+}
+
+.quote-scroll input[type="date"]::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
+}
+
 /* CHECKPOINT OWNER/QUOTE MATTE PASS — same autofill-proofing technique as
    the Quote Experience block above (Chrome/Safari's yellow/blue UA autofill
    background can't be overridden with a plain background-color), scoped to
@@ -698,3 +982,395 @@
   color: var(--foreground);
   caret-color: var(--foreground);
 }
+
+/* Both grounding layers below live inside the truck's own moving wrapper
+   (ahead of the truck image in paint order), so they automatically
+   travel and reverse with the truck's horizontal transform — neither has
+   a transform of its own to conflict with it. */
+.truck-surface {
+  position: absolute;
+  left: 50%;
+  bottom: -23px;
+  width: 94%;
+  height: 52px;
+  transform: translateX(-50%) scaleY(0.52);
+  border-radius: 50%;
+  background: radial-gradient(
+    ellipse at center,
+    rgba(35, 48, 82, 0.3) 0%,
+    rgba(17, 24, 49, 0.16) 42%,
+    transparent 74%
+  );
+  pointer-events: none;
+}
+
+/* Single overhead-light ground shadow (underbody wash + two tyre contact
+   patches, composed as three radial gradients in one element) — lives
+   inside the truck's own horizontal travel wrapper, as a sibling of the
+   suspension wrapper (never inside it), so it follows the truck's X but
+   never inherits the body's heave/rotate. Static scale/opacity — no JS
+   ever writes --shadow-scale-x/-y or opacity on this element. */
+.truck-ground-shadow {
+  position: absolute;
+  left: 50%;
+  bottom: -19px;
+  width: 96%;
+  height: 30px;
+  transform: translateX(-50%) scaleX(var(--shadow-scale-x, 1)) scaleY(var(--shadow-scale-y, 1));
+  transform-origin: center center;
+  z-index: 1;
+  pointer-events: none;
+  overflow: visible;
+  border-radius: 50%;
+  opacity: 0.94;
+  filter: blur(4px);
+  background:
+    radial-gradient(
+      ellipse at 27% 43%,
+      rgba(0, 0, 2, 0.98) 0%,
+      rgba(0, 0, 5, 0.92) 11%,
+      rgba(0, 2, 12, 0.68) 22%,
+      transparent 40%
+    ),
+    radial-gradient(
+      ellipse at 83% 43%,
+      rgba(0, 0, 2, 0.98) 0%,
+      rgba(0, 0, 5, 0.92) 11%,
+      rgba(0, 2, 12, 0.68) 22%,
+      transparent 40%
+    ),
+    radial-gradient(
+      ellipse at 52% 38%,
+      rgba(0, 0, 3, 0.94) 0%,
+      rgba(0, 1, 8, 0.82) 34%,
+      rgba(3, 9, 25, 0.48) 62%,
+      transparent 86%
+    );
+}
+
+/* Restrained roof-beacon highlight — lives inside truckMotionRef so it
+   travels with the body's own heave/pitch; deliberately sized/positioned
+   to sit directly over the existing painted beacon in the artwork rather
+   than reading as a separate light. Its opacity is the only thing the
+   scroll effect varies (a small deterministic function of progress),
+   never a CSS keyframe flash. */
+.truck-light-beacon {
+  position: absolute;
+  left: 76%;
+  top: 13%;
+  width: 3.3%;
+  height: 3%;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: oklch(0.82 0.14 80 / 0.55);
+  box-shadow: 0 0 5px 0 oklch(0.82 0.14 80 / 0.35);
+  opacity: 0.3;
+  pointer-events: none;
+}
+
+/* Pendant-lamp fixture wrapper — hangs from the pinned canvas's own top
+   edge, horizontally centred on the stage (plain `left: 50%`, not tied to
+   the truck's position). Absolutely positioned with only `left` set (no
+   `right`), so it shrink-wraps to the fixture's own width and
+   `translateX(-50%)` centres that box on the stage's horizontal centre.
+   `--services-lamp-fixture-h`/`--services-surface-y` are both set in JS
+   (computeTravel) as a property on the shared `canvas` ancestor — not
+   locally on this element — specifically so `.services-lamp-ambient`
+   below (a *sibling*, not a descendant of this wrapper) can read the same
+   two values and stay in sync with it. */
+.services-lamp-scene {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.services-lamp-fixture {
+  position: relative;
+  height: var(--services-lamp-fixture-h);
+  width: auto;
+  aspect-ratio: 2 / 3;
+}
+
+.services-lamp-fixture img {
+  position: absolute;
+  inset: 0;
+  height: 100%;
+  width: 100%;
+  object-fit: contain;
+  transition: opacity 320ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Bulb bloom — a small, restrained highlight limited to the exposed
+   glass only, not a large 360° halo. Sized/positioned from the lamp-on
+   PNG's own measured pixels: the glass bulb's brightest cross-section
+   runs roughly 78-80% down the image (its widest point, ~13-14% of the
+   image's own width) narrowing to a point by ~84%. Centred at 80% — just
+   below LAMP_BULB_Y_RATIO's centre point, at the bulb's equator, per
+   spec — with a short elliptical footprint (width > height) so it never
+   reaches up into the shade's lower rim above it. Sits behind the
+   fixture's own two PNGs (DOM order, no z-index) — the opaque shade
+   blocks it everywhere except the actual exposed-glass gap, so it can
+   never visibly extend above/beside the shade regardless of its own
+   size. */
+.services-lamp-halo {
+  position: absolute;
+  left: 50%;
+  top: 80%;
+  width: 22%;
+  height: 11%;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: radial-gradient(
+    ellipse at center,
+    rgba(255, 250, 235, 0.48) 0%,
+    rgba(255, 218, 150, 0.22) 42%,
+    transparent 76%
+  );
+  filter: blur(4px);
+  opacity: 0;
+  transition: opacity 650ms cubic-bezier(0, 0, 0.2, 1);
+  pointer-events: none;
+}
+.services-lamp-scene.is-on .services-lamp-halo {
+  opacity: 1;
+}
+
+/* Ambient lamp light (atmospheric spill + road pool) — a sibling of
+   `.services-lamp-scene`, not nested inside it, so it can be placed
+   earlier in the DOM (behind the truck) while the fixture stays last
+   (in front of everything). Same base positioning convention (`left:
+   50%` + shrink-wrap + translateX(-50%)); its own `.is-on` toggle is
+   driven by the same `lampOn` state as the fixture, so both fade
+   together. */
+.services-lamp-ambient {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+/* Atmospheric spill — a single radial gradient, deliberately centred
+   *above* this box's own top edge (`at 50% -20%`) so only its wider,
+   already-fading lower portion is ever visible: near the top of the box
+   (close to that off-box centre) the lit width reads narrow, and it
+   reads progressively wider toward the bottom — a soft cone silhouette
+   with no clip-path and, critically, no separate hotspot gradient (the
+   previous near-top gradient stop that created a visible "round cloud"
+   has been removed outright). `top` now starts at
+   --services-lamp-bulb-bottom-y-ratio — the bulb's own measured *bottom*
+   edge (see LAMP_BULB_BOTTOM_Y_RATIO), not its centre — so this layer
+   can only ever begin below the exposed glass, never reach up into the
+   shade. Every alpha stop stays low (peak 0.09), one restrained
+   warm-yellow (255, 218, 150) — no grey/beige, no orange. Screen-blended;
+   height terminates exactly at the measured surface line, so it can
+   never reach the cards below. Sits *behind* the truck in the DOM (see
+   JSX) — the truck's own lit look comes from the separate masked overlay
+   inside its suspension wrapper, not from this layer punching through it. */
+.services-lamp-wash {
+  position: absolute;
+  left: 50%;
+  top: calc(var(--services-lamp-fixture-h) * var(--services-lamp-bulb-bottom-y-ratio, 0.84));
+  height: calc(var(--services-surface-y, 0px) - (var(--services-lamp-fixture-h) * var(--services-lamp-bulb-bottom-y-ratio, 0.84)));
+  width: clamp(500px, 36vw, 700px);
+  transform: translateX(-50%);
+  background: radial-gradient(
+    ellipse 60% 130% at 50% -20%,
+    rgba(255, 218, 150, 0.09) 0%,
+    rgba(255, 218, 150, 0.045) 40%,
+    rgba(255, 218, 150, 0.018) 68%,
+    transparent 86%
+  );
+  filter: blur(24px);
+  mix-blend-mode: screen;
+  opacity: 0;
+  transition: opacity 650ms cubic-bezier(0, 0, 0.2, 1) 80ms;
+  pointer-events: none;
+}
+.services-lamp-ambient.is-on .services-lamp-wash {
+  opacity: 1;
+}
+
+/* Road pool — same restrained warm-yellow (255, 218, 150) as the halo and
+   spill; strength nudged up ~17-20% from the previous pass (0.24→0.28,
+   0.1→0.12) since the airborne glow was reading stronger than the
+   illuminated road. Footprint/position/blur/layer-order unchanged. */
+.services-lamp-pool {
+  position: absolute;
+  left: 50%;
+  top: var(--services-surface-y, 0px);
+  width: clamp(420px, 29vw, 570px);
+  height: clamp(30px, 4vh, 48px);
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: radial-gradient(ellipse at center, rgba(255, 218, 150, 0.28) 0%, rgba(255, 218, 150, 0.12) 46%, transparent 80%);
+  filter: blur(12px);
+  opacity: 0;
+  transition: opacity 650ms cubic-bezier(0, 0, 0.2, 1) 80ms;
+  pointer-events: none;
+}
+.services-lamp-ambient.is-on .services-lamp-pool {
+  opacity: 1;
+}
+
+/* Truck light response — an alpha-masked (to the truck's own PNG shape)
+   overlay living inside truckMotionRef, so it inherits the truck's exact
+   X/heave/rotate and can never render as a second visible truck or logo.
+   Its only variable is opacity, driven by --lamp-influence (0-1,
+   proximity-to-lamp, set each scrub tick in onUpdate — see the component).
+   Screen-blended at low peak alpha, concentrated on the upper body/roof/
+   cab and faded out before the wheels, so at maximum influence the navy
+   paint stays navy and the white logo doesn't bloom. */
+.truck-light-response {
+  position: absolute;
+  inset: 0;
+  mask-size: 100% 100%;
+  -webkit-mask-size: 100% 100%;
+  mask-repeat: no-repeat;
+  -webkit-mask-repeat: no-repeat;
+  /* Warm ~2700K light concentrated on the roof/upper edges, correction
+     pass: previous version's mid-body stops (0.13-0.24 alpha) read as a
+     flat grey/beige haze across the cargo-box face and cab, flattening
+     the navy paint and logo. Now strongest only in a thin roof band,
+     falling to near-zero through the body (cargo face/cab/hood barely
+     touched) with just a hair of "reflected warmth" restored at the very
+     bottom — not zero, per spec, but negligible. Peak alpha (0.14/0.10)
+     is ~30% of the previous version's (0.40/0.32). Single warm-yellow
+     hue throughout (255, 218, 150), no grey-white/brown/orange. The dark
+     contact shadow is a separate element outside this mask entirely and
+     is untouched regardless. */
+  background:
+    linear-gradient(
+      180deg,
+      rgba(255, 218, 150, 0.14) 0%,
+      rgba(255, 218, 150, 0.05) 9%,
+      rgba(255, 218, 150, 0.015) 22%,
+      transparent 38%,
+      transparent 82%,
+      rgba(255, 218, 150, 0.012) 100%
+    ),
+    radial-gradient(ellipse 20% 26% at 63% 30%, rgba(255, 218, 150, 0.1) 0%, transparent 70%);
+  mix-blend-mode: screen;
+  opacity: var(--lamp-influence, 0);
+  pointer-events: none;
+}
+
+/* Live service-card overlay, carved into the baked cavity rather than
+   floating in front of it — no outer border/box-shadow ever leaves the
+   card's own bounds. `::before` is the permanent depth layer (dark upper
+   overhang, cool inset falloff on both sides); `::after` only exists on
+   `.is-reached` cards and is copper light emitted inward from the rim,
+   fading toward a dark, readable centre — never a non-inset shadow, so it
+   can never escape the cavity as an outer glow.
+
+   BATCH SERVICES-CARD-BULB-STATE — `background-color` and the border-ring
+   box-shadow layer are NEW: a flat, opaque Hero-navy fill (#080A1D, the
+   exact hex Hero's own section background and its own dark-navy box —
+   the WhatsApp button — both use) plus a subtle neutral border, both only
+   visible while the pendant lamp hasn't turned on yet. Driven by the
+   existing `lampOn` boolean (the same state that already toggles `is-on`
+   on the lamp's own halo/wash/pool — not `--lamp-influence`, which is the
+   truck's continuous proximity-to-lamp value and fluctuates all through
+   the scroll journey even while the lamp is lit, which would make the
+   cards flicker instead of doing one clean reveal). `background-image`
+   (the depth-shading gradient) and the first three box-shadow layers are
+   completely unchanged from before this batch and are never touched by
+   `.is-on` — so once the lamp is on, `::before` renders pixel-identical
+   to its pre-existing appearance; only the new fill/border layers fade to
+   fully transparent. */
+.service-cavity::before {
+  content: "";
+  position: absolute;
+  inset: 4px;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 0;
+  background-color: rgba(8, 10, 29, 1);
+  background-image: linear-gradient(180deg, rgba(0, 0, 5, 0.72) 0%, rgba(0, 1, 9, 0.34) 11%, transparent 30%);
+  /* BATCH SERVICES-CARD-HARD-RIM-REMOVE — the previous pass only lowered
+     this ring's alpha (0.22 -> 0.12); it was still a hard, 0-blur 1px
+     inset line (a box-shadow with no blur radius is geometrically crisp
+     regardless of how low its alpha is — alpha and sharpness are
+     independent), which is exactly the "grey inner border" being
+     reported. Removed outright rather than lowered further: the card
+     shape is still fully legible from the opaque `background-color` fill
+     above plus the three *soft* (14-18px blur) shadows below, none of
+     which are hard edges. Those three are unchanged. (Separately: the
+     "sharp blue-white rim, especially along the bottom of WE SELL" is
+     NOT from this rule at all — measured directly via a Python/PIL script
+     against services-recessed-stage-lowered.webp, all four card wells
+     have a baked-in bright pixel band, RGB roughly (135-140,168-176,
+     222-229), right at their bottom boundary, with WE SELL measuring the
+     single highest peak of the four. That's pixel data in the artwork
+     itself, present regardless of lamp state, and out of reach of this
+     stylesheet — not something to paper over with another overlay.) */
+  box-shadow:
+    inset 0 14px 20px rgba(0, 0, 5, 0.58),
+    inset 10px 0 18px rgba(0, 1, 8, 0.2),
+    inset -10px 0 18px rgba(0, 1, 8, 0.2);
+  transition:
+    background-color 650ms cubic-bezier(0, 0, 0.2, 1),
+    box-shadow 650ms cubic-bezier(0, 0, 0.2, 1);
+}
+
+.service-cavity.is-on::before {
+  /* `!important` here is deliberate, not lazy: `.is-on` has strictly
+     higher selector specificity than the base rule above and should win
+     on its own, but Tailwind v4's generated cascade layers (`@layer
+     theme, base, components, utilities`) outrank this file's plain
+     `@layer base` block by declaration position in a way that swallowed
+     the override in testing (verified directly: an isolated
+     `.service-cavity.is-on` test element stayed at the base rule's
+     opaque fill without `!important`, and matched the target value with
+     it). Now that the hard ring is gone from the base rule, `box-shadow`
+     is identical in both states, so this override only needs
+     `background-color` — no redundant restatement of the three soft
+     shadows. */
+  background-color: rgba(8, 10, 29, 0) !important;
+}
+
+.service-cavity::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 0;
+  /* `!important` verified necessary the same way as `.is-on::before`
+     above: an isolated `.service-cavity` test element (no is-reached/
+     is-on) still computed `opacity: 1` for ::after without it — Tailwind
+     v4's generated cascade layers again outrank this file's plain
+     `@layer base` declaration regardless of which selector should
+     actually win. Without it, opacity got stuck at whatever value was
+     live when `is-reached`/`is-on` were removed (reproduced by scrolling
+     past reached+lit cards, then back out past the section's top) instead
+     of ever transitioning back down to 0. */
+  opacity: 0 !important;
+  border: 0;
+  outline: 0;
+  filter: none;
+  background: radial-gradient(
+    ellipse at 50% 48%,
+    transparent 58%,
+    rgba(224, 103, 43, 0.02) 73%,
+    rgba(224, 103, 43, 0.05) 87%,
+    rgba(232, 116, 53, 0.082) 100%
+  );
+  box-shadow:
+    inset 0 0 20px rgba(229, 108, 47, 0.11),
+    inset 0 0 42px rgba(211, 82, 28, 0.055);
+  transition: opacity 700ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* `is-reached` alone used to be enough to show this — meaning a reached
+   card kept its full copper glow even while the lamp was off (activeIndex
+   is scroll-driven and completely independent of lampOn). Now requires
+   both classes, so the copper glow only ever appears once the lamp is
+   actually on; the lamp-on truth table is unchanged (a reached card while
+   the lamp is on still gets opacity: 1, exactly as before). */
+.service-cavity.is-reached.is-on::after {
+  opacity: 1 !important;
+}
+

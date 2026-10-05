@@ -65,11 +65,15 @@ export const PREFERRED_CONTACT_LABELS: Record<QuotePreferredContact, string> = {
   email: "Email",
 };
 
-/** Customer-facing, perspective-explicit route terminology (D-06). */
+/** Customer-facing, perspective-explicit route terminology (D-06).
+ * `import` is kept identical to TRADE_REQUIREMENT_DISPLAY_LABELS' own
+ * "Import into the UAE" below (Buyer Import polish pass), so Review, the
+ * WhatsApp enquiry summary and the confirmation headline all use the
+ * exact same phrase as the Material step's Supply-route card. */
 export const TRADE_REQUIREMENT_LABELS: Record<QuoteTradeRoute, string> = {
   local: "UAE local supply",
-  import: "Import into UAE",
-  export: "Export from UAE",
+  import: "Import into the UAE",
+  export: "Export from the UAE",
 };
 
 /** D-18: `other` (known but unlisted, reveals a port-name field) is kept separate from `no_preference` (genuinely unsure/open). */
@@ -268,4 +272,54 @@ export const TRADE_REQUIREMENT_DISPLAY_LABELS: Record<QuoteTradeRoute, string> =
   local: "Within the UAE",
   import: "Import into the UAE",
   export: "Export from the UAE",
+};
+
+/**
+ * Batch A — plain-language field names for the top-of-panel validation
+ * summary (QuoteValidationSummary). Keyed by the exact string field names
+ * Zod issue paths report (the same names every step's `id`/`register()`
+ * already uses) — intentionally `Record<string, string>`, not
+ * `keyof QuoteFormValues`, to avoid importing the form-values type here
+ * (quote-schema.ts already imports from this file, so the reverse import
+ * would be circular). Only fields that actually carry a validation rule
+ * anywhere in quote-schema.ts are listed — a field with no constraint
+ * (sellerNotes, buyerAdditionalSpec, etc.) can never produce a Zod issue,
+ * so it never needs an entry here; a genuinely unmapped field falls back
+ * to its raw name in the summary rather than throwing.
+ */
+export const QUOTE_FIELD_LABELS: Record<string, string> = {
+  intent: "Sell or buy",
+  material: "Material",
+  otherMaterialText: "Material description",
+  subtypeOtherText: "Material type",
+  sellerQuantityValue: "Approximate quantity",
+  sellerQuantityUnit: "Unit",
+  sellerQuantityUnitOther: "Unit",
+  sellerCondition: "Condition",
+  buyerQuantityValue: "Required quantity",
+  buyerQuantityUnit: "Unit",
+  buyerQuantityUnitOther: "Unit",
+  buyerTradeRequirement: "Supply route",
+  buyerRequiredByDate: "Required by date",
+  sellerEmirate: "Emirate",
+  sellerArea: "Area",
+  sellerMapLink: "Maps link",
+  sellerPickupRequired: "Pickup required",
+  sellerPickupDate: "Preferred pickup date",
+  buyerDestinationEmirate: "Destination emirate",
+  buyerDestinationArea: "Destination area",
+  buyerDestinationMapLink: "Maps link",
+  buyerFulfilment: "Fulfilment",
+  buyerDestinationCountry: "Destination country",
+  buyerDestinationCityPort: "Destination city or port",
+  buyerPreferredPortOther: "Port name",
+  buyerLogisticsRequirement: "Logistics",
+  sellerName: "Name",
+  sellerPhone: "Phone",
+  sellerEmail: "Email",
+  sellerPreferredContact: "Preferred contact",
+  buyerContactPerson: "Contact person",
+  buyerPhone: "Phone",
+  buyerEmail: "Email",
+  buyerPreferredContact: "Preferred contact",
 };

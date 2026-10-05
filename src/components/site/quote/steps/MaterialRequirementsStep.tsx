@@ -1,4 +1,6 @@
+import type { ComponentType, ReactElement } from "react";
 import { useFormContext } from "react-hook-form";
+import { Globe2, MapPin, Ship } from "lucide-react";
 import type { QuoteFormValues } from "../quote-schema";
 import {
   CONDITIONS,
@@ -14,21 +16,59 @@ import type { QuoteTradeRoute } from "../quote-search";
 import { QuoteOptionCard } from "../QuoteOptionCard";
 import { QuotePillGroup } from "../QuotePillGroup";
 import { QuoteOptionalSection } from "../QuoteOptionalSection";
+import {
+  LeadBarIcon,
+  MaterialOtherDotsIcon,
+  StackedIngotsIcon,
+  SteelBeamIcon,
+  ThinSheetsIcon,
+} from "../quote-icons";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 
+// Reference-pack update — real icons (distinct silhouette per material,
+// never a recoloured shared shape) replace the old chemical-symbol
+// placeholder on both the desktop and compact mobile grids, so the two
+// stay visually consistent with each other and with the approved mockups.
+const MATERIAL_ICON: Partial<Record<string, ComponentType<{ className?: string; "aria-hidden"?: boolean | "true" | "false" }>>> = {
+  copper: StackedIngotsIcon,
+  aluminium: ThinSheetsIcon,
+  steel_iron: SteelBeamIcon,
+  lead: LeadBarIcon,
+  other: MaterialOtherDotsIcon,
+};
+
 const UNIT_OPTIONS = QUOTE_UNITS.map((u) => ({ value: u, label: UNIT_LABELS[u] }));
 const CONDITION_OPTIONS = CONDITIONS.map((c) => ({ value: c, label: CONDITION_LABELS[c] }));
-const SUPPLY_ROUTE_OPTIONS: { value: QuoteTradeRoute; label: string }[] = (
+const TRADE_ROUTE_ICON: Record<QuoteTradeRoute, ComponentType<{ className?: string }>> = {
+  local: MapPin,
+  import: Ship,
+  export: Globe2,
+};
+const SUPPLY_ROUTE_OPTIONS: { value: QuoteTradeRoute; label: string; icon: ReactElement }[] = (
   ["local", "import", "export"] as const
-).map((r) => ({ value: r, label: TRADE_REQUIREMENT_DISPLAY_LABELS[r] }));
+).map((r) => {
+  const Icon = TRADE_ROUTE_ICON[r];
+  return {
+    value: r,
+    label: TRADE_REQUIREMENT_DISPLAY_LABELS[r],
+    // Buyer supply-route icon polish — base size (also what mobile
+    // renders, since this same option list is shared by both breakpoints)
+    // stays at 27px; `lg:` sizes desktop down to exactly 22px — mobile is
+    // deliberately untouched. Lucide's own defaults (strokeWidth 2, round
+    // linecap/linejoin) already match the requested stroke clarity, so no
+    // strokeWidth override is needed. Selected-card checkmark badge is a
+    // separate element in QuotePillGroup.tsx, untouched.
+    icon: <Icon aria-hidden="true" className="h-[27px] w-[27px] lg:h-[22px] lg:w-[22px]" />,
+  };
+});
 
 function FieldError({ id, message }: { id: string; message: string | undefined }) {
   if (!message) return null;
   return (
-    <p id={id} role="alert" className="mt-1.5 text-[0.8rem] font-medium text-destructive">
+    <p id={id} role="alert" className="mt-1.5 text-[0.8rem] font-medium" style={{ color: "#C9655A" }}>
       {message}
     </p>
   );
@@ -58,31 +98,76 @@ export function MaterialRequirementsStep() {
         {isSeller ? "What material are you selling?" : "What material do you need?"}
       </h2>
 
-      <div className="mt-6">
+      {/* Batch A — id on the shared wrapper (never itself lg:hidden), not
+          on either inner grid: the mobile/desktop grids below are both
+          always in the DOM (toggled by CSS per breakpoint, not
+          conditionally rendered), so duplicating id="material" on both
+          would be an invalid duplicate id and getElementById could return
+          the currently-hidden one. This wrapper is the one element
+          guaranteed to contain whichever grid is actually visible. */}
+      <div id="material" className="mt-4 sm:mt-6">
+        {/* BATCH E2 — compact mobile material grid, below lg only. Same
+            material/subtype state and onSelect logic as desktop below, just
+            a different (smaller, symbol-led) card design — no duplicate
+            selection state. */}
         <div
           role="radiogroup"
           aria-label="Material"
-          className="grid gap-3 sm:grid-cols-3 lg:grid-cols-5"
+          className="grid grid-cols-2 gap-2 lg:hidden"
         >
-          {MATERIAL_FAMILIES.map((m) => (
-            <QuoteOptionCard
-              key={m.key}
-              title={m.name}
-              selected={material === m.key}
-              className="p-3"
-              onSelect={() => {
-                form.setValue("material", m.key, { shouldValidate: true, shouldDirty: true });
-                form.setValue("subtype", undefined, { shouldDirty: true });
-                form.setValue("subtypeOtherText", undefined, { shouldDirty: true });
-                if (m.key !== "other")
-                  form.setValue("otherMaterialText", undefined, { shouldDirty: true });
-                form.clearErrors(["material", "otherMaterialText", "subtypeOtherText"]);
-              }}
-            />
-          ))}
+          {MATERIAL_FAMILIES.map((m) => {
+            const MaterialIcon = MATERIAL_ICON[m.key];
+            const isOther = m.key === "other";
+            return (
+              <QuoteOptionCard
+                key={m.key}
+                title={m.name}
+                icon={MaterialIcon ? <MaterialIcon aria-hidden="true" className="h-5 w-5" /> : undefined}
+                selected={material === m.key}
+                className={
+                  isOther
+                    ? "col-span-2 h-[72px] justify-center gap-1 p-3"
+                    : "h-[72px] justify-center gap-1 p-3"
+                }
+                onSelect={() => {
+                  form.setValue("material", m.key, { shouldValidate: true, shouldDirty: true });
+                  form.setValue("subtype", undefined, { shouldDirty: true });
+                  form.setValue("subtypeOtherText", undefined, { shouldDirty: true });
+                  if (m.key !== "other")
+                    form.setValue("otherMaterialText", undefined, { shouldDirty: true });
+                  form.clearErrors(["material", "otherMaterialText", "subtypeOtherText"]);
+                }}
+              />
+            );
+          })}
+        </div>
+
+        {/* Desktop — icon centred above the title, matching the reference's
+            material tiles (previously title-only, no icon at all). */}
+        <div role="radiogroup" aria-label="Material" className="hidden gap-3 lg:grid lg:grid-cols-5">
+          {MATERIAL_FAMILIES.map((m) => {
+            const MaterialIcon = MATERIAL_ICON[m.key];
+            return (
+              <QuoteOptionCard
+                key={m.key}
+                title={m.name}
+                icon={MaterialIcon ? <MaterialIcon aria-hidden="true" className="h-8 w-8" /> : undefined}
+                selected={material === m.key}
+                className="h-[132px] items-center justify-center gap-2.5 p-3 text-center"
+                onSelect={() => {
+                  form.setValue("material", m.key, { shouldValidate: true, shouldDirty: true });
+                  form.setValue("subtype", undefined, { shouldDirty: true });
+                  form.setValue("subtypeOtherText", undefined, { shouldDirty: true });
+                  if (m.key !== "other")
+                    form.setValue("otherMaterialText", undefined, { shouldDirty: true });
+                  form.clearErrors(["material", "otherMaterialText", "subtypeOtherText"]);
+                }}
+              />
+            );
+          })}
         </div>
         {errors.material && (
-          <p role="alert" className="mt-3 text-[0.8rem] font-medium text-destructive">
+          <p role="alert" className="mt-3 text-[0.8rem] font-medium" style={{ color: "#C9655A" }}>
             {errors.material.message}
           </p>
         )}
@@ -104,8 +189,9 @@ export function MaterialRequirementsStep() {
 
         {family && family.subtypes.length > 0 && (
           <QuoteOptionalSection
-            label="Add material form (optional)"
+            label="Specify material form (optional)"
             defaultOpen={!!subtype || !!errors.subtypeOtherText}
+            expandedIcon="minus"
           >
             <div
               role="radiogroup"
@@ -197,8 +283,8 @@ export function MaterialRequirementsStep() {
       </div>
 
       {isSeller ? (
-        <div className="mt-6">
-          <div className="grid gap-6 sm:grid-cols-2">
+        <div className="mt-4 sm:mt-6">
+          <div className="grid gap-4 sm:grid-cols-2 sm:gap-6">
             <div>
               <Label
                 htmlFor="sellerQuantityValue"
@@ -226,6 +312,7 @@ export function MaterialRequirementsStep() {
             </div>
 
             <QuotePillGroup
+              id="sellerQuantityUnit"
               label="Unit"
               options={UNIT_OPTIONS}
               value={form.watch("sellerQuantityUnit")}
@@ -293,8 +380,9 @@ export function MaterialRequirementsStep() {
             </span>
           </label>
 
-          <div className="mt-6">
+          <div className="mt-4 sm:mt-6">
             <QuotePillGroup
+              id="sellerCondition"
               label="Condition"
               options={CONDITION_OPTIONS}
               value={form.watch("sellerCondition")}
@@ -311,6 +399,7 @@ export function MaterialRequirementsStep() {
           <QuoteOptionalSection
             label="Add more details (optional)"
             defaultOpen={!!form.watch("sellerDescription")}
+            expandedIcon="minus"
           >
             <Label htmlFor="sellerDescription" className="text-sm font-semibold text-foreground/90">
               Description
@@ -324,8 +413,8 @@ export function MaterialRequirementsStep() {
           </QuoteOptionalSection>
         </div>
       ) : (
-        <div className="mt-8">
-          <div className="grid gap-6 sm:grid-cols-2">
+        <div className="mt-5 sm:mt-8">
+          <div className="grid gap-4 sm:grid-cols-2 sm:gap-6">
             <div>
               <Label
                 htmlFor="buyerQuantityValue"
@@ -352,6 +441,7 @@ export function MaterialRequirementsStep() {
             </div>
 
             <QuotePillGroup
+              id="buyerQuantityUnit"
               label="Unit"
               options={UNIT_OPTIONS}
               value={form.watch("buyerQuantityUnit")}
@@ -393,9 +483,12 @@ export function MaterialRequirementsStep() {
             </div>
           )}
 
-          <div className="mt-6">
+          <div className="mt-4 sm:mt-6">
             <QuotePillGroup
+              id="buyerTradeRequirement"
               label="Supply route"
+              variant="tile"
+              columnsClassName="grid-cols-1 sm:grid-cols-3"
               options={SUPPLY_ROUTE_OPTIONS}
               value={form.watch("buyerTradeRequirement")}
               onChange={(v) => {
@@ -435,6 +528,7 @@ export function MaterialRequirementsStep() {
           <QuoteOptionalSection
             label="Add specification / grade (optional)"
             defaultOpen={!!form.watch("materialSpec")}
+            expandedIcon="minus"
           >
             <Label htmlFor="materialSpec" className="text-sm font-semibold text-foreground/90">
               Specification / grade
@@ -447,7 +541,7 @@ export function MaterialRequirementsStep() {
             />
           </QuoteOptionalSection>
 
-          <div className="mt-6 max-w-xs">
+          <div className="mt-4 sm:mt-6 sm:max-w-xs">
             <Label
               htmlFor="buyerRequiredByDate"
               className="text-sm font-semibold text-foreground/90"
@@ -479,6 +573,7 @@ export function MaterialRequirementsStep() {
           <QuoteOptionalSection
             label="Add more requirements (optional)"
             defaultOpen={!!form.watch("buyerAdditionalSpec")}
+            expandedIcon="minus"
           >
             <Label
               htmlFor="buyerAdditionalSpec"

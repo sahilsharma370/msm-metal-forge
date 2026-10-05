@@ -1,10 +1,51 @@
+import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import { Link } from "@tanstack/react-router";
-import { DotGrid } from "./DotGrid";
 import ownerPortrait from "@/assets/owner-mohammed-sihabuddin-dark.webp";
 
 const COPPER = "oklch(0.583 0.135 45.5)";
 const NAVY = "#080A1D";
+// Genuinely loaded via Google Fonts (see __root.tsx
+// `family=Cormorant+Garamond:ital,wght@1,300`), not a synthetic slant/weight
+// on a system serif. Shared by both the desktop and mobile owner quotes.
+const DESKTOP_QUOTE_SERIF = '"Cormorant Garamond", serif';
+
+function useReducedMotion() {
+  const [reduced, setReduced] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
+    setReduced(mq.matches);
+    const onChange = () => setReduced(mq.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+  return reduced;
+}
+
+/** BATCH 8M — plays a restrained fade+rise once when the section first
+ * scrolls into view (not on mount, since this section sits well below the
+ * fold). Native IntersectionObserver only, disconnects after the first hit
+ * so it never re-triggers on scroll-back. */
+function useInViewOnce<T extends HTMLElement>() {
+  const ref = useRef<T | null>(null);
+  const [inView, setInView] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const io = new IntersectionObserver(
+      ([entry]) => {
+        if (entry?.isIntersecting) {
+          setInView(true);
+          io.disconnect();
+        }
+      },
+      { threshold: 0.2 },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
+  return { ref, inView };
+}
 
 /**
  * Also reused by the /about page's owner-note portrait placeholder — that
@@ -117,74 +158,264 @@ function IndustryBadge() {
 }
 
 export function AboutTeaser() {
+  const reducedMotion = useReducedMotion();
+  const { ref: cardRef, inView: cardInView } = useInViewOnce<HTMLDivElement>();
+
   return (
     <section
       id="about"
-      className="relative overflow-hidden py-[72px]"
+      className="relative overflow-hidden"
       style={{ backgroundColor: NAVY }}
     >
-      <DotGrid glow={0} className="z-0" />
-      <div className="relative z-10 mx-auto max-w-[100rem] px-6">
-        <div
-          className="relative grid items-stretch gap-10 px-6 py-3 sm:px-10 sm:py-4 lg:min-h-[450px] lg:grid-cols-[300px_1fr]"
-          style={{
-            backdropFilter: "blur(12px)",
-            WebkitBackdropFilter: "blur(12px)",
-            border: "1px solid rgba(255, 255, 255, 0.18)",
-            backgroundImage:
-              "linear-gradient(135deg, rgba(255, 255, 255, 0.16) 0%, rgba(255, 255, 255, 0.03) 45%, rgba(255, 255, 255, 0) 65%)",
-            boxShadow:
-              "inset 0 1px 0 rgba(255, 255, 255, 0.25), inset 0 -1px 0 rgba(255, 255, 255, 0.05)",
-          }}
-        >
-          <DotGrid glow={0} interactive={false} className="z-0" />
+      {/* Desktop reuses Hero/Services' own square-grid CSS verbatim
+          (`.hero-grid`, see styles.css) as a full-section background — same
+          line thickness, colour, opacity, cell size and positioning as
+          Hero's own desktop grid, with zero section-local divergence. No
+          companion class needed here any more: `.hero-grid`'s own
+          background-size is viewport-relative (vw/vh) now, so this div
+          just scrolls normally with the section like any other background
+          — no `background-attachment: fixed`, no drift.
+          Mobile uses its own `.owner-mobile-grid` class instead (see
+          styles.css) — one continuous grid across the whole section,
+          including behind the panel below, matching the target mockup. */}
+      <div
+        aria-hidden="true"
+        className="hero-grid pointer-events-none absolute inset-0 z-0 hidden lg:block"
+      />
+      <div
+        aria-hidden="true"
+        className="owner-mobile-grid pointer-events-none absolute inset-0 z-0 lg:hidden"
+      />
+
+      {/* Mobile/tablet "Founder's Ledger", below lg only — rebuilt to match
+          src/assets/msm-owner-mobile-target.png: one outlined navy panel
+          (not a full-bleed photo card) containing, top to bottom, the
+          eyebrow, a rectangular portrait with the dotted industry badge
+          beside it, the quote, the name/role block, and the story link.
+          Normal document flow: no sticky, no pinning, no narrative height.
+          The desktop subtree below is untouched.
+          `pt-16`/`pb-16` — equal 64px section-level breathing room outside
+          the white outlined card on both sides (above it, before Materials'
+          own mobile stage; below it, before ContactFooter's orange CTA
+          band). The panel's own `pt-6`/`pb-7` are separate, card-interior
+          padding (inside its border, same role as Materials' own card
+          padding) and are untouched. */}
+      <div className="relative z-10 px-5 pt-16 pb-16 lg:hidden">
+        <div className="mx-auto max-w-[420px]">
           <div
-            className="relative z-10 flex h-full w-full items-center justify-center overflow-hidden border"
-            style={{
-              backgroundColor: "oklch(0.195 0.055 265.5)",
-              borderColor: "oklch(0.583 0.135 45.5 / 0.45)",
-            }}
+            ref={cardRef}
+            className={
+              reducedMotion
+                ? "opacity-100"
+                : cardInView
+                  ? "animate-founder-rise-card opacity-0"
+                  : "opacity-0"
+            }
           >
-            <img
-              src={ownerPortrait}
-              alt="Mohammed Sihabuddin, Owner of MSM Scrap"
-              className="h-full w-full object-cover object-[center_top]"
-            />
-          </div>
-          <div className="relative z-10 flex flex-col">
-            <div className="flex items-center gap-4">
-              <p className="label-eyebrow shrink-0 text-[oklch(0.583_0.135_45.5)]">
-                The People Behind MSM
-              </p>
-              <span className="h-px flex-1 bg-[oklch(0.583_0.135_45.5)]/40" aria-hidden="true" />
-              <IndustryBadge />
-            </div>
-
-            <blockquote
-              className="mt-8 text-2xl leading-snug font-semibold text-[#EDE8D0] italic sm:text-3xl"
-              style={{ fontFamily: '"Baskerville", "Baskerville Old Face", Georgia, serif' }}
+            <div
+              className="relative overflow-hidden rounded-[20px] border px-5 pt-6 pb-7"
+              style={{ borderColor: "rgba(150, 168, 205, 0.35)" }}
             >
-              “In this trade, trust is earned at the scale—through fair weights, clear dealing and
-              every commitment kept.”
-            </blockquote>
+              {/* No panel-local background layer any more — the section-
+                  wide `.owner-mobile-grid` behind this panel (see above)
+                  shows straight through this transparent interior, so the
+                  grid lines up continuously with the pattern outside the
+                  panel's own border instead of resetting at its edge. */}
+              <div className="relative z-10">
+                {/* Eyebrow — reuses the exact shared `label-eyebrow` class
+                    and copper token desktop's own header row uses, plus a
+                    short connecting rule at the same 40% copper alpha
+                    desktop uses between its label and its badge. */}
+                <div className="flex items-center gap-3">
+                  <p className="label-eyebrow shrink-0" style={{ color: COPPER }}>
+                    The People Behind MSM
+                  </p>
+                  <span aria-hidden="true" className="h-px flex-1" style={{ backgroundColor: COPPER, opacity: 0.4 }} />
+                </div>
 
-            <div className="mt-8 flex items-start gap-4">
-              <span
-                className="mt-1 h-16 w-px shrink-0 bg-[oklch(0.583_0.135_45.5)]"
-                aria-hidden="true"
-              />
-              <div>
-                <p className="font-display text-lg font-bold text-[#EDE8D0]">Mohammed Sihabuddin</p>
-                <p className="text-foreground/70">Owner – MSM Scrap</p>
+                {/* Portrait + dotted badge row. Portrait reuses desktop's
+                    own crop (`aspectRatio: "375 / 475"`, `object-[center_
+                    top]`) and border tone (`COPPER` at desktop's own 0.45
+                    alpha) rather than inventing a new thin-copper-outline
+                    value. `IndustryBadge` is the exact desktop component,
+                    unmodified (same dotted circle, same "14"/arc text). */}
+                <div className="mt-5 flex items-start justify-between gap-4">
+                  <div
+                    className="w-[58%] shrink-0 overflow-hidden"
+                    style={{ aspectRatio: "375 / 475", borderColor: "oklch(0.583 0.135 45.5 / 0.45)", borderWidth: "1px" }}
+                  >
+                    <img
+                      src={ownerPortrait}
+                      alt="Mohammed Sihabuddin, Owner of MSM Scrap"
+                      className="h-full w-full object-cover object-[center_top]"
+                    />
+                  </div>
+                  <IndustryBadge />
+                </div>
+
+                {/* Quote — desktop's exact text and font (Cormorant
+                    Garamond, italic, weight 300), sized down for this
+                    narrower panel rather than desktop's own `text-2xl
+                    sm:text-3xl`. */}
+                <blockquote
+                  className="mt-6 text-left text-[#EDE8D0] italic"
+                  style={{
+                    fontFamily: DESKTOP_QUOTE_SERIF,
+                    fontWeight: 300,
+                    fontStyle: "italic",
+                    fontSize: "clamp(1.2rem, 5.6vw, 1.4rem)",
+                    lineHeight: 1.45,
+                  }}
+                >
+                  “In this trade, trust is earned at the scale—through fair weights, clear
+                  dealing and every commitment kept.”
+                </blockquote>
+
+                {/* Name/role — desktop's exact copy and classes, with a
+                    shorter copper rule sized to two mobile-scale lines
+                    instead of desktop's own 64px (`h-16`) rule. */}
+                <div className="mt-6 flex items-start gap-4">
+                  <span aria-hidden="true" className="mt-1 h-12 w-px shrink-0" style={{ backgroundColor: COPPER }} />
+                  <div>
+                    <p className="font-display text-lg font-bold text-[#EDE8D0]">Mohammed Sihabuddin</p>
+                    <p className="mt-1 text-foreground/70">Owner – MSM Scrap</p>
+                  </div>
+                </div>
+
+                {/* Story link — the exact same `ArrowLinkCTA` desktop uses,
+                    so the visual treatment and the `/about` routing are
+                    identical on both breakpoints. */}
+                <ArrowLinkCTA to="/about" label="Read Our Full Story" direction="right" className="mt-7" />
               </div>
             </div>
+          </div>
+        </div>
+      </div>
 
-            <ArrowLinkCTA
-              to="/about"
-              label="Read Our Full Story"
-              direction="right"
-              className="mt-8 self-end"
-            />
+      {/* BATCH ABOUT-CARD-INVISIBLE — one-card composition restored from
+          git HEAD:AboutTeaser.tsx (300px portrait column, IndustryBadge
+          circular seal, header rule, quote, name block, then a
+          separately-stacked bottom-right CTA), rebuilt onto the CURRENT
+          outer wrapper/stage (unchanged: same clamp(590px,32vw,680px)
+          section height, same clamp(500px,28vw,570px) stage height, same
+          `.hero-grid` background, pixel-identical to Hero's own grid, no
+          section-local override)
+          instead of the original's own `min-h-[450px]`/`py-[72px]` sizing
+          — the content column uses `justify-between` since this height
+          budget is taller than the original's own auto-fit height ever
+          was.
+          The wrapper below now carries zero visual surface (no
+          background/border/shadow/blur/filter — it has no `::before`/
+          `::after` either, confirmed via computed styles) and exists only
+          for the `grid-cols-[300px_1fr]` layout: portrait left, content
+          right. The grid behind it is identical inside and outside its
+          bounds. */}
+      <div className="hidden lg:flex lg:h-[clamp(590px,32vw,680px)] lg:items-center">
+        <div className="relative mx-auto w-[96%]">
+          <div className="relative mx-auto grid items-center lg:h-[clamp(500px,28vw,570px)]">
+            <div
+              className="relative grid w-full grid-cols-[clamp(260px,18vw,370px)_1fr] gap-10 overflow-hidden p-[clamp(30px,2.1vw,42px)]"
+              style={{
+                background:
+                  "linear-gradient(135deg, rgba(18, 25, 48, 0.18) 0%, rgba(6, 10, 28, 0.10) 100%)",
+                backdropFilter: "blur(1px)",
+                WebkitBackdropFilter: "blur(1px)",
+                border: "1px solid rgba(177, 190, 216, 0.14)",
+                borderRadius: "8px",
+                boxShadow: "0 16px 36px rgba(0, 3, 15, 0.12)",
+              }}
+            >
+              {/* No `h-full` here or on the content column below: the grid
+                  row's height is driven purely by the portrait's own
+                  aspect-ratio, computed from its own responsive width
+                  (`clamp(260px,18vw,370px)`, same expression as the grid
+                  column so the two never disagree) — not stretched to the
+                  stage's full clamp(500px,28vw,570px) height. `vw`-relative
+                  clamps (both here and on the card's own padding below) are
+                  what keep the card compact at a real device pixel ratio /
+                  OS display-scaling factor above 1, where a fixed CSS px
+                  value renders visibly larger on screen than its literal
+                  number suggests. The stage's own `items-center`
+                  (unchanged) then centres this whole, now-compact row
+                  within that leftover space — this is what makes the group
+                  read as one centred unit instead of being stretched
+                  top-to-bottom. */}
+              <div
+                className="relative z-10 w-full overflow-hidden border"
+                style={{
+                  aspectRatio: "375 / 475",
+                  backgroundColor: "oklch(0.195 0.055 265.5)",
+                  borderColor: "oklch(0.583 0.135 45.5 / 0.45)",
+                }}
+              >
+                <img
+                  src={ownerPortrait}
+                  alt="Mohammed Sihabuddin, Owner of MSM Scrap"
+                  className="h-full w-full object-cover object-[center_top]"
+                />
+              </div>
+
+              {/* Grid's default `align-items: stretch` already sizes this
+                  column to the portrait's own height (see comment above) —
+                  `justify-between` on its 3 stacked groups (header row,
+                  quote, name/CTA row) then pins the header row flush to the
+                  top of that box and the name/CTA row flush to the bottom,
+                  both landing exactly on the portrait's top/bottom edges.
+                  The quote is the only item left in between, so it falls
+                  naturally centred with equal space above and below —
+                  no fixed `gap` needed to fake that centring. */}
+              <div className="relative z-10 flex flex-col justify-between">
+                {/* `items-start` (not `items-center`): the badge is the
+                    tallest element in this row, so centring against it
+                    used to sink the label/copper-line group toward the
+                    badge's own vertical middle instead of the row's — and
+                    therefore the portrait's — top edge. Top-aligning both
+                    groups puts the label and the badge's own top edge on
+                    that same top line. */}
+                <div className="flex items-start justify-between">
+                  <div className="flex items-center gap-4">
+                    <p className="label-eyebrow shrink-0 text-[oklch(0.583_0.135_45.5)]">
+                      The People Behind MSM
+                    </p>
+                    {/* Short fixed-width rule instead of `flex-1`: connects
+                        the label to the seal without stretching across the
+                        whole row and dominating the empty space. */}
+                    <span
+                      className="h-px w-16 shrink-0 bg-[oklch(0.583_0.135_45.5)]/40"
+                      aria-hidden="true"
+                    />
+                  </div>
+                  <IndustryBadge />
+                </div>
+
+                <blockquote
+                  className="max-w-[58ch] text-left text-2xl leading-snug font-light text-balance text-[#EDE8D0] italic sm:text-3xl"
+                  style={{ fontFamily: DESKTOP_QUOTE_SERIF, fontWeight: 300, fontStyle: "italic" }}
+                >
+                  “In this trade, trust is earned at the scale—through fair weights, clear
+                  dealing and every commitment kept.”
+                </blockquote>
+
+                {/* Name/title and the CTA now share one row (baseline via
+                    `items-end`) instead of stacking on separate lines. */}
+                <div className="flex items-end justify-between gap-6">
+                  <div className="flex items-start gap-4">
+                    <span
+                      className="mt-1 h-16 w-px shrink-0 bg-[oklch(0.583_0.135_45.5)]"
+                      aria-hidden="true"
+                    />
+                    <div>
+                      <p className="font-display text-lg font-bold text-[#EDE8D0]">
+                        Mohammed Sihabuddin
+                      </p>
+                      <p className="text-foreground/70">Owner – MSM Scrap</p>
+                    </div>
+                  </div>
+
+                  <ArrowLinkCTA to="/about" label="Read Our Full Story" direction="right" />
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>

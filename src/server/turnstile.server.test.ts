@@ -4,6 +4,7 @@ import {
   TurnstileConfigurationError,
   createCloudflareTurnstileVerifier,
   getTurnstileVerifier,
+  mapSiteverifyErrorCodes,
 } from "./turnstile.server";
 
 function jsonResponse(status: number, body: unknown): Response {
@@ -186,6 +187,35 @@ describe("createCloudflareTurnstileVerifier — Siteverify unavailable fails clo
     const verifier = createCloudflareTurnstileVerifier(config, fetchImpl);
     const result = await verifier.verify("token");
     expect(result).toEqual({ ok: false, reason: "service_unavailable" });
+  });
+});
+
+describe("mapSiteverifyErrorCodes — fixed diagnostic label mapping", () => {
+  it("maps secret-related error-codes to invalid_secret", () => {
+    expect(mapSiteverifyErrorCodes(["invalid-input-secret"])).toBe("invalid_secret");
+    expect(mapSiteverifyErrorCodes(["missing-input-secret"])).toBe("invalid_secret");
+    expect(mapSiteverifyErrorCodes(["invalid-parsed-secret"])).toBe("invalid_secret");
+  });
+
+  it("maps response/token-related error-codes to invalid_response", () => {
+    expect(mapSiteverifyErrorCodes(["invalid-input-response"])).toBe("invalid_response");
+    expect(mapSiteverifyErrorCodes(["missing-input-response"])).toBe("invalid_response");
+  });
+
+  it("maps timeout-or-duplicate to timeout_or_duplicate", () => {
+    expect(mapSiteverifyErrorCodes(["timeout-or-duplicate"])).toBe("timeout_or_duplicate");
+  });
+
+  it("maps any other, unknown, or absent error-codes to other_siteverify_failure", () => {
+    expect(mapSiteverifyErrorCodes(["bad-request"])).toBe("other_siteverify_failure");
+    expect(mapSiteverifyErrorCodes(["internal-error"])).toBe("other_siteverify_failure");
+    expect(mapSiteverifyErrorCodes(["some-future-unknown-code"])).toBe("other_siteverify_failure");
+    expect(mapSiteverifyErrorCodes([])).toBe("other_siteverify_failure");
+    expect(mapSiteverifyErrorCodes(undefined)).toBe("other_siteverify_failure");
+  });
+
+  it("prioritizes invalid_secret over other codes when multiple are present in one response", () => {
+    expect(mapSiteverifyErrorCodes(["timeout-or-duplicate", "invalid-input-secret"])).toBe("invalid_secret");
   });
 });
 

@@ -384,27 +384,39 @@ export function formatPhoneForDisplay(canonicalPhone: string | null): string | n
 }
 
 // ---------------------------------------------------------------------------
-// CHECKPOINT C2M-A — restrained, semantic status-badge colour mapping.
-// Applied as a className override on top of the shared ui/Badge's
-// `variant="outline"` base (tailwind-merge resolves the conflicting
-// border/bg/text utilities in the caller's favour — see src/lib/utils.ts's
-// own `cn` helper) rather than adding new badgeVariants entries, since
-// these six colours are specific to lead-status semantics and have no
-// other consumer in the design system. Every treatment stays a translucent
-// tint + soft border, matching `warning`/`accent`'s own restrained recipe —
-// never a solid, bright fill ("rainbow badges").
+// Enquiries-table-only plain-text colour mapping for Status/Type. Deliberately
+// NOT a Badge variant — the shared ui/Badge component (and its
+// `variant="outline"` pill recipe) stays untouched for every other consumer
+// (Enquiry detail page, Overview); this table alone opts out of Badge
+// entirely in favour of plain, coloured text at the same typography as
+// every other primary row value (no dot, icon, border, background, or
+// pill). Every colour is fully opaque (never a translucent/faint tint) so
+// the semantic meaning still reads clearly without a badge to anchor it.
 // ---------------------------------------------------------------------------
 
-const ACTIVE_PROGRESSION_STATUS_CLASS = "border-sky-400/30 bg-sky-400/10 text-sky-300";
+const ACTIVE_PROGRESSION_TEXT_CLASS = "text-sky-300";
 
-export const OWNER_LEAD_STATUS_BADGE_CLASS: Record<OwnerLeadStatus, string> = {
-  new: "border-copper-bright/40 bg-copper-bright/10 text-copper-bright",
-  needs_information: "border-amber-400/30 bg-amber-400/10 text-amber-300",
-  contacted: ACTIVE_PROGRESSION_STATUS_CLASS,
-  inspection: ACTIVE_PROGRESSION_STATUS_CLASS,
-  quote_sent: ACTIVE_PROGRESSION_STATUS_CLASS,
-  pickup_delivery: ACTIVE_PROGRESSION_STATUS_CLASS,
-  completed: "border-emerald-400/30 bg-emerald-400/10 text-emerald-300",
-  lost: "border-rose-400/25 bg-rose-400/10 text-rose-300",
-  archived: "border-white/15 bg-white/5 text-foreground/55",
+export const OWNER_LEAD_STATUS_TEXT_CLASS: Record<OwnerLeadStatus, string> = {
+  new: "text-copper-bright",
+  needs_information: "text-amber-300",
+  contacted: ACTIVE_PROGRESSION_TEXT_CLASS,
+  inspection: ACTIVE_PROGRESSION_TEXT_CLASS,
+  quote_sent: ACTIVE_PROGRESSION_TEXT_CLASS,
+  pickup_delivery: ACTIVE_PROGRESSION_TEXT_CLASS,
+  completed: "text-emerald-300",
+  lost: "text-rose-300",
+  archived: "text-muted-foreground",
+};
+
+/**
+ * Enquiries-table-only Selling/Buying text colours. `sell` reuses the same
+ * warm copper-bright tone as the `new` status; `buy` reuses the same
+ * sky/cyan-blue tone already used for the "in progress" statuses — so Type
+ * reads as visually consistent with Status, not a second colour language.
+ * Never consumed by the enquiry detail page, which keeps its own existing
+ * accent/secondary Badge variants unchanged.
+ */
+export const OWNER_LEAD_INTENT_TEXT_CLASS: Record<OwnerLeadIntent, string> = {
+  sell: "text-copper-bright",
+  buy: "text-sky-300",
 };

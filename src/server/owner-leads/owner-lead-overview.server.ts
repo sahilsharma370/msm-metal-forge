@@ -217,7 +217,8 @@ export function computeOwnerLeadOverview(
   const byCaptureChannel = zeroCounts<OwnerLeadCaptureChannel>(OWNER_LEAD_CAPTURE_CHANNEL_VALUES);
 
   const dailyDateKeys = lastNUaeDateKeys(now, 7);
-  const dailyCountByKey = new Map<string, number>(dailyDateKeys.map((key) => [key, 0]));
+  const dailyDateKeys30 = lastNUaeDateKeys(now, 30);
+  const dailyCountByKey = new Map<string, number>(dailyDateKeys30.map((key) => [key, 0]));
 
   let openCount = 0;
   let completedCount = 0;
@@ -298,6 +299,7 @@ export function computeOwnerLeadOverview(
     byMaterial,
     byCaptureChannel,
     dailyCounts: dailyDateKeys.map((date) => ({ date, count: dailyCountByKey.get(date) ?? 0 })),
+    dailyCounts30: dailyDateKeys30.map((date) => ({ date, count: dailyCountByKey.get(date) ?? 0 })),
     stale: { thresholdHours: STALE_THRESHOLD_HOURS, count: staleCount },
     attentionCount: notificationAttentionCount,
     attentionLeads,

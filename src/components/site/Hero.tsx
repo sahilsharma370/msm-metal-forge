@@ -2,10 +2,11 @@ import { forwardRef, useEffect, useRef } from "react";
 import { Link } from "@tanstack/react-router";
 import msmLogo from "@/assets/msm-logo.svg";
 import scrapTexture from "@/assets/scrap-texture.webp";
-import heroMetalMobile from "@/assets/hero-metal-mobile-v2.webp";
+// BATCH UI-H1-R2 — v2 kept on disk (unimported) only as a rollback asset;
+// the live mobile Hero background is v3.
+import heroMetalMobile from "@/assets/msm-mobile-hero-full-matched-v2.webp";
 import { WHATSAPP_URL } from "@/lib/site";
 import { WhatsAppIcon } from "./icons";
-import { DotGrid } from "./DotGrid";
 
 export const Hero = forwardRef<HTMLElement>(function Hero(_props, forwardedRef) {
   const sectionRef = useRef<HTMLElement | null>(null);
@@ -75,8 +76,20 @@ export const Hero = forwardRef<HTMLElement>(function Hero(_props, forwardedRef) 
       // that breakpoint exactly as before (an inline `style` here would
       // have out-specificity'd `sm:pt-[72px]` at every width, silently
       // breaking the desktop-locked padding — deliberately not done).
-      className="absolute inset-0 flex min-h-screen touch-pan-y items-center overflow-hidden bg-[#080A1D] pt-[max(6rem,calc(env(safe-area-inset-top)+3rem))] pb-16 sm:pt-[72px] sm:pb-10"
+      className="hero-stage-min-height absolute inset-0 flex touch-pan-y items-start overflow-hidden bg-[#080A1D] pt-[max(6rem,calc(env(safe-area-inset-top)+3rem))] pb-16 sm:pt-[72px] sm:pb-10 lg:items-center"
     >
+      {/* BATCH HERO-GRID-MATCH — CSS square grid, geometry-matched to the
+          Our Services desktop grid (baked into that section's own stage
+          photograph, not CSS — see `.hero-grid` in styles.css for the
+          measured source values and the ratio math). Mobile/base keeps the
+          original fixed 48px/0.049-effective-alpha appearance unchanged;
+          the `min-width: 1024px` block in that same class is the only
+          desktop-specific override, so this single element needs no
+          conditional className or duplicated inline declaration. First
+          child of the section, so it paints behind the scrap-texture/
+          mobile-photo layers and all real content below. */}
+      <div aria-hidden="true" className="hero-grid pointer-events-none absolute inset-0" />
+
       <img
         ref={spotlightRef}
         src={scrapTexture}
@@ -95,17 +108,33 @@ export const Hero = forwardRef<HTMLElement>(function Hero(_props, forwardedRef) 
           touch/drag) is rejected; this is now a single, permanently visible
           photographic layer. No mask, no ref, no opacity animation — the
           mobile-only scrim below (not this image) carries all of the
-          text-contrast work. */}
+          text-contrast work.
+          BATCH TRACK-RECORD-JOIN — `object-bottom` (not the previous
+          `object-center`) is the actual fix for the hero/trust seam: this
+          image is paired pixel-for-pixel with TrustBar's own mobile
+          background (msm-mobile-trust-full-matched-v2.webp, same 853x1844
+          canvas, one continuous composition) so that this image's true
+          bottom row continues directly into that image's true top row.
+          `object-fit: cover` still scales this image to the viewport's
+          width (this photo's aspect is narrower than every real phone's
+          100svh viewport, so cover always crops vertically here, never
+          horizontally — the coil's x-position is never shifted). With the
+          previous `object-center`, that vertical crop was split evenly
+          top+bottom, silently cutting off part of the image's own bottom —
+          exactly the content that has to line up with the trust image's
+          top. `object-bottom` anchors the image's bottom edge to the
+          container's bottom edge instead, so the full, uncropped bottom
+          row is always what's visible there, on every device height,
+          cropping only from the top (empty yard, not the join) instead. */}
       <img
         src={heroMetalMobile}
         alt=""
         aria-hidden="true"
-        width={941}
-        height={1672}
-        className="pointer-events-none absolute inset-0 h-full w-full object-cover object-center lg:hidden"
+        width={853}
+        height={1844}
+        fetchPriority="high"
+        className="pointer-events-none absolute inset-0 h-full w-full object-cover object-bottom lg:hidden"
       />
-
-      <DotGrid glow={0} interactive={false} className="opacity-40 lg:opacity-100" />
 
       {/* CHECKPOINT C2L (hero final interaction lock) — smallest
           content-safe scrim: a soft radial navy fade centered on the text
@@ -113,8 +142,8 @@ export const Hero = forwardRef<HTMLElement>(function Hero(_props, forwardedRef) 
           reveal but beneath the text below it. Protects headline/paragraph/
           CTA legibility at any cursor-reveal position without dimming the
           full Hero or flattening the image elsewhere. Desktop-only radial
-          position is unchanged; mobile gets its own left-weighted scrim
-          (BATCH 5M-A) since mobile text is left-aligned, not centred. */}
+          position is unchanged; mobile gets its own centered scrim
+          (BATCH 5M-A) matching the mobile text column's own centering. */}
       <div
         aria-hidden="true"
         className="pointer-events-none absolute inset-0 hidden lg:block"
@@ -123,12 +152,31 @@ export const Hero = forwardRef<HTMLElement>(function Hero(_props, forwardedRef) 
             "radial-gradient(55% 50% at 50% 50%, rgba(8,10,29,0.55) 0%, rgba(8,10,29,0.22) 50%, rgba(8,10,29,0) 78%)",
         }}
       />
+      {/* BATCH UI-H1-R5 — deeper ink-navy localized readability zone
+          (still only behind the content column, not a full-screen wash),
+          plus the same light top-to-bottom base gradient. Sits above the
+          v3 photo, below the real HTML content. */}
       <div
         aria-hidden="true"
         className="pointer-events-none absolute inset-0 lg:hidden"
         style={{
-          background:
-            "linear-gradient(180deg, rgba(8,10,29,0.22) 0%, rgba(8,10,29,0.42) 45%, rgba(8,10,29,0.6) 100%)",
+          backgroundImage: `
+            radial-gradient(
+              ellipse 90% 36% at 50% 46%,
+              rgba(3, 10, 27, 0.92) 0%,
+              rgba(4, 13, 32, 0.85) 40%,
+              rgba(4, 15, 35, 0.64) 64%,
+              rgba(4, 12, 29, 0.3) 82%,
+              rgba(4, 9, 23, 0) 100%
+            ),
+            linear-gradient(
+              180deg,
+              rgba(4, 7, 16, 0.03) 0%,
+              rgba(4, 7, 16, 0.07) 24%,
+              rgba(4, 7, 16, 0.13) 65%,
+              rgba(4, 7, 16, 0.48) 100%
+            )
+          `,
         }}
       />
 
@@ -138,9 +186,17 @@ export const Hero = forwardRef<HTMLElement>(function Hero(_props, forwardedRef) 
           below carry their own `lg:hidden` / `hidden lg:*` pairs so each
           breakpoint shows only its own copy and CTA styling, while the
           heading stays the one shared <h1> the whole page has. */}
-      <div className="relative mx-auto flex w-full max-w-4xl flex-col items-start px-6 text-left lg:items-center lg:text-center">
+      <div
+        className="relative mx-auto mt-[max(0px,calc(30.5svh-96px))] flex w-full max-w-4xl flex-col items-center px-6 text-center lg:mt-0 lg:items-center lg:text-center"
+      >
         <p className="label-eyebrow text-[oklch(0.72_0.13_60)]">
-          <span className="lg:hidden">Sharjah · All 7 Emirates</span>
+          {/* BATCH UI-H1-R5 — mobile now shares desktop's fuller copy; kept
+              on one line via a reduced mobile-only letter-spacing/size
+              override on this span (label-eyebrow's own 0.22em tracking is
+              inherited and would wrap this longer string at 390px). */}
+          <span className="whitespace-nowrap text-[12px] tracking-[0.09em] text-[#C66A3D] lg:hidden lg:text-[0.75rem] lg:tracking-[0.22em]">
+            Based in Sharjah · Serving all Emirates
+          </span>
           <span className="hidden lg:inline">Based in Sharjah · Serving all Emirates</span>
         </p>
 
@@ -162,7 +218,7 @@ export const Hero = forwardRef<HTMLElement>(function Hero(_props, forwardedRef) 
           />
         </div>
 
-        <h1 className="font-display mt-5 text-[clamp(1.9rem,8.5vw,2.6rem)] leading-[0.98] font-bold tracking-[-0.02em] text-foreground sm:text-[3.1rem] lg:mt-8 lg:text-[3.5rem] lg:leading-[1.08]">
+        <h1 className="font-display mt-3 text-[clamp(2rem,9.2vw,2.4rem)] leading-[0.98] font-bold tracking-[-0.02em] text-foreground sm:text-[3.1rem] lg:mt-8 lg:text-[3.5rem] lg:leading-[1.08]">
           <span className="lg:hidden">
             <span className="block whitespace-nowrap">SCRAP TRADING.</span>
             <span className="block whitespace-nowrap">
@@ -189,13 +245,13 @@ export const Hero = forwardRef<HTMLElement>(function Hero(_props, forwardedRef) 
             planned, immediately under the heading where it reads as
             supporting proof rather than decoration. */}
         <p className="mt-4 max-w-md text-[17px] leading-[1.5] font-medium text-foreground/90 lg:hidden">
-          14+ years of trusted metal trading across the UAE.
+          Trusted across the UAE for 14+ years.
         </p>
 
-        <p className="font-display mt-4 max-w-2xl text-[17px] leading-[1.5] font-medium text-foreground/75 lg:mt-6 lg:text-lg lg:text-foreground/90">
+        <p className="font-sans mt-4 max-w-2xl text-[16px] leading-[1.5] font-medium text-foreground/80 lg:mt-6 lg:font-display lg:text-lg lg:text-foreground/90">
           <span className="lg:hidden">
-            Copper, aluminium, steel and lead—with transparent weighing and dependable UAE‑wide
-            coordination.
+            Copper, aluminium, steel and lead. Transparent weighing and dependable logistics across
+            the UAE.
           </span>
           <span className="hidden lg:inline">
             We buy, sell, import and export copper, aluminium, steel and lead scrap—with transparent
@@ -207,15 +263,15 @@ export const Hero = forwardRef<HTMLElement>(function Hero(_props, forwardedRef) 
             each with its own fixed comfortable tap height. Only one is
             ever the dominant "quote" action (the copper-filled primary);
             WhatsApp stays a clearly secondary outlined action. */}
-        <div className="mt-6 flex w-full flex-col gap-3 lg:hidden">
+        <div className="mt-3 flex w-full flex-col gap-2.5 lg:hidden">
           <Link
             id="hero-cta-mobile"
             to="/"
             search={{ quote: true, source: "hero" }}
             mask={{ to: "/quote", search: { source: "hero" } }}
-            className="group font-display flex h-14 items-center justify-center rounded-full bg-[image:var(--gradient-copper-cta)] shadow-[0_10px_24px_-10px_oklch(0.46_0.11_42/0.55)]"
+            className="group font-display flex h-[48px] items-center justify-center rounded-[12px] bg-[image:var(--gradient-copper-cta)] shadow-[0_10px_24px_-10px_oklch(0.46_0.11_42/0.55)]"
           >
-            <span className="text-sm font-bold tracking-[0.1em] text-[#080A1D] uppercase">
+            <span className="text-[15px] font-bold tracking-[0.08em] text-[#080A1D] uppercase">
               Get a Quote →
             </span>
           </Link>
@@ -223,9 +279,9 @@ export const Hero = forwardRef<HTMLElement>(function Hero(_props, forwardedRef) 
             href={WHATSAPP_URL}
             target="_blank"
             rel="noreferrer"
-            className="font-display flex h-[54px] items-center justify-center gap-2 rounded-full border border-foreground/34 bg-[#080A1D]/18 text-sm font-semibold tracking-[0.1em] text-foreground/90 uppercase outline-none transition-colors hover:border-[#25D366]/70 hover:bg-[#25D366]/10 hover:text-[#25D366] focus-visible:border-[#25D366]/70 focus-visible:bg-[#25D366]/10 focus-visible:text-[#25D366]"
+            className="font-display flex h-[48px] items-center justify-center gap-2 rounded-[12px] border border-foreground/45 bg-[#080A1D]/18 text-[15px] font-semibold tracking-[0.08em] text-foreground/90 uppercase outline-none transition-colors hover:border-[#25D366]/70 hover:bg-[#25D366]/10 hover:text-[#25D366] focus-visible:border-[#25D366]/70 focus-visible:bg-[#25D366]/10 focus-visible:text-[#25D366]"
           >
-            <WhatsAppIcon />
+            <WhatsAppIcon className="size-[20px] shrink-0" />
             Chat on WhatsApp
           </a>
         </div>

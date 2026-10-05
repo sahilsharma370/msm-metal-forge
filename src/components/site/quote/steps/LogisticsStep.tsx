@@ -16,6 +16,7 @@ import { QuoteOptionalSection } from "../QuoteOptionalSection";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 const EMIRATE_OPTIONS = EMIRATES.map((e) => ({ value: e, label: EMIRATE_LABELS[e] }));
 const PICKUP_OPTIONS: { value: (typeof PICKUP_CHOICES)[number]; label: string }[] = [
@@ -27,6 +28,22 @@ const FULFILMENT_LOCAL_IMPORT_OPTIONS = FULFILMENT_CHOICES.map((f) => ({
   value: f,
   label: FULFILMENT_DISPLAY_LOCAL_IMPORT[f],
 }));
+/** Buyer Within-UAE/Import polish pass — the Fulfilment/Logistics
+ * choice-card label only. "MSM-arranged delivery" wraps onto two lines
+ * here while its siblings stay on one; shortened to "MSM delivery" for
+ * this card's visible text on both the Within-UAE "Fulfilment" card and
+ * the Import "Logistics" card (they already share the same underlying
+ * FULFILMENT_LOCAL_IMPORT_OPTIONS base). Export's own "Logistics" card
+ * uses a separate array (FULFILMENT_EXPORT_OPTIONS) and keeps its
+ * existing wording, untouched. The stored value (buyerFulfilment/
+ * buyerLogisticsRequirement's shared enum) and Review/confirmation/owner
+ * copy (all driven by the separate, untouched FULFILMENT_LABELS in
+ * quote-options.ts, which still reads "MSM-arranged delivery") are
+ * unaffected — this only overrides the one display string on these
+ * cards. */
+const FULFILMENT_LOCAL_IMPORT_SHORT_OPTIONS = FULFILMENT_LOCAL_IMPORT_OPTIONS.map((opt) =>
+  opt.value === "delivery" ? { ...opt, label: "MSM delivery" } : opt,
+);
 const FULFILMENT_EXPORT_OPTIONS = FULFILMENT_CHOICES.map((f) => ({
   value: f,
   label: FULFILMENT_DISPLAY_EXPORT[f],
@@ -36,7 +53,7 @@ const PORT_OPTIONS = PREFERRED_PORTS.map((p) => ({ value: p, label: PREFERRED_PO
 function FieldError({ id, message }: { id: string; message: string | undefined }) {
   if (!message) return null;
   return (
-    <p id={id} role="alert" className="mt-1.5 text-[0.8rem] font-medium text-destructive">
+    <p id={id} role="alert" className="mt-1.5 text-[0.8rem] font-medium" style={{ color: "#C9655A" }}>
       {message}
     </p>
   );
@@ -58,8 +75,9 @@ export function LogisticsStep() {
             Where should the imported material arrive?
           </h2>
 
-          <div className="mt-8 space-y-6">
+          <div className="mt-5 space-y-5 sm:mt-8 sm:space-y-6">
             <QuotePillGroup
+              id="buyerDestinationEmirate"
               label="Final delivery emirate"
               options={EMIRATE_OPTIONS}
               value={form.watch("buyerDestinationEmirate")}
@@ -72,21 +90,56 @@ export function LogisticsStep() {
                 form.clearErrors("buyerDestinationEmirate");
               }}
               error={errors.buyerDestinationEmirate?.message}
-              columnsClassName="grid-cols-4 sm:grid-cols-7"
+              columnsClassName="grid-cols-2 sm:grid-cols-4"
+              variant="tile"
             />
 
-            <QuotePillGroup
-              label="Preferred UAE arrival port (optional)"
-              options={PORT_OPTIONS}
-              value={form.watch("buyerPreferredPort")}
-              onChange={(v) => {
-                form.setValue("buyerPreferredPort", v as QuoteFormValues["buyerPreferredPort"], {
-                  shouldDirty: true,
-                });
-                if (v !== "other") form.setValue("buyerPreferredPortOther", undefined);
-                form.clearErrors("buyerPreferredPortOther");
-              }}
-            />
+            <div>
+              <Label
+                htmlFor="buyerPreferredPort"
+                className="text-sm font-semibold text-foreground/90"
+              >
+                Preferred port <span className="font-normal text-foreground/50">(optional)</span>
+              </Label>
+              <Select
+                value={form.watch("buyerPreferredPort") ?? ""}
+                onValueChange={(v) => {
+                  form.setValue("buyerPreferredPort", v as QuoteFormValues["buyerPreferredPort"], {
+                    shouldDirty: true,
+                  });
+                  if (v !== "other") form.setValue("buyerPreferredPortOther", undefined);
+                  form.clearErrors("buyerPreferredPortOther");
+                }}
+              >
+                <SelectTrigger
+                  id="buyerPreferredPort"
+                  className="mt-2 h-11 rounded-xl border-white/15 bg-navy-deep/95 text-sm"
+                >
+                  <SelectValue placeholder="Select port" />
+                </SelectTrigger>
+                {/* Premium port-dropdown polish — scoped to this one
+                    SelectContent/SelectItem instance via className
+                    overrides only; the shared ui/select.tsx primitive
+                    (also used by Owner Dashboard) is untouched. Compact,
+                    independently-sized panel instead of the default
+                    trigger-width viewport; a restrained translucent
+                    copper tint (not the shared --accent solid-copper
+                    focus fill) for hover and for the currently selected
+                    row. Position/collision/portal behaviour is all
+                    unchanged Radix defaults. */}
+                <SelectContent className="w-[min(480px,calc(100vw-2rem))] rounded-xl border-white/12 bg-navy-deep p-1 shadow-[0_12px_28px_-12px_oklch(0.1_0.04_265/0.5)]">
+                  {PORT_OPTIONS.map((opt) => (
+                    <SelectItem
+                      key={opt.value}
+                      value={opt.value}
+                      className="min-h-11 rounded-lg py-2 pl-3 focus:bg-[oklch(0.583_0.135_45.5/0.08)] focus:text-foreground data-[state=checked]:bg-[oklch(0.583_0.135_45.5/0.14)] data-[state=checked]:text-copper-bright"
+                    >
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
 
             {form.watch("buyerPreferredPort") === "other" && (
               <div className="max-w-xs">
@@ -132,8 +185,11 @@ export function LogisticsStep() {
             </div>
 
             <QuotePillGroup
+              id="buyerLogisticsRequirement"
               label="Logistics"
-              options={FULFILMENT_LOCAL_IMPORT_OPTIONS}
+              variant="tile"
+              columnsClassName="grid-cols-1 sm:grid-cols-3"
+              options={FULFILMENT_LOCAL_IMPORT_SHORT_OPTIONS}
               value={form.watch("buyerLogisticsRequirement")}
               onChange={(v) => {
                 form.setValue(
@@ -176,8 +232,8 @@ export function LogisticsStep() {
             Where should MSM export the material?
           </h2>
 
-          <div className="mt-8 space-y-6">
-            <div className="grid gap-6 sm:grid-cols-2">
+          <div className="mt-5 space-y-5 sm:mt-8 sm:space-y-6">
+            <div className="grid gap-4 sm:grid-cols-2 sm:gap-6">
               <div>
                 <Label
                   htmlFor="buyerDestinationCountry"
@@ -229,7 +285,10 @@ export function LogisticsStep() {
             </div>
 
             <QuotePillGroup
+              id="buyerLogisticsRequirement"
               label="Logistics"
+              variant="tile"
+              columnsClassName="grid-cols-1 sm:grid-cols-3"
               options={FULFILMENT_EXPORT_OPTIONS}
               value={form.watch("buyerLogisticsRequirement")}
               onChange={(v) => {
@@ -272,8 +331,9 @@ export function LogisticsStep() {
           Where should the material go?
         </h2>
 
-        <div className="mt-8 space-y-6">
+        <div className="mt-5 space-y-5 sm:mt-8 sm:space-y-6">
           <QuotePillGroup
+            id="buyerDestinationEmirate"
             label="Destination emirate"
             options={EMIRATE_OPTIONS}
             value={form.watch("buyerDestinationEmirate")}
@@ -291,10 +351,11 @@ export function LogisticsStep() {
               form.clearErrors(["buyerDestinationEmirate", "buyerDestinationArea"]);
             }}
             error={errors.buyerDestinationEmirate?.message}
-            columnsClassName="grid-cols-4 sm:grid-cols-7"
+            columnsClassName="grid-cols-2 sm:grid-cols-4"
+            variant="tile"
           />
 
-          <div className="grid gap-6 lg:grid-cols-2">
+          <div className="grid gap-4 lg:grid-cols-2 lg:gap-6">
             <div>
               <Label
                 htmlFor="buyerDestinationArea"
@@ -321,8 +382,11 @@ export function LogisticsStep() {
             </div>
 
             <QuotePillGroup
+              id="buyerFulfilment"
               label="Fulfilment"
-              options={FULFILMENT_LOCAL_IMPORT_OPTIONS}
+              variant="tile"
+              columnsClassName="grid-cols-1 sm:grid-cols-3"
+              options={FULFILMENT_LOCAL_IMPORT_SHORT_OPTIONS}
               value={form.watch("buyerFulfilment")}
               onChange={(v) => {
                 form.setValue("buyerFulfilment", v as QuoteFormValues["buyerFulfilment"], {
@@ -376,8 +440,9 @@ export function LogisticsStep() {
         Where is the material located?
       </h2>
 
-      <div className="mt-8 space-y-6">
+      <div className="mt-5 space-y-5 sm:mt-8 sm:space-y-6">
         <QuotePillGroup
+          id="sellerEmirate"
           label="Emirate"
           options={EMIRATE_OPTIONS}
           value={form.watch("sellerEmirate")}
@@ -394,11 +459,19 @@ export function LogisticsStep() {
             form.clearErrors(["sellerEmirate", "sellerArea"]);
           }}
           error={errors.sellerEmirate?.message}
-          columnsClassName="grid-cols-4 sm:grid-cols-7"
+          columnsClassName="grid-cols-2 sm:grid-cols-4"
+          variant="tile"
         />
 
-        <div className="grid gap-6 lg:grid-cols-2">
-          <div>
+        {/* Final correction pass — explicit `grid-cols-1` (not just bare
+            `grid`, relying on an implicit auto-sized track) at the base
+            breakpoint: Tailwind's `grid-cols-N` utilities use
+            `minmax(0,1fr)` tracks, which let a wide child (the Area input)
+            shrink instead of forcing the whole row — and this scroll
+            container — wider than the viewport. Bare `grid` has no such
+            protection. `lg:grid-cols-2` is unchanged. */}
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 lg:gap-6">
+          <div className="min-w-0">
             <Label htmlFor="sellerArea" className="text-sm font-semibold text-foreground/90">
               Area
             </Label>
@@ -414,7 +487,10 @@ export function LogisticsStep() {
           </div>
 
           <QuotePillGroup
+            id="sellerPickupRequired"
             label="Do you need MSM to collect the material?"
+            variant="tile"
+            columnsClassName="grid-cols-1 sm:grid-cols-3"
             options={PICKUP_OPTIONS}
             value={pickupRequired}
             onChange={(v) => {
@@ -433,7 +509,7 @@ export function LogisticsStep() {
         </div>
 
         {pickupRequired === "yes" && (
-          <div className="grid gap-6 rounded-2xl border border-white/10 bg-navy-deep/95 p-5 sm:grid-cols-2">
+          <div className="grid gap-4 rounded-2xl border border-white/10 bg-navy-deep/95 p-4 sm:grid-cols-2 sm:gap-6 sm:p-5">
             <div>
               <Label
                 htmlFor="sellerPickupDate"

@@ -67,8 +67,17 @@ function toQuery(view: OwnerLeadView, filters: OwnerLeadListFilters, cursor: str
   };
 }
 
-export function useOwnerLeadList(deps: OwnerLeadsTransportDeps): UseOwnerLeadListResult {
-  const [draftFilters, setDraftFiltersState] = useState<OwnerLeadListFilters>(EMPTY_FILTERS);
+/**
+ * `initialFilters` — lets a caller (the `/owner` route, reading its own
+ * `?status=` search param) deep-link straight into a filtered view, e.g.
+ * from an Overview KPI chevron. Read once at mount only (the same way
+ * every other piece of this hook's initial state is captured once); a
+ * later change to the caller's own value does not re-trigger a fetch —
+ * that would fight the hook's own draft/applied filter model, which is
+ * already the single owner of filter state after mount.
+ */
+export function useOwnerLeadList(deps: OwnerLeadsTransportDeps, initialFilters: OwnerLeadListFilters = EMPTY_FILTERS): UseOwnerLeadListResult {
+  const [draftFilters, setDraftFiltersState] = useState<OwnerLeadListFilters>(initialFilters);
   const [state, setState] = useState<OwnerLeadListHookState>({
     items: [],
     hasMore: false,
@@ -78,7 +87,7 @@ export function useOwnerLeadList(deps: OwnerLeadsTransportDeps): UseOwnerLeadLis
     isLoadingMore: false,
     error: null,
     unauthorized: false,
-    appliedFilters: EMPTY_FILTERS,
+    appliedFilters: initialFilters,
     view: DEFAULT_VIEW,
   });
 
@@ -148,7 +157,7 @@ export function useOwnerLeadList(deps: OwnerLeadsTransportDeps): UseOwnerLeadLis
   );
 
   useEffect(() => {
-    runFetch("initial", DEFAULT_VIEW, EMPTY_FILTERS, undefined);
+    runFetch("initial", DEFAULT_VIEW, initialFilters, undefined);
     return () => {
       abortControllerRef.current?.abort();
     };

@@ -1,15 +1,62 @@
 // @vitest-environment jsdom
+import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 
-const { OwnerOverview } = await import("./OwnerOverview");
-import type { OwnerLeadOverviewData } from "@/lib/owner/owner-lead-overview-contract";
+// The KPI chevrons render a real <a> via TanStack's <Link to="/owner"
+// search={...}>, which needs a live RouterProvider to resolve into an href
+// — same rationale/pattern as OwnerLeadInbox.test.tsx's own mock. `search`
+// is serialized into a query string exactly like the real router would for
+// this route's own `{ status? }` search schema, so href assertions below
+// reflect the real deep link an owner would land on.
+vi.mock("@tanstack/react-router", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@tanstack/react-router")>();
+  return {
+    ...actual,
+    Link: ({ to, search, children, ...props }: { to: string; search?: Record<string, string | undefined>; children: ReactNode }) => {
+      const query = search ? Object.entries(search).filter(([, value]) => value !== undefined) : [];
+      const href = query.length > 0 ? `${to}?${query.map(([key, value]) => `${key}=${value}`).join("&")}` : to;
+      return (
+        <a href={href} {...props}>
+          {children}
+        </a>
+      );
+    },
+  };
+});
+
+// jsdom has no ResizeObserver — recharts' <ResponsiveContainer> needs one to
+// mount at all. A no-op stub is enough here: these tests assert on rendered
+// text/links, never on actual pixel dimensions.
+class ResizeObserverStub {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+(globalThis as any).ResizeObserver = ResizeObserverStub;
+
+const { OwnerOverview, sumDailyCounts, peakDailyCount, formatUaeDateRangeLabel, computeNiceYAxisTicks } = await import("./OwnerOverview");
+import type { OwnerLeadOverviewData, OwnerOverviewDailyCount } from "@/lib/owner/owner-lead-overview-contract";
 import type { OwnerOverviewProps } from "./OwnerOverview";
 
 afterEach(() => {
   cleanup();
 });
+
+function days7(overrides: Partial<Record<string, number>> = {}): OwnerOverviewDailyCount[] {
+  const dates = ["2026-08-15", "2026-08-16", "2026-08-17", "2026-08-18", "2026-08-19", "2026-08-20", "2026-08-21"];
+  return dates.map((date) => ({ date, count: overrides[date] ?? 0 }));
+}
+
+function days30(): OwnerOverviewDailyCount[] {
+  return Array.from({ length: 30 }, (_, index) => {
+    const dt = new Date(Date.UTC(2026, 6, 23) + index * 24 * 60 * 60 * 1000);
+    const date = dt.toISOString().slice(0, 10);
+    return { date, count: 0 };
+  });
+}
 
 function zeroData(overrides: Partial<OwnerLeadOverviewData> = {}): OwnerLeadOverviewData {
   return {
@@ -29,15 +76,8 @@ function zeroData(overrides: Partial<OwnerLeadOverviewData> = {}): OwnerLeadOver
     byIntent: { sell: 0, buy: 0 },
     byMaterial: { copper: 0, aluminium: 0, steel_iron: 0, lead: 0, other: 0 },
     byCaptureChannel: { website: 0, phone: 0, whatsapp: 0, walk_in: 0, owner_manual: 0 },
-    dailyCounts: [
-      { date: "2026-08-15", count: 0 },
-      { date: "2026-08-16", count: 0 },
-      { date: "2026-08-17", count: 0 },
-      { date: "2026-08-18", count: 0 },
-      { date: "2026-08-19", count: 0 },
-      { date: "2026-08-20", count: 0 },
-      { date: "2026-08-21", count: 0 },
-    ],
+    dailyCounts: days7(),
+    dailyCounts30: days30(),
     stale: { thresholdHours: 72, count: 0 },
     attentionCount: 0,
     attentionLeads: [],
@@ -50,176 +90,123 @@ function renderOverview(data: OwnerLeadOverviewData): void {
   render(<OwnerOverview {...props} />);
 }
 
-describe("OwnerOverview — KPI row (action-first order, no icons, no drill-down affordance)", () => {
-  it("renders New, Open, Completed, Total in that order, all as plain non-link cards", () => {
-    renderOverview(zeroData({ totals: { total: 4, new: 1, open: 2, completed: 1 } }));
-    // Scoped to <p> — KPI labels render as <p>; breakdown category labels
-    // (which may repeat "New" as a Status row, CHECKPOINT C2M-A always
-    // renders the full category set) render as <span>, so this stays
-    // exclusively the four KPI cards regardless of breakdown content.
-    const labels = screen.getAllByText(/^(New|Open|Completed|Total enquiries)$/, { selector: "p" });
-    expect(labels.map((el) => el.textContent)).toEqual(["New", "Open", "Completed", "Total enquiries"]);
-    // None of the four KPI values navigate anywhere — Enquiries has no
-    // URL-driven filter support to deep-link a "New"/"Open"/"Completed"/
-    // "Total" view into, so none of these are links.
-    expect(screen.queryByRole("link", { name: /total enquiries/i })).not.toBeInTheDocument();
+describe("OwnerOverview — pure helpers", () => {
+  it("sumDailyCounts / peakDailyCount", () => {
+    const days = [
+      { date: "2026-08-15", count: 0 },
+      { date: "2026-08-16", count: 3 },
+      { date: "2026-08-17", count: 11 },
+    ];
+    expect(sumDailyCounts(days)).toBe(14);
+    expect(peakDailyCount(days)).toBe(11);
+    expect(peakDailyCount([])).toBe(0);
+  });
+
+  it("formatUaeDateRangeLabel formats the first/last day of the series", () => {
+    expect(formatUaeDateRangeLabel(days7())).toBe("15 Aug — 21 Aug");
+    expect(formatUaeDateRangeLabel([])).toBe("");
+  });
+
+  it("computeNiceYAxisTicks produces 5 evenly-spaced rounded ticks, matching the reference's 0/3/6/9/12 for a peak of 11", () => {
+    expect(computeNiceYAxisTicks(11)).toEqual([0, 3, 6, 9, 12]);
+    expect(computeNiceYAxisTicks(0)).toEqual([0, 1, 2, 3, 4]);
   });
 });
 
-describe("OwnerOverview — Follow-ups due section removed", () => {
-  it("never renders a Follow-ups due section (heading, positive strip, or per-lead rows), even when the API response carries attention/stale/attentionLeads data, while the KPI/breakdown/sparkline sections remain", () => {
-    renderOverview(
-      zeroData({
-        totals: { total: 1, new: 1, open: 1, completed: 0 },
-        stale: { thresholdHours: 72, count: 1 },
-        attentionCount: 1,
-        attentionLeads: [
-          {
-            id: "11111111-1111-1111-1111-111111111111",
-            reference: "MSM-260101-ABCDEF",
-            status: "contacted",
-            contactName: "rakesh",
-            material: "copper",
-            lastActivityAt: "2026-08-15T00:00:00.000Z",
-            hoursSinceActivity: 96,
-            reasons: ["stale"],
-          },
-        ],
-      }),
-    );
-    expect(screen.queryByText(/follow-ups due/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/nothing needs attention right now/i)).not.toBeInTheDocument();
-    expect(screen.queryByText("Rakesh · Copper")).not.toBeInTheDocument();
-    expect(screen.queryByText("MSM-260101-ABCDEF")).not.toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: /view/i })).not.toBeInTheDocument();
-
-    // The approved sections remain, unaffected by the removal.
-    const kpiLabels = screen.getAllByText(/^(New|Open|Completed|Total enquiries)$/, { selector: "p" });
-    expect(kpiLabels).toHaveLength(4);
-    expect(screen.getByText("Status")).toBeInTheDocument();
-    expect(screen.getByText("Material")).toBeInTheDocument();
-    expect(screen.getByText("Source")).toBeInTheDocument();
-    expect(screen.getByText("Enquiry type")).toBeInTheDocument();
-    expect(screen.getByText("Enquiries — last 7 days")).toBeInTheDocument();
-  });
-});
-
-describe("OwnerOverview — seven-day sparkline", () => {
-  it("titles the panel 'Enquiries — last 7 days'", () => {
-    renderOverview(zeroData());
-    expect(screen.getByText("Enquiries — last 7 days")).toBeInTheDocument();
-  });
-
-  it("shows a deliberate empty-window message when all seven days are zero", () => {
-    renderOverview(zeroData());
-    expect(screen.getByText(/no enquiries in this window/i)).toBeInTheDocument();
-  });
-
-  it("still shows every day's count and date as plain readable text", () => {
-    renderOverview(
-      zeroData({
-        dailyCounts: [
-          { date: "2026-08-15", count: 0 },
-          { date: "2026-08-16", count: 3 },
-          { date: "2026-08-17", count: 0 },
-          { date: "2026-08-18", count: 0 },
-          { date: "2026-08-19", count: 0 },
-          { date: "2026-08-20", count: 0 },
-          { date: "2026-08-21", count: 1 },
-        ],
-      }),
-    );
+describe("OwnerOverview — KPI row", () => {
+  it("renders Total/New/Open/Completed with real values and a chevron link to Enquiries for each", () => {
+    renderOverview(zeroData({ totals: { total: 42, new: 35, open: 37, completed: 3 } }));
+    expect(screen.getByText("42")).toBeInTheDocument();
+    expect(screen.getByText("35")).toBeInTheDocument();
+    expect(screen.getByText("37")).toBeInTheDocument();
     expect(screen.getByText("3")).toBeInTheDocument();
-    expect(screen.getByText("16 Aug")).toBeInTheDocument();
-    expect(screen.getByText("21 Aug")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /view total enquiries in enquiries/i })).toHaveAttribute("href", "/owner");
+    expect(screen.getByRole("link", { name: /view new in enquiries/i })).toHaveAttribute("href", "/owner?status=new");
+    expect(screen.getByRole("link", { name: /view completed in enquiries/i })).toHaveAttribute("href", "/owner?status=completed");
+  });
+
+  it("Open shows the active-statuses hint", () => {
+    renderOverview(zeroData());
+    expect(screen.getByText(/includes new & other active statuses/i)).toBeInTheDocument();
   });
 });
 
-describe("OwnerOverview — breakdown panels (CHECKPOINT C2M-A: full category set, percentage-of-total bars)", () => {
-  it("renders every category in the vocabulary, including zero ones — never hidden, just muted with no bar", () => {
+describe("OwnerOverview — status pipeline", () => {
+  it("renders all 9 statuses in business order, including zero ones", () => {
     renderOverview(
       zeroData({
-        totals: { total: 2, new: 2, open: 2, completed: 0 },
         byStatus: {
-          new: 2,
-          needs_information: 0,
-          contacted: 0,
-          inspection: 0,
-          quote_sent: 0,
-          pickup_delivery: 0,
-          completed: 0,
-          lost: 0,
-          archived: 0,
-        },
-      }),
-    );
-    // Zero categories remain visible so the owner can see the complete
-    // system, not just what happens to be non-zero right now.
-    const needsInfoRow = screen.getByText("Needs information").closest("li");
-    const archivedRow = screen.getByText("Archived").closest("li");
-    expect(needsInfoRow).toHaveTextContent("0");
-    expect(archivedRow).toHaveTextContent("0");
-    // A zero category shows a plain "0", never a fabricated percentage.
-    expect(needsInfoRow).not.toHaveTextContent("%");
-    expect(archivedRow).not.toHaveTextContent("%");
-  });
-
-  it("a non-zero category shows its exact count only — no percentage text (CHECKPOINT OWNER DESKTOP CORRECTION)", () => {
-    renderOverview(
-      zeroData({
-        totals: { total: 4, new: 1, open: 4, completed: 0 },
-        byStatus: {
-          new: 1,
+          new: 35,
           needs_information: 0,
           contacted: 2,
           inspection: 0,
           quote_sent: 0,
           pickup_delivery: 0,
-          completed: 0,
+          completed: 3,
           lost: 0,
-          archived: 0,
+          archived: 2,
         },
       }),
     );
-    const newRow = screen.getByText("New", { selector: "span" }).closest("li");
-    const contactedRow = screen.getByText("Contacted").closest("li");
-    expect(newRow).toHaveTextContent("1");
-    expect(newRow).not.toHaveTextContent("%");
-    expect(contactedRow).toHaveTextContent("2");
-    expect(contactedRow).not.toHaveTextContent("%");
+    const pipeline = screen.getByText("Status pipeline").closest("div") as HTMLElement;
+    const labels = ["New", "Needs information", "Contacted", "Inspection", "Quote sent", "Pickup / delivery", "Completed", "Lost", "Archived"];
+    for (const label of labels) expect(within(pipeline).getByText(label)).toBeInTheDocument();
   });
+});
 
-  it("explains the two-enquiry demo dataset accurately: both New/Selling/Copper/Phone", () => {
+describe("OwnerOverview — material mix / source", () => {
+  it("renders material and source panels with real counts", () => {
     renderOverview(
       zeroData({
-        totals: { total: 2, new: 2, open: 2, completed: 0 },
-        byStatus: {
-          new: 2,
-          needs_information: 0,
-          contacted: 0,
-          inspection: 0,
-          quote_sent: 0,
-          pickup_delivery: 0,
-          completed: 0,
-          lost: 0,
-          archived: 0,
-        },
-        byIntent: { sell: 2, buy: 0 },
-        byMaterial: { copper: 2, aluminium: 0, steel_iron: 0, lead: 0, other: 0 },
-        byCaptureChannel: { website: 0, phone: 2, whatsapp: 0, walk_in: 0, owner_manual: 0 },
+        byMaterial: { copper: 21, aluminium: 14, steel_iron: 6, lead: 1, other: 0 },
+        byCaptureChannel: { website: 40, phone: 1, whatsapp: 1, walk_in: 0, owner_manual: 0 },
       }),
     );
-    expect(screen.getByText("Selling")).toBeInTheDocument();
+    expect(screen.getByText("Material mix")).toBeInTheDocument();
     expect(screen.getByText("Copper")).toBeInTheDocument();
-    expect(screen.getByText("Phone")).toBeInTheDocument();
-    expect(screen.queryByText(/%/)).not.toBeInTheDocument();
+    expect(screen.getByText("21")).toBeInTheDocument();
+    expect(screen.getByText("Source")).toBeInTheDocument();
+    expect(screen.getByText("Website")).toBeInTheDocument();
+    expect(screen.getByText("40")).toBeInTheDocument();
+  });
+});
+
+describe("OwnerOverview — enquiry type donut", () => {
+  it("shows Selling/Buying counts and percentages that sum to 100", () => {
+    renderOverview(zeroData({ byIntent: { sell: 25, buy: 17 } }));
+    expect(screen.getByText("Selling")).toBeInTheDocument();
+    expect(screen.getByText("Buying")).toBeInTheDocument();
+    // 25/42 floors to 59%; buyPercent is the exact remainder (41%), never independently rounded, so the pair can never drift off 100.
+    expect(screen.getByText("59%")).toBeInTheDocument();
+    expect(screen.getByText("41%")).toBeInTheDocument();
   });
 
-  it("renames Seller vs buyer -> Enquiry type and Capture channel -> Source", () => {
-    renderOverview(zeroData());
-    expect(screen.getByText("Enquiry type")).toBeInTheDocument();
-    expect(screen.getByText("Source")).toBeInTheDocument();
-    expect(screen.queryByText("Seller vs buyer")).not.toBeInTheDocument();
-    expect(screen.queryByText("Capture channel")).not.toBeInTheDocument();
+  it("handles a zero total without NaN", () => {
+    renderOverview(zeroData({ byIntent: { sell: 0, buy: 0 } }));
+    expect(screen.queryByText(/NaN/)).not.toBeInTheDocument();
+  });
+});
+
+describe("OwnerOverview — trend panel", () => {
+  it("titles the panel 'Enquiries — last 7 days' by default and shows the period total/peak", () => {
+    renderOverview(zeroData({ dailyCounts: days7({ "2026-08-17": 1, "2026-08-20": 11 }) }));
+    expect(screen.getByText("Enquiries — last 7 days")).toBeInTheDocument();
+    expect(screen.getByText(/12 enquiries · Peak 11/)).toBeInTheDocument();
+  });
+});
+
+describe("OwnerOverview — loading/error states", () => {
+  it("shows a retry button on error with no data", () => {
+    const props: OwnerOverviewProps = { state: { data: null, isLoading: false, error: "Something went wrong.", unauthorized: false }, refresh: vi.fn() };
+    render(<OwnerOverview {...props} />);
+    expect(screen.getByText("Something went wrong.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /retry/i })).toBeInTheDocument();
+  });
+
+  it("renders nothing but the header while loading with no data yet", () => {
+    const props: OwnerOverviewProps = { state: { data: null, isLoading: true, error: null, unauthorized: false }, refresh: vi.fn() };
+    render(<OwnerOverview {...props} />);
+    expect(screen.getByText("Overview")).toBeInTheDocument();
+    expect(screen.queryByText("Total enquiries")).not.toBeInTheDocument();
   });
 });

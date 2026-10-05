@@ -12,6 +12,7 @@ import { useEffect, type ReactNode } from "react";
 import appCss from "../styles.css?url";
 import faviconIcon from "../assets/favicon-msmready.svg";
 import { reportLovableError } from "../lib/lovable-error-reporting";
+import { useStableViewportHeight } from "../hooks/use-stable-viewport-height";
 
 function NotFoundComponent() {
   return (
@@ -104,7 +105,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
       {
         rel: "stylesheet",
-        href: "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap",
+        href: "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Plus+Jakarta+Sans:wght@500;600;700;800&family=Cormorant+Garamond:ital,wght@1,300&display=swap",
       },
       { rel: "stylesheet", href: "https://api.fontshare.com/v2/css?f[]=general-sans@400,500,600,700&display=swap" },
     ],
@@ -115,11 +116,38 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
   errorComponent: ErrorComponent,
 });
 
+// A physical-device trace proved `svh` is not actually fixed at the
+// browser's collapsed-toolbar height on this iOS browser — it tracks the
+// live viewport exactly like `dvh`, which let toolbar-only scroll-chrome
+// changes alone shrink Hero/WhatWeDo/Materials' mobile height and shift
+// Materials' own scroll-progress math (see those files' own comments on
+// `--app-vh`). This script is the one place `--app-vh` is ever *set*: it
+// runs synchronously, before any stylesheet-driven layout of the body, and
+// captures 1% of `window.innerHeight` at that moment — a fresh page load's
+// toolbar is shown by default (the browser only collapses it once the user
+// scrolls), so this naturally captures the small, shown-toolbar viewport,
+// exactly as required. It is intentionally the *only* write here; ongoing
+// updates (width/orientation changes only, never toolbar-only height
+// changes) are handled by the effect in RootComponent below, not by this
+// script re-running.
+const STABLE_VH_SCRIPT = `(function(){try{document.documentElement.style.setProperty('--app-vh',(window.innerHeight/100)+'px');}catch(e){}})();`;
+
+// Marks "JS actually runs here" before first paint, same technique and
+// timing as STABLE_VH_SCRIPT above — no measurement, no logic, just a
+// class. Used by styles.css to pre-apply ScrollStack.tsx's initial
+// `yPercent: 100` offset to TrustBar (see `.trust-stage-offset` there) only
+// where GSAP will actually exist to take over and later animate it back —
+// true no-JS loads never add this class, so TrustBar keeps its normal,
+// fully visible fallback layout there untouched.
+const JS_ENABLED_SCRIPT = `(function(){try{document.documentElement.classList.add('js');}catch(e){}})();`;
+
 function RootShell({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
       <head>
         <HeadContent />
+        <script dangerouslySetInnerHTML={{ __html: STABLE_VH_SCRIPT }} />
+        <script dangerouslySetInnerHTML={{ __html: JS_ENABLED_SCRIPT }} />
       </head>
       <body>
         {children}
@@ -131,6 +159,7 @@ function RootShell({ children }: { children: ReactNode }) {
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
+  useStableViewportHeight();
 
   return (
     <QueryClientProvider client={queryClient}>

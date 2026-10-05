@@ -92,6 +92,8 @@ export const ownerLeadOverviewDataSchema = z
     byCaptureChannel: captureChannelCountsSchema,
     /** Exactly 7 entries, oldest first, one per Asia/Dubai calendar day ending today (UAE). */
     dailyCounts: z.array(ownerOverviewDailyCountSchema).length(7),
+    /** Exactly 30 entries, oldest first, one per Asia/Dubai calendar day ending today (UAE) — the same bucketing as `dailyCounts`, just a longer window. Computed alongside it in one pass so the Overview page's 7/30-day toggle never needs a second request. */
+    dailyCounts30: z.array(ownerOverviewDailyCountSchema).length(30),
     stale: z
       .object({
         /** Provisional rule — see ownerOverviewStaleLeadSchema's own comment. */

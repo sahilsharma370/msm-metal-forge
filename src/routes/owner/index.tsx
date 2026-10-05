@@ -1,16 +1,24 @@
 import { useEffect, useMemo } from "react";
+import { z } from "zod";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { OwnerShell, type RegisterOwnerShellRefresh } from "@/components/owner/OwnerShell";
 import { OwnerLeadInbox } from "@/components/owner/OwnerLeadInbox";
-import { useOwnerLeadList } from "@/components/owner/use-owner-lead-list";
+import { useOwnerLeadList, type OwnerLeadListFilters } from "@/components/owner/use-owner-lead-list";
 import { useOwnerLeadExport } from "@/components/owner/use-owner-lead-export";
 import { createOwnerAuthClient } from "@/components/owner/owner-auth-client";
 import type { OwnerLeadsTransportDeps } from "@/components/owner/owner-leads-transport";
+import { OWNER_LEAD_STATUS_VALUES } from "@/lib/owner/owner-leads-contract";
 
 const title = "Owner workspace | MSM Scrap";
 
+/** Optional `?status=` deep link — used by the Overview page's New/Completed KPI chevrons so they land on Enquiries pre-filtered. Absent/invalid values simply fall back to no filter (the existing default), never an error. */
+const ownerIndexSearchSchema = z.object({
+  status: z.enum(OWNER_LEAD_STATUS_VALUES).optional(),
+});
+
 export const Route = createFileRoute("/owner/")({
   head: () => ({ meta: [{ title }] }),
+  validateSearch: (search) => ownerIndexSearchSchema.parse(search),
   component: OwnerIndexRouteComponent,
 });
 
@@ -63,7 +71,10 @@ export function OwnerInboxBody({
   // with zero matching network requests ever reaching Wrangler's request
   // log — the browser rejected the call before dispatching it at all.
   const deps = useMemo<OwnerLeadsTransportDeps>(() => ({ authClient: createOwnerAuthClient(), fetchImpl: fetch.bind(globalThis) }), []);
-  const list = useOwnerLeadList(deps);
+  const search = Route.useSearch();
+  // Read once at mount (see useOwnerLeadList's own comment on `initialFilters`) — captured via useMemo([]) so a later change to `search` (e.g. the owner editing the URL by hand) never fights the hook's own draft/applied filter state after mount.
+  const initialFilters = useMemo<OwnerLeadListFilters>(() => (search.status ? { status: search.status } : {}), []); // eslint-disable-line react-hooks/exhaustive-deps
+  const list = useOwnerLeadList(deps, initialFilters);
   const exportCsvHook = useOwnerLeadExport(deps, onUnauthorized);
 
   useEffect(() => {
