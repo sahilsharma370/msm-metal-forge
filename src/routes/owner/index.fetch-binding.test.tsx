@@ -4,9 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 
-// OwnerLeadListItem renders a real <Link>, which needs a live
-// RouterProvider — this test only cares about the fetch-binding behavior,
-// not real navigation. Same established substitution as index.test.tsx.
+// OwnerLeadListItem renders a real <Link>, and OwnerInboxBody calls
+// Route.useSearch() — both need a live RouterProvider. This test only
+// cares about the fetch-binding behavior, not real navigation/search, so
+// both are stubbed. Same established substitution as index.test.tsx.
 vi.mock("@tanstack/react-router", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@tanstack/react-router")>();
   return {
@@ -19,6 +20,10 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
         </a>
       );
     },
+    createFileRoute: () => (options: Record<string, unknown>) => ({
+      ...options,
+      useSearch: () => ({}),
+    }),
   };
 });
 

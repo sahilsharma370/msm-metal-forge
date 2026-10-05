@@ -162,7 +162,8 @@ in code; see `turnstile.server.ts` CHECKPOINT C2G-LT and
 
 ## 5. Backup / restore
 
-- **Supabase**: `npx supabase backups list --experimental --project-ref
+- **Supabase backup availability — still explicitly UNRESOLVED**:
+  `npx supabase backups list --experimental --project-ref
   hjvjazmerynneylzkgiz` currently reports `walg_enabled: true` (daily
   WAL-G backups enabled at the infra level) but **`pitr_enabled: false`**
   (Point-In-Time-Recovery is a separate, not-yet-enabled add-on) **and an
@@ -170,7 +171,19 @@ in code; see `turnstile.server.ts` CHECKPOINT C2G-LT and
   available through this check. **Action required**: confirm directly in
   the Supabase dashboard (Database → Backups) whether a snapshot actually
   exists and whether PITR should be enabled before this goes fully live;
-  this cannot be confirmed with more confidence from the CLI alone.
+  this cannot be confirmed with more confidence from the CLI alone. Not
+  resolved by any check in this session — do not treat Supabase data as
+  durably recoverable until a human confirms a real snapshot exists.
+- **Supabase Free-plan pause risk — also explicitly UNRESOLVED**: this
+  session has not independently confirmed which billing plan
+  `msm-scrap-production` is on. Supabase's Free tier automatically pauses
+  a project after a period of inactivity (the project and its database
+  become unreachable — the Worker's every Supabase-backed route, which is
+  nearly all of them, would fail) until someone manually unpauses it from
+  the dashboard. **Action required**: confirm the project's actual plan
+  in the Supabase dashboard (Project Settings → Billing); if it is on
+  Free, either upgrade before relying on this for real traffic or accept
+  and monitor the pause risk explicitly.
 - **Supabase migrations**: all 17 local migrations in `supabase/migrations/`
   are confirmed applied to the remote project (`supabase migration list
   --linked` shows every local timestamp matched remotely, zero drift).
@@ -191,28 +204,41 @@ in code; see `turnstile.server.ts` CHECKPOINT C2G-LT and
 
 | Item | Severity | Status |
 |---|---|---|
-| Custom domain `msmscrap.com` not yet attached to the Worker | Blocker for that specific goal, not for the live `workers.dev` site | The Cloudflare credential available in this environment (`zone: read` only) cannot read/write DNS records for the zone (`Authentication error`, code 10000) needed to verify no MX/TXT conflict and to let a Custom Domain attachment provision its own record. **Action**: attach manually via Cloudflare dashboard → Workers & Pages → `msm-metal-forge` → Settings → Domains & Routes → Add Custom Domain → `msmscrap.com` (this UI path has full permissions and will not touch MX/TXT), or grant the API token DNS Read+Edit for this zone and ask for this to be re-run. `workers.dev` is unaffected either way. |
-| Resend API key — old/previously-exposed key revocation status | Needs manual confirmation | No Resend-key-shaped string was ever found in this repo's git history (checked earlier this session). This session has no readable Resend API key (Worker secrets are write-only from the CLI/API side) and therefore no way to query Resend's own API-keys endpoint to confirm an old key is actually revoked. **Action**: log into the Resend dashboard → API Keys, and confirm only the current key is active and any earlier one is deleted. |
+| Custom domain `msmscrap.com` | **Resolved — confirmed working, both by physical test and by API** | Physically verified by the site owner: a real Seller submission AND a real Buyer submission on `msmscrap.com` both completed end-to-end (confirmation screen, Gmail owner-notification email delivered, lead row appeared in the Owner dashboard), and Owner OTP login + dashboard access on `msmscrap.com` was also physically confirmed working. Independently re-confirmed via the Cloudflare API: `GET /accounts/{account}/workers/domains?service=msm-metal-forge` now returns one `enabled: true` Custom Domain entry for `msmscrap.com` with a valid `cert_id`, and `https://msmscrap.com/`, `/quote`, and `/owner` all return HTTP 200. `https://msm-metal-forge.sharm230.workers.dev` also still returns 200 on the same three paths — the fallback is intact. This was attached (by dashboard, outside this environment) after the point in this audit that reported it missing; that earlier report was correct for the moment it was taken, not for the current state. **Separate and still true**: the Cloudflare credential available in *this* environment (`zone: read` only) still cannot read/write DNS records for the zone — so MX/TXT-conflict verification and any future DNS-level change from this environment remain blocked by that permission gap specifically, independent of the Custom Domain attachment itself, which is a different Cloudflare API/permission surface and is confirmed working. |
+| Resend API key — old/previously-exposed key revocation status | **Resolved — confirmed deleted by the site owner** | No Resend-key-shaped string was ever found in this repo's git history (checked earlier this session), and this session never had a readable Resend API key to query Resend's own API-keys endpoint directly. The site owner has now confirmed, from the Resend dashboard directly, that the old key has been deleted. The currently-configured `RESEND_API_KEY` Worker secret is the only one now in use. |
 | Resend sending-domain verification | Needs manual confirmation | Same access limitation as above — cannot be checked without a Resend API key. **Action**: confirm in the Resend dashboard that the sending domain used by `EMAIL_FROM` shows "Verified". |
 | `TrustBar.test.tsx` (3 tests) | P2, test-only | `gsap.registerPlugin` isn't in the test's own `vi.mock("gsap")` object; real `gsap` always has it. Production TrustBar is unaffected. Pre-existing, unchanged since the last audit. |
 | `owner/index.test.tsx` + `index.fetch-binding.test.tsx` (6 tests) | P2, test-only | Harness renders `OwnerInboxBody` without a `RouterProvider`, but `useSearch()` requires one; production always renders this component inside the real route tree. Pre-existing, unchanged since the last audit. Worth closing eventually — it's the only gap in automated coverage for dashboard search/filter/refresh. |
 | Background-tab Turnstile visibility patch | Unshipped, unproven | Lives only in the working tree (`QuoteExperience.tsx` + its tests), uncommitted. Addresses an unconfirmed hypothesis for the original P0 mobile bug. The actual confirmed cause of that bug (per live `wrangler tail` evidence) was an `invalid_secret` Siteverify rejection — already fixed by rotating `TURNSTILE_SECRET_KEY` to match the live "MSM Quote" widget. This patch is not currently needed to explain or fix that incident; do not ship it without separate validation. |
-| PITR / backup snapshot visibility | See Backup section above | Confirm before treating Supabase data as durably recoverable. |
+| PITR / backup snapshot visibility | **Still explicitly unresolved** — see Backup section above | Confirm before treating Supabase data as durably recoverable. |
+| Supabase Free-plan auto-pause | **Still explicitly unresolved** — see Backup section above | Confirm the actual billing plan before relying on continuous uptime. |
 
 ---
 
 ## 7. GO / NO-GO
 
-**GO for the current `workers.dev` production URL.**
-`https://msm-metal-forge.sharm230.workers.dev` — Quote flow, Turnstile
-(secret freshly rotated and confirmed matching the "MSM Quote" widget),
-owner OTP/session/dashboard, uploads, and notifications are all
-code-verified end-to-end, repo-reproducible, tested (1541/1550, the 9
-failures are pre-existing test-infra-only), typechecked clean, and the
-production build matches the live bundle byte-for-byte.
-
-**NO-GO specifically for the `msmscrap.com` custom domain** until the DNS
-access blocker above is resolved by a manual dashboard step.
+**GO for both `https://msmscrap.com` and
+`https://msm-metal-forge.sharm230.workers.dev`.**
+Quote flow, Turnstile (secret freshly rotated and confirmed matching the
+"MSM Quote" widget), owner OTP/session/dashboard, uploads, and
+notifications are all code-verified end-to-end, repo-reproducible, tested
+(1547/1550 — the 6 owner-dashboard router-harness failures from the
+earlier pass are now fixed; the remaining 3 TrustBar failures are
+pre-existing test-infra-only, see below), typechecked clean, and the
+production build matches the live bundle byte-for-byte. The custom domain
+is confirmed attached and serving correctly: real physical Seller AND
+Buyer submissions on `msmscrap.com` both completed end-to-end
+(confirmation, Gmail owner-notification email, Owner dashboard row), and
+Owner OTP login + dashboard access on `msmscrap.com` was also physically
+confirmed working — independently corroborated by the Cloudflare API
+(`enabled: true` Custom Domain with a valid cert) and HTTP 200 on `/`,
+`/quote`, `/owner` on both hostnames. An earlier pass in this same audit
+reported the custom domain as not-yet-attached and blocked on a DNS
+permission gap in this environment's Cloudflare credential — that was
+accurate for the state at the time, but the domain has since been
+attached (by dashboard, outside this environment) and is now live; that
+permission gap still exists for this environment but no longer blocks
+anything, since the domain is already attached and working.
 
 **Deployed version**: `b2fc857f-dcf9-4486-826b-d0252f210d30`
 (unchanged this session — no P0/P1 defect was found, so no new deploy was
@@ -220,16 +246,22 @@ necessary; this audit's only repo changes were two commits that made the
 already-live state reproducible from git).
 
 ### Required physical checks (cannot be done from this environment)
-1. Full 20-minute phone smoke test: homepage → Quote (Buy and Sell) →
-   upload a real small photo/doc → Turnstile → Submit → confirmation
-   screen with a reference number, on a real phone, on the live URL.
-2. Owner dashboard on a real phone: request OTP → verify → view leads →
-   change a status → filter/search → log out → confirm a direct
-   dashboard URL redirects to login when logged out.
-3. Resend dashboard: confirm sending-domain verification and that no
-   stale/old API key remains active (see Known risks above).
+1. ~~Full phone smoke test of the Quote flow on the live URL~~ — **done**:
+   real Seller AND Buyer submissions on `msmscrap.com` were both confirmed
+   end-to-end by the site owner (confirmation, Gmail notification, Owner
+   dashboard row). Still worth doing once with a real file upload if that
+   exact combination hasn't been exercised yet.
+2. ~~Owner dashboard on a real phone: request OTP → verify → view leads~~
+   — **done**: Owner OTP login and dashboard access on `msmscrap.com`
+   confirmed working by the site owner. Still worth exercising
+   status-change, filter/search, log-out/redirect-to-login, and an
+   expired-code attempt specifically, if not already covered.
+3. Resend dashboard: sending-domain verification still needs manual
+   confirmation (see Known risks above) — the old/previously-exposed key
+   has been confirmed deleted by the site owner, which is a separate
+   check from domain verification.
 4. Supabase dashboard: confirm an actual backup snapshot exists, and
-   decide whether to enable PITR.
-5. If `msmscrap.com` is wanted now: attach the Custom Domain manually per
-   the Known risks row above, then re-run the smoke test against that
-   hostname too.
+   decide whether to enable PITR — still explicitly unresolved.
+5. Supabase dashboard (Project Settings → Billing): confirm the actual
+   plan tier and whether Free-plan auto-pause is a real risk for this
+   project — still explicitly unresolved.

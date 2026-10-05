@@ -13,6 +13,12 @@ import type { RegisterOwnerShellRefresh } from "@/components/owner/OwnerShell";
 // comment below), so <Link> is swapped for a plain anchor here, matching the
 // same substitution OwnerLeadInbox.test.tsx and routes/owner/leads/$leadId.test.tsx
 // already use for the identical reason.
+// CHECKPOINT (test-harness fix) — OwnerInboxBody calls Route.useSearch()
+// directly (added for the ?status= deep-link filter), which needs a real
+// RouterProvider to resolve; this harness renders OwnerInboxBody without
+// one (see the header comment above), so createFileRoute's returned Route
+// is stubbed with a fixed useSearch() here, same substitution rationale as
+// the existing Link stub below.
 vi.mock("@tanstack/react-router", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@tanstack/react-router")>();
   return {
@@ -22,6 +28,10 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
         {children}
       </a>
     ),
+    createFileRoute: () => (options: Record<string, unknown>) => ({
+      ...options,
+      useSearch: () => ({}),
+    }),
   };
 });
 
@@ -29,9 +39,10 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
  * CHECKPOINT C2J-D1 — regression test proving the route wrapper does not
  * cause a repeated-render/repeated-fetch loop. `OwnerInboxBody` is the
  * real production component (exported specifically so this test can render
- * it without a full TanStack RouterProvider — it uses no router hooks
- * itself, only plain props); only the transport module's network call is
- * mocked, exactly like use-owner-lead-list.test.ts.
+ * it without a full TanStack RouterProvider — its one router dependency,
+ * Route.useSearch(), is stubbed above exactly like the Link substitution
+ * is); only the transport module's network call is mocked, exactly like
+ * use-owner-lead-list.test.ts.
  *
  * `ShellRefreshHarness` below is not a simplification — it is a faithful
  * miniature of OwnerShell's own registerRefresh mechanism (see
