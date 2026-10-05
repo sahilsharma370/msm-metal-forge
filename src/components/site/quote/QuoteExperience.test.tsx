@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom/vitest";
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
@@ -215,6 +215,42 @@ function submitButton() {
   return screen.getByRole("button", { name: /submit request|retry submission/i });
 }
 
+/** Final correction pass (live revalidation) — renders the wizard already
+ * hydrated onto an arbitrary stage's entry step, mirroring renderOnReview's
+ * hydration-via-draft approach. `stepNumber` is the internal wizard step
+ * (see STAGE_ENTRY_STEP: stage 2 -> step 2, stage 3 -> step 4, stage 4 ->
+ * step 5), not the 1-5 stage number itself. */
+function renderAtStage(
+  stepNumber: number,
+  values: QuoteFormValues,
+  context: QuoteInitialContext,
+  transport: ReturnType<typeof createFakeTransport>,
+) {
+  saveQuoteDraft(stepNumber, values);
+  const onClose = vi.fn();
+  const utils = render(
+    <QuoteExperience
+      mode="standalone"
+      initialContext={context}
+      onClose={onClose}
+      transport={transport}
+      turnstileWidget={FakeTurnstileWidget}
+    />,
+  );
+  return { ...utils, onClose };
+}
+
+/** The shared footer's primary forward action on stages 2-4 — "Continue" on
+ * stage 2/3, "Review Request" on stage 4 (QuoteExperience's own
+ * `continueLabel={stage === 4 ? "Review Request" : undefined}`). */
+function continueButton() {
+  return screen.getByRole("button", { name: /^continue$|review request/i });
+}
+
+function queryValidationBanner() {
+  return screen.queryByText(/field(s)? needs? attention/i);
+}
+
 /** C2L-Q5 — the evidence uploader now lives behind a closed-by-default disclosure; opens it (a no-op if the fixture already opened it, e.g. an unresolved-file/restored-draft case) before any file interaction. */
 async function openEvidenceDisclosure(branch: "seller" | "buyer") {
   const trigger = screen.getByRole("button", {
@@ -283,10 +319,10 @@ describe("real submission is the only path to confirmation", () => {
     const transport = createFakeTransport();
     renderOnReview(validSellerValues(), sellerContext, transport);
 
-    expect(screen.queryByText(/enquiry received/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/your enquiry is in/i)).not.toBeInTheDocument();
     await userEvent.click(submitButton());
 
-    await waitFor(() => expect(screen.getByText(/enquiry received/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/your enquiry is in/i)).toBeInTheDocument());
     expect(screen.getByText("MSM-260101-ABCDEF")).toBeInTheDocument();
     expect(transport.complete).toHaveBeenCalledTimes(1);
   });
@@ -318,7 +354,7 @@ describe("duplicate-submission prevention", () => {
     await userEvent.click(button); // button is now disabled, but click the same target again defensively
 
     resolveInitiate(initiateOk());
-    await waitFor(() => expect(screen.getByText(/enquiry received/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/your enquiry is in/i)).toBeInTheDocument());
     expect(transport.initiate).toHaveBeenCalledTimes(1);
   });
 
@@ -344,7 +380,7 @@ describe("success locks the form", () => {
     renderOnReview(validSellerValues(), sellerContext, transport);
 
     await userEvent.click(submitButton());
-    await waitFor(() => expect(screen.getByText(/enquiry received/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/your enquiry is in/i)).toBeInTheDocument());
 
     expect(screen.queryByRole("button", { name: /submit request/i })).not.toBeInTheDocument();
     expect(transport.initiate).toHaveBeenCalledTimes(1);
@@ -355,7 +391,7 @@ describe("success locks the form", () => {
     renderOnReview(validSellerValues(), sellerContext, transport);
 
     await userEvent.click(submitButton());
-    await waitFor(() => expect(screen.getByText(/enquiry received/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/your enquiry is in/i)).toBeInTheDocument());
 
     expect(loadQuoteDraft()).toBeNull();
   });
@@ -386,7 +422,7 @@ describe("progress phases", () => {
     );
 
     resolveInitiate(initiateOk());
-    await waitFor(() => expect(screen.getByText(/enquiry received/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/your enquiry is in/i)).toBeInTheDocument());
   });
 
   it("uploading shows file-count progress, never a fabricated percentage", async () => {
@@ -434,7 +470,7 @@ describe("progress phases", () => {
       expect(screen.getByRole("status")).toHaveTextContent(/uploading file 1 of 2/i),
     );
     resolveFirstUpload(uploadOk("s0"));
-    await waitFor(() => expect(screen.getByText(/enquiry received/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/your enquiry is in/i)).toBeInTheDocument());
     expect(screen.queryByText(/%/)).not.toBeInTheDocument();
   });
 });
@@ -449,7 +485,7 @@ describe("submission by scenario", () => {
     renderOnReview(validSellerValues(), sellerContext, transport);
 
     await userEvent.click(submitButton());
-    await waitFor(() => expect(screen.getByText(/enquiry received/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/your enquiry is in/i)).toBeInTheDocument());
     expect(transport.upload).not.toHaveBeenCalled();
   });
 
@@ -480,7 +516,7 @@ describe("submission by scenario", () => {
     await userEvent.click(screen.getByRole("button", { name: /review request/i }));
     await userEvent.click(submitButton());
 
-    await waitFor(() => expect(screen.getByText(/enquiry received/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/your enquiry is in/i)).toBeInTheDocument());
     expect(transport.upload).toHaveBeenCalledTimes(2);
   });
 
@@ -517,7 +553,7 @@ describe("submission by scenario", () => {
     await userEvent.click(screen.getByRole("button", { name: /review request/i }));
     await userEvent.click(submitButton());
 
-    await waitFor(() => expect(screen.getByText(/enquiry received/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/your enquiry is in/i)).toBeInTheDocument());
     expect(transport.upload).toHaveBeenCalledTimes(2);
   });
 });
@@ -534,7 +570,7 @@ describe("resume behavior", () => {
     renderOnReview(validSellerValues(), sellerContext, transport);
 
     await userEvent.click(submitButton());
-    await waitFor(() => expect(screen.getByText(/enquiry received/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/your enquiry is in/i)).toBeInTheDocument());
     expect(transport.upload).not.toHaveBeenCalled();
   });
 
@@ -598,6 +634,185 @@ describe("validation navigation", () => {
 });
 
 // ---------------------------------------------------------------------------
+// 13b. Final correction pass — live revalidation after a failed Continue
+// ---------------------------------------------------------------------------
+
+describe("live revalidation after a failed Continue (final correction pass)", () => {
+  it("Stage 2: shows no premature error, then clears Condition's inline error and the summary together, and unblocks Continue", async () => {
+    const transport = createFakeTransport();
+    renderAtStage(2, validSellerValues({ sellerCondition: undefined }), sellerContext, transport);
+
+    // Before any Continue attempt — no premature error.
+    expect(queryValidationBanner()).not.toBeInTheDocument();
+    expect(screen.queryByText(/select the material condition/i)).not.toBeInTheDocument();
+
+    await userEvent.click(continueButton());
+    await waitFor(() => expect(queryValidationBanner()).toBeInTheDocument());
+    expect(screen.getAllByText(/select the material condition/i).length).toBeGreaterThan(0);
+    expectStageLabel(2); // blocked — still on Material
+
+    await userEvent.click(screen.getByRole("radio", { name: "Clean and separated" }));
+
+    await waitFor(() => expect(queryValidationBanner()).not.toBeInTheDocument());
+    expect(screen.queryByText(/select the material condition/i)).not.toBeInTheDocument();
+
+    await userEvent.click(continueButton());
+    await waitFor(() => expectStageLabel(3)); // allowed — now genuinely valid
+  });
+
+  it("Stage 3: corrects Emirate, Area and Pickup one at a time, decrementing the summary 3→2→1→0 without wiping still-invalid fields, and unblocks Continue", async () => {
+    const transport = createFakeTransport();
+    // Enter via a real Stage 2 -> Stage 3 advance, and make Stage 2 itself
+    // fail once before being fixed — `continueAttempted` being left `true`
+    // at the moment Stage 3 is entered is the exact precondition for the
+    // premature-validation regression (banner/inline errors appearing on
+    // fresh Stage 3 entry before its own first Continue click).
+    renderAtStage(
+      2,
+      validSellerValues({
+        sellerCondition: undefined,
+        sellerEmirate: undefined,
+        sellerArea: "",
+        sellerPickupRequired: undefined,
+      }),
+      sellerContext,
+      transport,
+    );
+
+    await userEvent.click(continueButton());
+    await waitFor(() => expect(queryValidationBanner()).toBeInTheDocument());
+    await userEvent.click(screen.getByRole("radio", { name: "Clean and separated" }));
+    await waitFor(() => expect(queryValidationBanner()).not.toBeInTheDocument());
+    await userEvent.click(continueButton());
+    await waitFor(() => expectStageLabel(3));
+
+    // Premature-validation fix — fresh Stage 3 must start clean (no
+    // banner, no inline errors) even though Emirate/Area/Pickup are still
+    // unset, since its own Continue hasn't been clicked yet.
+    expect(queryValidationBanner()).not.toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: /area/i })).toHaveAttribute("aria-invalid", "false");
+
+    await userEvent.click(continueButton());
+    await waitFor(() => expect(screen.getByText(/3 fields need attention/i)).toBeInTheDocument());
+    expect(screen.getByText(/· Emirate/)).toBeInTheDocument();
+    expect(screen.getByText(/· Area/)).toBeInTheDocument();
+    expect(screen.getByText(/· Pickup required/)).toBeInTheDocument();
+    expectStageLabel(3); // blocked
+
+    // Fix Area only — Emirate/Pickup must keep their own errors untouched.
+    await userEvent.type(screen.getByRole("textbox", { name: /area/i }), "Al Quoz Industrial 3");
+    await waitFor(() => expect(screen.getByText(/2 fields need attention/i)).toBeInTheDocument());
+    expect(screen.queryByText(/· Area/)).not.toBeInTheDocument();
+    expect(screen.getByText(/· Emirate/)).toBeInTheDocument();
+    expect(screen.getByText(/· Pickup required/)).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "Dubai" })).toHaveAttribute("aria-checked", "false");
+
+    // Fix Emirate — Pickup's error must survive this unrelated field's change.
+    await userEvent.click(screen.getByRole("radio", { name: "Dubai" }));
+    await waitFor(() => expect(screen.getByText(/1 field needs attention/i)).toBeInTheDocument());
+    expect(screen.getByText(/· Pickup required/)).toBeInTheDocument();
+
+    // Fix Pickup — summary clears entirely.
+    await userEvent.click(screen.getByRole("radio", { name: "No" }));
+    await waitFor(() => expect(queryValidationBanner()).not.toBeInTheDocument());
+
+    await userEvent.click(continueButton());
+    await waitFor(() => expectStageLabel(4)); // allowed
+  });
+
+  it("Stage 3: selecting Pickup=Yes drops it from the summary while Emirate/Area (still invalid) are untouched", async () => {
+    const transport = createFakeTransport();
+    renderAtStage(
+      4,
+      validSellerValues({ sellerEmirate: undefined, sellerArea: "", sellerPickupRequired: undefined }),
+      sellerContext,
+      transport,
+    );
+
+    await userEvent.click(continueButton());
+    await waitFor(() => expect(screen.getByText(/3 fields need attention/i)).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole("radio", { name: "Yes" }));
+
+    await waitFor(() => expect(screen.getByText(/2 fields need attention/i)).toBeInTheDocument());
+    expect(screen.queryByText(/· Pickup required/)).not.toBeInTheDocument();
+    expect(screen.getByText(/· Emirate/)).toBeInTheDocument();
+    expect(screen.getByText(/· Area/)).toBeInTheDocument();
+  });
+
+  it("Stage 3 -> Stage 4: a failed-then-fixed Stage 3 Continue leaves Stage 4 clean on entry", async () => {
+    const transport = createFakeTransport();
+    renderAtStage(
+      4,
+      validSellerValues({
+        sellerEmirate: undefined,
+        sellerArea: "",
+        sellerPickupRequired: undefined,
+        sellerName: "",
+        sellerPhone: "",
+        sellerPreferredContact: undefined,
+      }),
+      sellerContext,
+      transport,
+    );
+
+    await userEvent.click(continueButton());
+    await waitFor(() => expect(screen.getByText(/3 fields need attention/i)).toBeInTheDocument());
+
+    await userEvent.type(screen.getByRole("textbox", { name: /area/i }), "Al Quoz Industrial 3");
+    await userEvent.click(screen.getByRole("radio", { name: "Dubai" }));
+    await userEvent.click(screen.getByRole("radio", { name: "No" }));
+    await waitFor(() => expect(queryValidationBanner()).not.toBeInTheDocument());
+
+    await userEvent.click(continueButton());
+    await waitFor(() => expectStageLabel(4));
+
+    // Premature-validation fix — Stage 4 must start clean on entry (no
+    // banner, no inline errors) even though its own Name/Phone/Preferred
+    // contact are still blank, since Stage 4's own Continue hasn't been
+    // clicked yet. This is the same stale-`continueAttempted` regression
+    // as the Stage 2 -> Stage 3 case, exercised one stage further on.
+    expect(queryValidationBanner()).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/^name$/i)).toHaveAttribute("aria-invalid", "false");
+  });
+
+  it("Stage 4: corrects Name, Phone and Preferred contact one at a time, decrementing the summary and unblocking Continue", async () => {
+    const transport = createFakeTransport();
+    renderAtStage(
+      5,
+      validSellerValues({ sellerName: "", sellerPhone: "", sellerPreferredContact: undefined }),
+      sellerContext,
+      transport,
+    );
+
+    expect(queryValidationBanner()).not.toBeInTheDocument();
+
+    await userEvent.click(continueButton());
+    await waitFor(() => expect(screen.getByText(/3 fields need attention/i)).toBeInTheDocument());
+    expect(screen.getByText(/· Name/)).toBeInTheDocument();
+    expect(screen.getByText(/· Phone/)).toBeInTheDocument();
+    expect(screen.getByText(/· Preferred contact/)).toBeInTheDocument();
+    expectStageLabel(4); // blocked
+
+    await userEvent.type(screen.getByLabelText(/^name$/i), "Ahmed Seller");
+    await waitFor(() => expect(screen.getByText(/2 fields need attention/i)).toBeInTheDocument());
+    expect(screen.queryByText(/· Name/)).not.toBeInTheDocument();
+    expect(screen.getByText(/· Phone/)).toBeInTheDocument();
+    expect(screen.getByText(/· Preferred contact/)).toBeInTheDocument();
+
+    await userEvent.type(screen.getByLabelText(/phone/i), "0501234567");
+    await waitFor(() => expect(screen.getByText(/1 field needs attention/i)).toBeInTheDocument());
+    expect(screen.getByText(/· Preferred contact/)).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("radio", { name: "WhatsApp" }));
+    await waitFor(() => expect(queryValidationBanner()).not.toBeInTheDocument());
+
+    await userEvent.click(continueButton());
+    await waitFor(() => expectStageLabel(5)); // allowed — now on Review
+  });
+});
+
+// ---------------------------------------------------------------------------
 // 14. Upload-in-progress UI and retry
 // ---------------------------------------------------------------------------
 
@@ -632,7 +847,7 @@ describe("upload_in_progress", () => {
     await waitFor(() => expect(screen.getByText(/still being processed/i)).toBeInTheDocument());
     expect(screen.getByRole("button", { name: /retry submission/i })).toBeInTheDocument();
     expect(transport.complete).not.toHaveBeenCalled();
-    expect(screen.queryByText(/enquiry received/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/your enquiry is in/i)).not.toBeInTheDocument();
   });
 });
 
@@ -656,7 +871,7 @@ describe("retryable failures preserve the attempt", () => {
     expect(loadSubmissionAttempt().kind).toBe("pre_initiate");
 
     await userEvent.click(screen.getByRole("button", { name: /retry submission/i }));
-    await waitFor(() => expect(screen.getByText(/enquiry received/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/your enquiry is in/i)).toBeInTheDocument());
     expect(keys[0]).toBe(keys[1]);
   });
 
@@ -707,7 +922,30 @@ describe("retryable failures preserve the attempt", () => {
     await waitFor(() =>
       expect(screen.getByText(/something went wrong on our end/i)).toBeInTheDocument(),
     );
-    expect(screen.queryByText(/enquiry received/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/your enquiry is in/i)).not.toBeInTheDocument();
+  });
+
+  it("an unexpected thrown exception (not one of the engine's own typed outcomes) still shows the retryable banner, never silent failure", async () => {
+    // Regression test for the exact gap found while tracing the reported
+    // "Submit does nothing" bug: engine.submit() is designed to always
+    // resolve to a typed outcome, never throw, so handleSubmit's await
+    // previously had only a `finally`, no `catch` — an unexpected throw
+    // here (anything other than initiate/upload/complete's own already-
+    // handled failure branches) would have propagated as an unhandled
+    // rejection with no visible error at all, indistinguishable from the
+    // click doing nothing.
+    const transport = createFakeTransport({
+      initiate: async () => {
+        throw new Error("boom");
+      },
+    });
+    renderOnReview(validSellerValues(), sellerContext, transport);
+
+    await userEvent.click(submitButton());
+    await waitFor(() =>
+      expect(screen.getByText(/something went wrong on our end/i)).toBeInTheDocument(),
+    );
+    expect(screen.queryByText(/your enquiry is in/i)).not.toBeInTheDocument();
   });
 
   it("a lost completion response, replayed on Retry, reaches genuine success", async () => {
@@ -726,7 +964,7 @@ describe("retryable failures preserve the attempt", () => {
     await waitFor(() => expect(screen.getByText(/couldn't reach msm scrap/i)).toBeInTheDocument());
 
     await userEvent.click(screen.getByRole("button", { name: /retry submission/i }));
-    await waitFor(() => expect(screen.getByText(/enquiry received/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/your enquiry is in/i)).toBeInTheDocument());
     expect(screen.getByText("MSM-260101-ABCDEF")).toBeInTheDocument();
   });
 });
@@ -792,8 +1030,35 @@ const PendingTurnstileWidget = forwardRef<QuoteTurnstileWidgetHandle, QuoteTurns
   },
 );
 
+/**
+ * Batch A (Turnstile audit) — delivers nothing on mount (genuinely
+ * pending, unlike FakeTurnstileWidget which auto-succeeds), and exposes
+ * the real `onToken`/`onUnusable` callbacks it was given to the two
+ * module-level refs below, so a test can call them directly to simulate
+ * "the widget just completed a challenge" or "the widget just reported
+ * expiry/error/timeout" at whatever moment it chooses — without racing a
+ * real script load or a real Cloudflare challenge.
+ */
+let deliverTurnstileToken: ((token: string) => void) | null = null;
+let triggerTurnstileUnusable: (() => void) | null = null;
+const ControllableTurnstileWidget = forwardRef<
+  QuoteTurnstileWidgetHandle,
+  QuoteTurnstileWidgetProps
+>(function ControllableTurnstileWidget({ onToken, onUnusable }, ref) {
+  useImperativeHandle(ref, () => ({ reset() {} }), []);
+  useEffect(() => {
+    deliverTurnstileToken = onToken;
+    triggerTurnstileUnusable = onUnusable;
+    return () => {
+      deliverTurnstileToken = null;
+      triggerTurnstileUnusable = null;
+    };
+  }, [onToken, onUnusable]);
+  return null;
+});
+
 describe("C2L Review action-area states", () => {
-  it("verification pending: the primary CTA stays disabled until a Turnstile token arrives", () => {
+  it("verification pending: the primary CTA stays disabled until a Turnstile token arrives, with a visible explanation naming the actual reason", () => {
     saveQuoteDraft(6, validSellerValues());
     render(
       <QuoteExperience
@@ -805,7 +1070,60 @@ describe("C2L Review action-area states", () => {
       />,
     );
     expect(submitButton()).toBeDisabled();
+    // Batch A — the pending-state hint must actually be visible, not just
+    // the disabled button on its own (a customer can't tell *why* a
+    // disabled button is disabled without it).
+    expect(screen.getByText(/complete the security check below to send/i)).toBeInTheDocument();
   });
+
+  it.each([
+    ["seller", validSellerValues, sellerContext] as const,
+    ["buyer", validBuyerValues, buyerContext] as const,
+  ])(
+    "%s: pending → success enables Submit and clears the hint; a subsequent expiry/failure re-disables it with a distinct, actionable retry message",
+    (_label, values, context) => {
+      saveQuoteDraft(6, values());
+      render(
+        <QuoteExperience
+          mode="standalone"
+          initialContext={context}
+          onClose={vi.fn()}
+          transport={createFakeTransport()}
+          turnstileWidget={ControllableTurnstileWidget}
+        />,
+      );
+
+      // Pending: disabled, generic hint, no "expired" wording yet.
+      expect(submitButton()).toBeDisabled();
+      expect(screen.getByText(/complete the security check below to send/i)).toBeInTheDocument();
+      expect(screen.queryByText(/security check expired/i)).not.toBeInTheDocument();
+
+      // Success: a genuine token arrives — Submit enables, the hint disappears entirely.
+      act(() => {
+        deliverTurnstileToken?.("real-looking-turnstile-token");
+      });
+      expect(submitButton()).not.toBeDisabled();
+      expect(
+        screen.queryByText(/complete the security check below to send/i),
+      ).not.toBeInTheDocument();
+      expect(screen.queryByText(/security check expired/i)).not.toBeInTheDocument();
+
+      // Expiry/failure: the widget reports the challenge unusable — the
+      // old token must be invalidated (Submit disabled again), and the
+      // message must be the specific, actionable retry one, not the
+      // generic pending one (they read differently on purpose — this
+      // customer already tried once and needs to know to try again, not
+      // that they haven't started).
+      act(() => {
+        triggerTurnstileUnusable?.();
+      });
+      expect(submitButton()).toBeDisabled();
+      expect(screen.getByText(/security check expired.*verify again/i)).toBeInTheDocument();
+      expect(
+        screen.queryByText(/^complete the security check below to send$/i),
+      ).not.toBeInTheDocument();
+    },
+  );
 
   it("submitting: progress is announced in a polite status region while the primary CTA is disabled", async () => {
     let resolveInitiate!: (v: InitiateTransportResult) => void;
@@ -821,7 +1139,7 @@ describe("C2L Review action-area states", () => {
     expect(button).toBeDisabled();
 
     resolveInitiate(initiateOk());
-    await waitFor(() => expect(screen.getByText(/enquiry received/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/your enquiry is in/i)).toBeInTheDocument());
   });
 
   it("verification rejection: surfaces as a retryable status (not an alert) and offers Retry", async () => {
@@ -871,7 +1189,7 @@ describe("abort", () => {
 
     await userEvent.click(submitButton());
     await waitFor(() => expect(submitButton()).not.toBeDisabled());
-    expect(screen.queryByText(/enquiry received/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/your enquiry is in/i)).not.toBeInTheDocument();
     expect(screen.getByRole("status")).toHaveTextContent("");
   });
 });
@@ -941,7 +1259,7 @@ describe("close guard while submitting", () => {
 
     expect(screen.queryByText(/still submitting your request/i)).not.toBeInTheDocument();
     resolveInitiate(initiateOk());
-    await waitFor(() => expect(screen.getByText(/enquiry received/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/your enquiry is in/i)).toBeInTheDocument());
     expect(onClose).not.toHaveBeenCalled();
   });
 
@@ -1030,7 +1348,7 @@ describe("C2L-Q shared footer on Review", () => {
     expect(screen.getByText(/review and send your request/i)).toBeInTheDocument();
 
     resolveInitiate(initiateOk());
-    await waitFor(() => expect(screen.getByText(/enquiry received/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/your enquiry is in/i)).toBeInTheDocument());
   });
 });
 
@@ -1047,7 +1365,7 @@ describe("no sensitive values rendered or logged", () => {
     renderOnReview(validSellerValues(), sellerContext, transport);
 
     await userEvent.click(submitButton());
-    await waitFor(() => expect(screen.getByText(/enquiry received/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/your enquiry is in/i)).toBeInTheDocument());
 
     expect(logSpy).not.toHaveBeenCalled();
     expect(errorSpy).not.toHaveBeenCalled();
@@ -1059,7 +1377,7 @@ describe("no sensitive values rendered or logged", () => {
     const { container } = renderOnReview(validSellerValues(), sellerContext, transport);
 
     await userEvent.click(submitButton());
-    await waitFor(() => expect(screen.getByText(/enquiry received/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/your enquiry is in/i)).toBeInTheDocument());
 
     expect(container.textContent).not.toContain(LEAD_ID);
     expect(container.textContent).not.toContain("leads/");
@@ -1443,8 +1761,14 @@ describe("C2L-Q3 footer Start over", () => {
         turnstileWidget={FakeTurnstileWidget}
       />,
     );
-    const startOver = screen.getByRole("button", { name: /^start over$/i });
     const backButton = screen.getByRole("button", { name: /^back$/i });
+    // Scoped to Back's own row, not a document-wide query: QuoteProgress's
+    // header also renders a mobile-only "Start over" trigger with the same
+    // accessible name (shown/hidden by breakpoint via CSS, not by mounting),
+    // so both are simultaneously present in jsdom regardless of viewport —
+    // a global getByRole would ambiguously match either one.
+    const footerRow = backButton.closest("div")!;
+    const startOver = within(footerRow).getByRole("button", { name: /^start over$/i });
     // Same footer row as Back, not the header.
     expect(startOver.closest("div")).toBe(backButton.closest("div"));
 

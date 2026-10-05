@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ComponentType, RefAttributes } from "react";
-import { FormProvider, useForm } from "react-hook-form";
+import { FormProvider, useForm, useWatch } from "react-hook-form";
 import * as AlertDialogPrimitive from "@radix-ui/react-alert-dialog";
 import { X } from "lucide-react";
 import msmLogo from "@/assets/msm-logo.svg";
@@ -16,6 +16,7 @@ import {
 import { QUOTE_TOTAL_STAGES, STAGE_ENTRY_STEP, stageOf } from "./quote-options";
 import { QuoteProgress } from "./QuoteProgress";
 import { QuoteNavigation, quotePrimaryCtaSurface } from "./QuoteNavigation";
+import { QuoteValidationSummary, type QuoteValidationSummaryItem } from "./QuoteValidationSummary";
 import { cn } from "@/lib/utils";
 import { IntentStep } from "./steps/IntentStep";
 import { MaterialRequirementsStep } from "./steps/MaterialRequirementsStep";
@@ -114,6 +115,29 @@ export function QuoteExperience({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submissionPhase, setSubmissionPhase] = useState<QuoteSubmissionProgressEvent | null>(null);
   const [submissionOutcome, setSubmissionOutcome] = useState<QuoteSubmissionOutcome | null>(null);
+  /** Batch A — populated only by applyStageValidationIssues, from the same
+   * Zod issues that already drive the per-field errors below; distinct
+   * from `submissionOutcome` (server/network errors), which this never
+   * touches. Cleared on every step change (see the [step, confirmation]
+   * effect) so it can never show a stale summary for a stage the user has
+   * navigated away from. */
+  const [validationSummary, setValidationSummary] = useState<QuoteValidationSummaryItem[]>([]);
+  /** Final correction pass (live revalidation) — true once the CURRENT
+   * stage has had at least one failed Continue attempt. Gates the
+   * watch()-driven revalidation effect below: before a first failed
+   * attempt, edits must never show errors ("no premature errors"); reset
+   * to false on every stage change alongside validationSummary itself, so
+   * a freshly-entered stage always starts ungated again. */
+  const [continueAttempted, setContinueAttempted] = useState(false);
+  /** Batch A (Turnstile audit) — true only after the widget itself has
+   * reported a challenge as unusable (expired/errored/timed out) since
+   * the last token was obtained. Distinct from simply "no token yet": a
+   * fresh Review visit is *pending*, not *expired*. Drives ReviewStep's
+   * choice between the generic "complete the check" hint and a specific
+   * "it expired, verify again" one — never affects the actual gating
+   * logic (`turnstileReady`/`submitDisabled` still only ever look at
+   * whether a token is currently held), purely which explanation to show. */
+  const [turnstileExpired, setTurnstileExpired] = useState(false);
   /** CHECKPOINT C2G — a fresh, single-use Turnstile token held only in memory: never written to sessionStorage/localStorage/Supabase, never logged. Cleared the instant a submit attempt consumes it. */
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
   const turnstileWidgetRef = useRef<QuoteTurnstileWidgetHandle>(null);
@@ -121,6 +145,14 @@ export function QuoteExperience({
   const stepContentRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const startOverButtonRef = useRef<HTMLButtonElement>(null);
+  /** BATCH E1 — the mobile header's own "Start over" trigger (QuoteProgress)
+   * is a separate DOM button from the desktop footer's (QuoteNavigation),
+   * so each needs its own ref — assigning one ref to both would just let
+   * whichever renders last in the tree win. Focus-return calls both refs;
+   * `.focus()` on the one that's currently `display:none` at the active
+   * breakpoint is a harmless no-op, so exactly the visible trigger ends up
+   * focused either way, without needing a JS media-query check. */
+  const mobileStartOverButtonRef = useRef<HTMLButtonElement>(null);
   const keepEditingButtonRef = useRef<HTMLButtonElement>(null);
   const continueSubmittingButtonRef = useRef<HTMLButtonElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -154,6 +186,11 @@ export function QuoteExperience({
   });
 
   const intent = form.watch("intent");
+  // Final correction pass (live revalidation) — the full current values,
+  // re-read reactively on every change so the effect below can re-run
+  // the current stage's schema after each edit. Only feeds that one
+  // effect's dependency array; never read directly for rendering.
+  const watchedValuesForRevalidation = useWatch({ control: form.control });
   const stage = confirmation ? QUOTE_TOTAL_STAGES : stageOf(step);
   const restoredFilesNotice =
     !!draft && (intent === "buy" ? draft.hadBuyerDocuments : draft.hadSellerPhotos);
@@ -172,13 +209,45 @@ export function QuoteExperience({
   }, [step]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: 0 });
+    // BATCH E1-R1 — resets only the one explicit scrollable form-content
+    // ref, never `window.scrollTo` and never the header/footer/outer shell
+    // (those are static grid siblings, never scroll containers at all).
+    scrollRef.current?.scrollTo({ top: 0, behavior: "auto" });
     // C2L-Q1 — move focus into the new stage's content on every stage
     // change (Continue/Back/Edit/hydration), so screen-reader/keyboard users
     // land on the new heading instead of a stale focus target. The stage
     // container itself (not a specific heading ref threaded through every
     // step component) is the smallest safe hook available here.
-    stepContentRef.current?.focus();
+    //
+    // Batch A (top-spacing root cause) — `{ preventScroll: true }` is load-
+    // bearing, not decoration: without it, the browser's own focus-driven
+    // scroll-into-view heuristic runs immediately after the scrollTo(0)
+    // above and can override it. stepContentRef wraps the *entire* step's
+    // content, so on any stage taller than the viewport (Logistics/
+    // Contact/Review — Material, being shorter, had little room for this
+    // to visibly misbehave) the browser could scroll to reveal more of
+    // that oversized focus target, nudging scrollTop away from 0 and
+    // leaving the heading start hard against the header divider instead
+    // of at the intended top padding. We already set the correct scroll
+    // position explicitly above; focus() must not also take a turn at it.
+    stepContentRef.current?.focus({ preventScroll: true });
+    // Batch A — the validation summary belongs to whichever attempt just
+    // failed on the stage the user was on; navigating away (Back, a
+    // successful Continue, Edit from Review, Start over) always retires
+    // it. It reappears only if a fresh Continue/Submit attempt on the new
+    // stage fails again — field-level errors are untouched here, only
+    // this summary resets.
+    setValidationSummary([]);
+    // Final correction pass — a fresh stage has never had a failed
+    // Continue attempt yet, so live revalidation starts gated off again.
+    setContinueAttempted(false);
+    // Batch A (Turnstile audit) — leaving Review unmounts the real widget
+    // entirely (it only renders in the Review branch below); returning
+    // mounts a brand-new instance that requests a fresh challenge from
+    // scratch. Any "expired" flag from a previous Review visit is no
+    // longer meaningful once that happens, so it resets on every step
+    // change alongside the validation summary above.
+    setTurnstileExpired(false);
   }, [step, confirmation]);
 
   useEffect(() => {
@@ -193,14 +262,40 @@ export function QuoteExperience({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /** Applies one stage schema's validation issues exactly like handleContinue: sets field errors, marks the stage attempted, and best-effort focuses the first invalid registered field. Works identically for stage 2's combined (Material+Details) intersection schema — a ZodIntersection failure carries the union of both sides' issues, each with its original field path intact. */
-  function applyStageValidationIssues(targetStage: number, values: QuoteFormValues): boolean {
+  /** Applies one stage schema's validation issues exactly like handleContinue: sets field errors, marks the stage attempted, and best-effort focuses the first invalid registered field. Works identically for stage 2's combined (Material+Details) intersection schema — a ZodIntersection failure carries the union of both sides' issues, each with its original field path intact.
+   *
+   * Batch A — also builds the top-of-panel validation summary from these
+   * exact same issues (one dedup pass by field name), so the summary can
+   * never drift from the field-level errors it mirrors, and can never show
+   * a hidden/optional/inactive-branch field: `schema` already only
+   * validates the fields relevant to `targetStage` and `values.intent`. */
+  function applyStageValidationIssues(
+    targetStage: number,
+    values: QuoteFormValues,
+    options?: { focus?: boolean },
+  ): boolean {
+    const focus = options?.focus ?? true;
     const schema = getStageSchema(targetStage, values.intent);
-    if (!schema) return true;
+    if (!schema) {
+      setValidationSummary([]);
+      return true;
+    }
     const result = schema.safeParse(values);
-    if (result.success) return true;
+    if (result.success) {
+      // Final correction pass — previously relied on handleContinue's own
+      // extra `form.clearErrors()` right after a successful call here, which
+      // only ever ran on an actual advance. The live-revalidation effect
+      // calls this directly while STAYING on the stage, so a field's
+      // manually-set error has to be cleared right here once the whole
+      // stage re-validates clean, not just the summary.
+      form.clearErrors();
+      setValidationSummary([]);
+      return true;
+    }
     form.clearErrors();
     let firstField: keyof QuoteFormValues | null = null;
+    const summary: QuoteValidationSummaryItem[] = [];
+    const seenFields = new Set<string>();
     for (const issue of result.error.issues) {
       const fieldName = issue.path[0];
       if (typeof fieldName === "string") {
@@ -209,18 +304,86 @@ export function QuoteExperience({
           message: issue.message,
         });
         firstField ??= fieldName as keyof QuoteFormValues;
+        if (!seenFields.has(fieldName)) {
+          seenFields.add(fieldName);
+          summary.push({ field: fieldName as keyof QuoteFormValues, message: issue.message });
+        }
       }
     }
-    if (firstField) form.setFocus(firstField);
+    // Final correction pass — the Continue-click path (focus: true, the
+    // default) still jumps focus to the first invalid field exactly as
+    // before. The live-revalidation watch effect below passes
+    // `focus: false`: it re-runs this same check on every keystroke/
+    // selection after a failed attempt, and yanking focus away from
+    // whatever the user is actively editing on every change would make
+    // typing unusable.
+    if (firstField && focus) form.setFocus(firstField);
+    setValidationSummary(summary);
     return false;
+  }
+
+  /** Final correction pass — after a stage's first failed Continue
+   * attempt, keep both the inline field errors and the header summary
+   * live as the user keeps editing: a field that becomes valid clears
+   * immediately (and the summary count drops accordingly, hiding the
+   * banner at zero); a field that's still invalid keeps its error
+   * untouched. This re-parses the whole stage schema (not just the one
+   * changed field) on every change, so it never "clears every error just
+   * because one field changed" — it recomputes every field's error from
+   * the current values, which is what correctly leaves still-invalid
+   * sibling fields' errors in place. Gated by `continueAttempted` so
+   * nothing here ever shows a premature error before a first attempt,
+   * and it never advances the step itself — only handleContinue does
+   * that, so navigation is still blocked until the stage genuinely
+   * validates. */
+  useEffect(() => {
+    // Runs in a real `useEffect` (committed after render), not a
+    // `watch()` callback subscription (fired mid-update) — several step
+    // files' registered inputs already call their own unconditional
+    // `form.clearErrors("fieldName")` inside onChange, which would race
+    // a watch()-callback-based revalidation and could wipe a still-
+    // invalid field's error right back out. Deferring to an effect keyed
+    // off `watchedValuesForRevalidation` guarantees every same-tick
+    // change (including those per-field clearErrors calls) has already
+    // landed before this runs, so this full-stage re-check is always the
+    // last, authoritative word on what's actually still invalid.
+    if (!continueAttempted || confirmation) return;
+    applyStageValidationIssues(stageOf(step), form.getValues(), { focus: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [watchedValuesForRevalidation, continueAttempted, step, confirmation]);
+
+  /** Batch A — the validation summary's own field links: focuses the
+   * control (same as the first-invalid-field focus above) and explicitly
+   * scrolls it to the centre of the INNER scroller so its label and error
+   * text both clear the static header/footer, rather than relying only on
+   * the browser's own (sometimes minimal) focus-scroll. */
+  function handleFocusValidationField(field: keyof QuoteFormValues) {
+    form.setFocus(field);
+    const el = document.getElementById(field);
+    el?.scrollIntoView({ block: "center", behavior: "smooth" });
   }
 
   function handleContinue() {
     const currentStage = stageOf(step);
     if (applyStageValidationIssues(currentStage, form.getValues())) {
       form.clearErrors();
+      // Premature-validation fix — if the stage just left had its own
+      // failed-then-fixed Continue attempt, `continueAttempted` is still
+      // true going into this same render. `setStep` below is batched with
+      // this, so without resetting it here too, the live-revalidation
+      // effect sees stage N+1's FIRST render with a stale `true` (the
+      // `[step, confirmation]` effect's own reset only lands one render
+      // later) and immediately validates the fresh stage before any
+      // Continue click on it.
+      setContinueAttempted(false);
       const nextStage = Math.min(currentStage + 1, QUOTE_TOTAL_STAGES);
       setStep(STAGE_ENTRY_STEP[nextStage]!);
+    } else {
+      // Final correction pass — a failed Continue is what turns on live
+      // revalidation for the rest of this stage visit (see the watch()
+      // effect above); it stays off until this point so nothing shows an
+      // error before the user has actually tried to proceed.
+      setContinueAttempted(true);
     }
   }
 
@@ -235,8 +398,16 @@ export function QuoteExperience({
     setStep(STAGE_ENTRY_STEP[prevStage]!);
   }
 
-  const handleTurnstileToken = useCallback((token: string) => setTurnstileToken(token), []);
-  const handleTurnstileUnusable = useCallback(() => setTurnstileToken(null), []);
+  const handleTurnstileToken = useCallback((token: string) => {
+    setTurnstileToken(token);
+    // A fresh, successful challenge means whatever "expired" state existed
+    // before is no longer current.
+    setTurnstileExpired(false);
+  }, []);
+  const handleTurnstileUnusable = useCallback(() => {
+    setTurnstileToken(null);
+    setTurnstileExpired(true);
+  }, []);
 
   /** `target` is a STAGE number (1-4) — every ReviewStep section's Edit action and stage-jump target now speak the same 5-stage numbering. */
   function handleEditStep(target: number) {
@@ -283,6 +454,20 @@ export function QuoteExperience({
     let outcome: QuoteSubmissionOutcome;
     try {
       outcome = await promise;
+    } catch {
+      // MEASURED GAP (not the reported bug's root cause, but a real
+      // structural risk found while tracing it): engine.submit() is
+      // designed to always resolve to a typed outcome, never throw — but
+      // this call site had no catch, only finally, so any unexpected
+      // exception (not one of submitInternal's own handled cases) would
+      // propagate as an unhandled rejection: isSubmitting still resets via
+      // finally below, but no outcome is ever set, so Review shows
+      // nothing — a genuinely silent failure, indistinguishable from "the
+      // click did nothing". This mirrors the same generic, retryable
+      // "server_error" copy already shown for every other unexpected
+      // server failure (see quote-submission-copy.ts's own mapping) —
+      // no new user-facing message invented.
+      outcome = { kind: "server_error", retryable: true };
     } finally {
       submitPromiseRef.current = null;
       abortControllerRef.current = null;
@@ -402,6 +587,8 @@ export function QuoteExperience({
             isSubmitting={isSubmitting}
             submissionPhase={submissionPhase}
             submissionOutcome={submissionOutcome}
+            turnstileReady={!!turnstileToken}
+            turnstileExpired={turnstileExpired}
             turnstileWidget={
               <TurnstileWidget
                 ref={turnstileWidgetRef}
@@ -468,7 +655,7 @@ export function QuoteExperience({
                     handleStartOver();
                     onClose();
                   }}
-                  className="rounded text-xs font-semibold text-foreground/45 underline-offset-2 transition-colors hover:text-destructive hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-destructive"
+                  className="rounded text-xs font-semibold text-[#C9655A] underline-offset-[3px] transition-colors hover:text-[#E07A6D] hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-destructive"
                 >
                   Discard and close
                 </button>
@@ -494,6 +681,7 @@ export function QuoteExperience({
           onOpenChange={(open) => {
             if (!open) {
               setShowStartOverConfirm(false);
+              mobileStartOverButtonRef.current?.focus();
               startOverButtonRef.current?.focus();
             }
           }}
@@ -535,9 +723,10 @@ export function QuoteExperience({
                   type="button"
                   onClick={() => {
                     handleStartOver();
+                    mobileStartOverButtonRef.current?.focus();
                     startOverButtonRef.current?.focus();
                   }}
-                  className="rounded text-xs font-semibold text-foreground/45 underline-offset-2 transition-colors hover:text-destructive hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-destructive"
+                  className="rounded text-xs font-semibold text-[#C9655A] underline-offset-[3px] transition-colors hover:text-[#E07A6D] hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-destructive"
                 >
                   Discard and start over
                 </button>
@@ -628,24 +817,58 @@ export function QuoteExperience({
               type="button"
               onClick={requestClose}
               aria-label="Close quote experience"
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-foreground/60 transition-colors hover:bg-white/10 hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-copper"
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-foreground/60 transition-colors hover:bg-white/10 hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-copper"
             >
               <X aria-hidden="true" className="h-4 w-4" />
             </button>
           </div>
           <div className="mt-2">
-            <QuoteProgress step={stage} />
+            <QuoteProgress
+              step={stage}
+              complete={!!confirmation}
+              onStartOver={requestStartOver}
+              showStartOver={hasMeaningfulProgress}
+              startOverDisabled={isSubmitting}
+              startOverButtonRef={mobileStartOverButtonRef}
+            />
           </div>
+          {/* Batch A — directly below the progress bar, still inside this
+              same static header row (never inside `.quote-scroll`), so it
+              stays on screen regardless of how far the body is scrolled. */}
+          <QuoteValidationSummary
+            items={validationSummary}
+            onFocusField={handleFocusValidationField}
+          />
         </div>
 
         {/* Row 2 — the ONE scrollable region (minmax(0,1fr)): min-h-0 lets
             the grid track shrink below its content's natural height so
             overflow-y-auto actually engages instead of the row growing to
             fit everything; overscroll-contain stops scroll chaining to the
-            page behind the shell. */}
+            page behind the shell.
+            Batch A — this is the ONE shared source of every step's top/
+            bottom spacing (every step's own root is a bare, unpadded
+            `<div>`; none of them carry their own top margin). Bumped from
+            a uniform `py-6` to `pt-8 pb-10`: more breathing room between
+            the header divider and every step's heading, consistently
+            (not a per-step override), and more clearance at the bottom so
+            a fully expanded step (quantity-unsure/description open,
+            pickup panel, all optional disclosures, photos, Turnstile)
+            never ends flush against the footer border. */}
         <div
           ref={scrollRef}
-          className="quote-scroll min-h-0 min-w-0 overflow-y-auto overscroll-contain bg-[#080A1D] px-5 py-6 sm:px-8 lg:px-12"
+          className={`quote-scroll min-h-0 min-w-0 overflow-y-auto overscroll-contain bg-[#080A1D] px-5 sm:px-8 lg:px-12 ${
+            // Final correction pass — Step 1 (Request) is the one stage whose
+            // content already fits a 390x748 phone viewport in full (heading,
+            // both choice cards, Continue), so the shared pt-8/pb-10 used by
+            // every other stage (Material/Logistics/Contact/Review, which do
+            // need that breathing room and are untouched here) left Step 1
+            // with a small residual scroll range even though nothing was cut
+            // off. `sm:`-restored back to the exact original pt-8/pb-10, so
+            // desktop Step 1 and every breakpoint of every other stage are
+            // unchanged.
+            !confirmation && stage === 1 ? "pt-5 pb-6 sm:pt-8 sm:pb-10" : "pt-8 pb-10"
+          }`}
         >
           <div
             ref={stepContentRef}
@@ -657,7 +880,22 @@ export function QuoteExperience({
               // top of taller content, which this is deliberately never
               // applied to). Every other stage keeps its normal top-
               // aligned flow — shell/header/footer geometry is untouched.
-              !confirmation && stage === 1 ? "flex min-h-full flex-col justify-center" : ""
+              //
+              // `sm:` only — MEASURED ROOT CAUSE of the mobile Step-1 bug:
+              // that "never overflows" assumption doesn't hold on a short
+              // mobile viewport (eyebrow+heading+description+reassurance
+              // chip+two full option cards can exceed the available height
+              // there, unlike sm+). `justify-center` on genuinely overflowing
+              // content inside an `overflow-y-auto` ancestor "unsafe"-centers
+              // by default — part of the top bleeds above scrollTop 0,
+              // unreachable — which is what read as the footer
+              // covering/clipping the Buy card. Plain top-aligned flow on
+              // mobile (this class list's default when the ternary is empty)
+              // has no such trap: scrollTop 0 always starts at the true top,
+              // and the existing pb-10 on the scroll container above already
+              // gives the last card normal bottom clearance from the static
+              // footer.
+              !confirmation && stage === 1 ? "sm:flex sm:min-h-full sm:flex-col sm:justify-center" : ""
             }`}
           >
             {stepContent}
@@ -725,7 +963,34 @@ export function QuoteExperience({
     >
       <DialogContent
         overlayClassName="bg-[#080A1D]/95 backdrop-blur-sm"
-        className="flex h-dvh max-h-dvh w-full max-w-none flex-col gap-0 rounded-none border-0 bg-transparent p-0 shadow-none md:h-[min(74dvh,620px)] md:max-h-[min(74dvh,620px)] md:w-[min(86vw,1360px)] md:max-w-[min(86vw,1360px)] md:rounded-3xl [&>button]:hidden"
+        // BATCH E1-R1 — the shadcn/Radix base DialogContent positions itself
+        // via `top-[50%] left-[50%] translate-x-[-50%] translate-y-[-50%]`,
+        // which this component never explicitly overrode (only size/spacing
+        // utilities were). For a `w-full h-dvh` mobile sheet that's a
+        // percentage-vs-transform centering scheme instead of a simple
+        // edge pin, and mobile Safari's dynamic-toolbar `dvh` recalculation
+        // doesn't always stay in lockstep with a `top: 50%` computed against
+        // the same instant — the header/close row (and, on step transitions,
+        // the whole sheet) could visibly drift. `inset-0` + zeroed translate
+        // pins all four edges directly with no percentage math at all;
+        // `md:` restores the exact previous centered-card positioning.
+        //
+        // MEASURED ROOT CAUSE of the Step-1 footer/Buy-card bug: that BATCH
+        // only fixed the *centering math*, not the underlying `dvh` value
+        // itself — `inset-0` plus an explicit `h-dvh` is CSS's own
+        // over-constrained case (top AND bottom pinned, height also given),
+        // which resolves by keeping the explicit height and letting `bottom`
+        // go slack, so a stale/larger `dvh` (mobile Safari recalculating as
+        // its toolbar animates) pushes this sheet's actual bottom edge below
+        // the real visible viewport — taking the static footer row with it,
+        // not clipped by `inset-0` at all. `--app-vh` (see styles.css's
+        // `.hero-stage-height` and __root.tsx's own capture script) is this
+        // codebase's existing, established fix for exactly this failure
+        // mode: 1% of `window.innerHeight` captured once, synchronously,
+        // immune to toolbar-only changes — mobile only (`md:` below still
+        // uses `dvh`, capped at 620px, where this instability doesn't
+        // apply).
+        className="fixed inset-0 flex h-[calc(var(--app-vh,7.6px)*100)] max-h-[calc(var(--app-vh,7.6px)*100)] w-full max-w-none translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-none border-0 bg-transparent p-0 shadow-none md:inset-auto md:top-[50%] md:left-[50%] md:h-[min(74dvh,620px)] md:max-h-[min(74dvh,620px)] md:w-[min(86vw,1360px)] md:max-w-[min(86vw,1360px)] md:translate-x-[-50%] md:translate-y-[-50%] md:rounded-3xl [&>button]:hidden"
       >
         <DialogTitle className="sr-only">Get a Quote — MSM Scrap</DialogTitle>
         <DialogDescription className="sr-only">
