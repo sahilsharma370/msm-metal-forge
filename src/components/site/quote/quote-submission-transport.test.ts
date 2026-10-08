@@ -152,6 +152,101 @@ describe("createFetchQuoteTransport — initiate", () => {
     expect(result.ok).toBe(false);
     expect(!result.ok && result.transportFailure).toBe("aborted");
   });
+
+  it("a stalled JSON call (initiate) times out into a retryable network_error instead of hanging forever", async () => {
+    vi.useFakeTimers();
+    try {
+      // Mimics a real stalled fetch: never settles on its own, only reacts
+      // to its own signal being aborted — exactly what a genuinely hung
+      // connection on a weak mobile network looks like from this module's
+      // point of view.
+      const fetchImpl = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+        return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => {
+            reject(new DOMException("The operation was aborted.", "AbortError"));
+          });
+        });
+      });
+      const transport = createFetchQuoteTransport({ fetchImpl });
+
+      const resultPromise = transport.initiate({
+        idempotencyKey: "k1",
+        submission: validSubmission,
+        files: [],
+        turnstileToken: "test-turnstile-token",
+      });
+
+      await vi.advanceTimersByTimeAsync(30_000);
+      const result = await resultPromise;
+
+      expect(result.ok).toBe(false);
+      expect(!result.ok && result.transportFailure).toBe("network_error");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("retrying after an ambiguous (client-timed-out) initiate on the SAME transport instance still reaches a real outcome", async () => {
+    vi.useFakeTimers();
+    try {
+      // One transport instance, reused for both calls below — this is the
+      // one thing last reported inaccurately: an earlier version of this
+      // test constructed a second, separate transport for the "retry"
+      // call, which cannot demonstrate anything about shared state at
+      // all. Here, ONE mutable fetchImpl backs ONE transport instance for
+      // both calls: first call hangs (connection appeared stalled — the
+      // "ambiguous" case where the server may or may not have actually
+      // finished), second call (the retry) gets a normal fast response.
+      // The transport layer itself is stateless per call, so nothing here
+      // proves server-side idempotency (that is create_website_quote_v1's
+      // own job, already covered by initiate-quote.test.ts) — this test
+      // only guards that THIS layer never leaves anything (a stuck timer,
+      // a dangling listener, a module-level flag) on the SAME instance
+      // that would corrupt or block the very next call made on it.
+      const fetchImpl = vi.fn();
+      fetchImpl.mockImplementationOnce((_input: RequestInfo | URL, init?: RequestInit) => {
+        return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => {
+            reject(new DOMException("The operation was aborted.", "AbortError"));
+          });
+        });
+      });
+      fetchImpl.mockResolvedValueOnce(
+        jsonResponse(200, {
+          ok: true,
+          data: { leadId: "l1", reference: "MSM-000001", idempotentReplay: true, uploadSlots: [] },
+        }),
+      );
+      const transport = createFetchQuoteTransport({ fetchImpl });
+
+      const firstAttempt = transport.initiate({
+        idempotencyKey: "same-key",
+        submission: validSubmission,
+        files: [],
+        turnstileToken: "test-turnstile-token",
+      });
+      await vi.advanceTimersByTimeAsync(30_000);
+      const firstResult = await firstAttempt;
+      expect(!firstResult.ok && firstResult.transportFailure).toBe("network_error");
+
+      // Second call, on the SAME transport instance (the user tapping
+      // Retry): nothing from the first call's timer/listener/controller
+      // leaks into or blocks this one.
+      const secondResult = await transport.initiate({
+        idempotencyKey: "same-key",
+        submission: validSubmission,
+        files: [],
+        turnstileToken: "test-turnstile-token",
+      });
+
+      expect(secondResult.ok).toBe(true);
+      if (secondResult.ok) {
+        expect(secondResult.data.idempotentReplay).toBe(true);
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("createFetchQuoteTransport — upload", () => {
@@ -173,6 +268,38 @@ describe("createFetchQuoteTransport — upload", () => {
     expect(formData.get("idempotencyKey")).toBe("k1");
     expect(formData.get("file")).toBeInstanceOf(File);
     expect(Array.from(formData.keys()).sort()).toEqual(["file", "idempotencyKey", "slotId"]);
+  });
+
+  it("upload has no internal deadline, unlike initiate/complete — fetchImpl resolving well past 30s is never killed", async () => {
+    vi.useFakeTimers();
+    try {
+      // This does NOT simulate measured upload progress (no partial bytes,
+      // no XHR/progress events — the Fetch API gives this module no such
+      // signal, see the upload call site's own comment on why). It only
+      // proves the one thing that's actually implemented and testable at
+      // this layer: fetchImpl is free to take arbitrarily long — several
+      // multiples of JSON_REQUEST_TIMEOUT_MS below — and this module never
+      // aborts it on its own, because no internal timer exists for upload.
+      let resolveFetch!: (value: Response) => void;
+      const fetchImpl = vi.fn(() => new Promise<Response>((resolve) => (resolveFetch = resolve)));
+      const transport = createFetchQuoteTransport({ fetchImpl });
+      const file = new File([new Uint8Array(10)], "photo.jpg", { type: "image/jpeg" });
+
+      const resultPromise = transport.upload({ slotId: "s1", idempotencyKey: "k1", file });
+
+      // Advance well past the JSON deadline — several multiples of it —
+      // with nothing having aborted the upload.
+      await vi.advanceTimersByTimeAsync(5 * 60_000);
+
+      resolveFetch(
+        jsonResponse(200, { ok: true, data: { success: true, slotId: "s1", fileId: "f1", status: "verified", replayed: false } }),
+      );
+      const result = await resultPromise;
+
+      expect(result.ok).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("returns ok:true with status verified on success", async () => {

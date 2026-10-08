@@ -72,20 +72,84 @@ function isAbortError(error: unknown): boolean {
   );
 }
 
-/** Runs one fetch call, mapping every non-2xx-shaped-body outcome to a TransportFailure rather than throwing. */
+/**
+ * Bounded deadline for the two lightweight JSON-only calls (initiate,
+ * complete via postJson below) — never applied to upload, see that call
+ * site's own comment for why. Without ANY deadline, a stalled connection
+ * (common on weak mobile networks, where a request can hang with no error
+ * and no default browser timeout) left the caller awaiting runFetch()
+ * forever: no outcome, no retry option, an indefinitely stuck
+ * "Submitting..." state.
+ *
+ * 30s is sized for a few KB of JSON plus one RPC round-trip — generous
+ * even on high-latency 2G (hundreds of ms to low seconds of RTT, not
+ * tens of seconds), so it should essentially never fire on a connection
+ * that is merely slow, only on one that is genuinely stalled. If the
+ * SERVER actually finishes the write after the client has already given
+ * up and shown a retryable network_error, that is still safe, not a
+ * duplicate-lead risk: initiate's idempotency key is derived from the
+ * submission's own payload hash and reused unchanged across a retry
+ * (quote-submission-engine.ts's resolveIdempotencyKey), so a retried
+ * initiate call hits create_website_quote_v1's existing idempotent-replay
+ * branch (same lead_id/reference returned, idempotentReplay:true — see
+ * initiate-quote.test.ts's own coverage of this). A retried complete call
+ * is equally safe via complete_website_quote_v1's already_completed
+ * branch. Both are pre-existing server-side guarantees this client-side
+ * timeout merely needs to not break — it doesn't add any new write path.
+ */
+const JSON_REQUEST_TIMEOUT_MS = 30_000;
+
+/**
+ * Runs one fetch call, mapping every non-2xx-shaped-body outcome to a
+ * TransportFailure rather than throwing. `timeoutMs` is optional and
+ * undefined by default: omitting it (as the upload call site below does)
+ * means this function imposes NO internal deadline of its own — only the
+ * caller-supplied `signal` can end the request, exactly the pre-existing
+ * behavior for upload. Passing a `timeoutMs` (as postJson always does)
+ * adds a bounded internal deadline on top of that, without changing how
+ * the caller's own signal behaves.
+ */
 async function runFetch(
   input: RequestInfo | URL,
   init: RequestInit,
   signal: AbortSignal | undefined,
   fetchImpl: typeof fetch,
+  timeoutMs?: number,
 ): Promise<{ status: number; json: unknown } | TransportFailure> {
   if (signal?.aborted) return { ok: false, transportFailure: "aborted" };
+
+  // Internal timeout controller, merged with the caller's own signal (if
+  // any): either one aborts the actual fetch, but only the CALLER's signal
+  // being aborted means "aborted" — a timeout firing on its own means the
+  // network stalled, which must surface as a retryable network_error, not
+  // be silently conflated with a deliberate cancel (see this module's own
+  // TransportFailureKind doc comment on why those two can never mean the
+  // same thing to the engine). When timeoutMs is undefined, no timer is
+  // ever started — fetchImpl receives exactly the caller's own signal,
+  // unchanged from this function's pre-timeout-feature behavior.
+  const timeoutController = new AbortController();
+  let timedOut = false;
+  const timeoutId =
+    timeoutMs === undefined
+      ? undefined
+      : setTimeout(() => {
+          timedOut = true;
+          timeoutController.abort();
+        }, timeoutMs);
+  const relayExternalAbort = () => timeoutController.abort();
+  signal?.addEventListener("abort", relayExternalAbort);
+
   let response: Response;
   try {
-    response = await fetchImpl(input, signal ? { ...init, signal } : init);
+    response = await fetchImpl(input, { ...init, signal: timeoutController.signal });
   } catch (error) {
-    if (isAbortError(error) || signal?.aborted) return { ok: false, transportFailure: "aborted" };
+    if (signal?.aborted) return { ok: false, transportFailure: "aborted" };
+    if (timedOut) return { ok: false, transportFailure: "network_error" };
+    if (isAbortError(error)) return { ok: false, transportFailure: "aborted" };
     return { ok: false, transportFailure: "network_error" };
+  } finally {
+    if (timeoutId !== undefined) clearTimeout(timeoutId);
+    signal?.removeEventListener("abort", relayExternalAbort);
   }
   let json: unknown;
   try {
@@ -211,6 +275,7 @@ async function postJson(
     },
     signal,
     fetchImpl,
+    JSON_REQUEST_TIMEOUT_MS,
   );
 }
 
@@ -382,6 +447,35 @@ export function createFetchQuoteTransport(options: CreateFetchQuoteTransportOpti
       formData.append("idempotencyKey", request.idempotencyKey);
       formData.append("file", request.file);
 
+      // Deliberately no timeoutMs here — upload is excluded from
+      // JSON_REQUEST_TIMEOUT_MS on purpose. At the existing 8 MiB cap
+      // (upload-quote.ts's MAX_UPLOAD_FILE_BYTES), realistic weak-network
+      // uplink speeds make a flat 30s deadline actively harmful, not
+      // protective: 8 MiB = 67,108,864 bits, which needs ~2.24 Mbps
+      // uplink just to land inside 30s. Measured against commonly-cited
+      // real-world/DevTools-preset uplink speeds, a genuine (not
+      // artificially stalled) upload at the size cap takes roughly:
+      //   - weak 2G  (~50 kbps):  ~1,342s (~22 min)
+      //   - Slow 3G  (~330 kbps):   ~203s (~3.4 min)
+      //   - Fast 3G  (~750 kbps):    ~90s (~1.5 min)
+      // A flat 30s timeout would false-positive-abort nearly every real
+      // upload on exactly the weak-network conditions this is meant to
+      // help — these are calculated durations for a genuine transfer,
+      // not a measured/observed one: this module has no actual upload-
+      // progress signal (see below), so it cannot distinguish a slow but
+      // still-progressing transfer from a truly stalled one by watching
+      // bytes move. "No internal deadline" is therefore the only claim
+      // this code actually makes or tests for upload — not "detects and
+      // tolerates slow progress".
+      // A size-proportional or true upload-progress-based idle timeout
+      // would be the correct fix, but the Fetch API gives no reliable
+      // cross-browser upload-progress signal (notably inconsistent
+      // streaming-upload support in Safari/iOS, the exact target of this
+      // audit) without a materially larger change than this bounded pass
+      // allows. Left unchanged: only the caller's own AbortSignal (user
+      // cancel / Start Over) can end an upload call — unbounded duration,
+      // not unbounded in the sense of ever hanging past what the browser
+      // itself eventually does for a truly dead connection.
       const result = await runFetch(
         `${baseUrl}/api/quote/upload`,
         { method: "POST", body: formData },
