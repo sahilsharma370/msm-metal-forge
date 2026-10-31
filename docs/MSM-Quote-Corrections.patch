@@ -1,0 +1,2368 @@
+diff --git a/src/components/site/quote/QuoteExperience.tsx b/src/components/site/quote/QuoteExperience.tsx
+index b63404a..f179cd0 100644
+--- a/src/components/site/quote/QuoteExperience.tsx
++++ b/src/components/site/quote/QuoteExperience.tsx
+@@ -27,18 +27,9 @@ interface QuoteExperienceProps {
+ 
+ const isDev = import.meta.env.DEV;
+ 
+-/** Compact display-only labels for the desktop rail — the underlying readiness keys/data are untouched. */
++/** Compact display-only label for the desktop rail so it never wraps at 232px — the underlying readiness key/data is untouched. */
+ const RAIL_LABEL_OVERRIDES: Record<string, string> = {
+-  enquiryType: "Enquiry type",
+-  material: "Material",
+-  quantity: "Quantity",
+-  location: "Location",
+-  pickup: "Pickup",
+-  contact: "Contact details",
+-  photos: "Photos",
+-  tradeRoute: "Trade route",
+   destination: "Destination",
+-  specification: "Documents",
+ };
+ 
+ function nextPreviewReference(): string {
+@@ -64,6 +55,7 @@ export function QuoteExperience({ mode, initialContext, onClose }: QuoteExperien
+ 
+   const [step, setStep] = useState(draft?.step ?? 1);
+   const [furthestStep, setFurthestStep] = useState(draft?.step ?? 1);
++  const [attemptedSteps, setAttemptedSteps] = useState<ReadonlySet<number>>(new Set());
+   const [showCloseConfirm, setShowCloseConfirm] = useState(false);
+   const [confirmationRef, setConfirmationRef] = useState<string | null>(null);
+   const scrollRef = useRef<HTMLDivElement>(null);
+@@ -83,8 +75,9 @@ export function QuoteExperience({ mode, initialContext, onClose }: QuoteExperien
+ 
+   const intent = form.watch("intent");
+   const values = form.watch();
+-  const readiness = getReadiness(values, furthestStep);
+-  const restoredFilesNotice = !!draft && (draft.hadSellerPhotos || draft.hadBuyerDocuments);
++  const readiness = getReadiness(values, step, furthestStep, attemptedSteps);
++  const restoredFilesNotice =
++    !!draft && (intent === "buy" ? draft.hadBuyerDocuments : draft.hadSellerPhotos);
+   const hasMeaningfulProgress = !!intent;
+   const step5Name = intent === "buy" ? "Documents & Contact" : "Photos & Contact";
+ 
+@@ -114,6 +107,7 @@ export function QuoteExperience({ mode, initialContext, onClose }: QuoteExperien
+     if (schema) {
+       const result = schema.safeParse(form.getValues());
+       if (!result.success) {
++        setAttemptedSteps((prev) => new Set(prev).add(step));
+         form.clearErrors();
+         let firstField: keyof QuoteFormValues | null = null;
+         for (const issue of result.error.issues) {
+@@ -150,6 +144,7 @@ export function QuoteExperience({ mode, initialContext, onClose }: QuoteExperien
+     form.reset(buildDefaultQuoteValues(initialContext));
+     setStep(1);
+     setFurthestStep(1);
++    setAttemptedSteps(new Set());
+     setConfirmationRef(null);
+     setShowCloseConfirm(false);
+   }
+@@ -242,7 +237,7 @@ export function QuoteExperience({ mode, initialContext, onClose }: QuoteExperien
+                   }}
+                   className="text-xs font-semibold text-foreground/45 underline-offset-2 hover:text-destructive hover:underline"
+                 >
+-                  Discard and start over
++                  Discard and close
+                 </button>
+               </div>
+             </div>
+@@ -259,7 +254,7 @@ export function QuoteExperience({ mode, initialContext, onClose }: QuoteExperien
+                 type="button"
+                 onClick={requestClose}
+                 aria-label="Close quote experience"
+-                className="flex h-10 w-10 items-center justify-center rounded-full text-foreground/60 transition-colors hover:bg-white/10 hover:text-foreground"
++                className="flex h-10 w-10 items-center justify-center rounded-full text-foreground/60 transition-colors hover:bg-white/10 hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-copper"
+               >
+                 <X aria-hidden="true" className="h-4 w-4" />
+               </button>
+@@ -280,7 +275,7 @@ export function QuoteExperience({ mode, initialContext, onClose }: QuoteExperien
+             <button
+               type="button"
+               onClick={handleStartOver}
+-              className="rounded text-xs font-semibold text-foreground/45 underline-offset-2 hover:text-foreground/75 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-copper"
++              className="rounded text-xs font-semibold text-foreground/60 underline-offset-2 hover:text-foreground/85 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-copper"
+             >
+               Start over
+             </button>
+@@ -320,7 +315,7 @@ export function QuoteExperience({ mode, initialContext, onClose }: QuoteExperien
+         <div className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col bg-[#080A1D]">
+           <div
+             ref={scrollRef}
+-            className="relative min-h-0 flex-1 overflow-y-auto px-5 py-6 sm:px-8 sm:py-8 md:px-12 md:py-10"
++            className="quote-scroll relative min-h-0 flex-1 overflow-y-auto px-5 py-6 sm:px-8 sm:py-8 md:px-12 md:py-10"
+           >
+             <div className="mb-6 md:hidden">
+               <QuoteReadiness items={readiness} compact />
+diff --git a/src/components/site/quote/QuotePhotoPicker.tsx b/src/components/site/quote/QuotePhotoPicker.tsx
+index fb3d766..4c5d680 100644
+--- a/src/components/site/quote/QuotePhotoPicker.tsx
++++ b/src/components/site/quote/QuotePhotoPicker.tsx
+@@ -1,5 +1,5 @@
+ import { useId, useRef, useState } from "react";
+-import { Paperclip, UploadCloud, X } from "lucide-react";
++import { Paperclip, Plus, UploadCloud, X } from "lucide-react";
+ import type { QuoteLocalFile } from "./quote-schema";
+ 
+ const ACCEPTED_TYPES = ["image/jpeg", "image/png", "image/webp"];
+@@ -10,6 +10,7 @@ interface QuotePhotoPickerProps {
+   title: string;
+   browseLabel: string;
+   acceptLine: string;
++  countLabel: string;
+   files: QuoteLocalFile[];
+   onChange: (files: QuoteLocalFile[]) => void;
+   maxFiles: number;
+@@ -30,6 +31,7 @@ export function QuotePhotoPicker({
+   title,
+   browseLabel,
+   acceptLine,
++  countLabel,
+   files,
+   onChange,
+   maxFiles,
+@@ -38,7 +40,9 @@ export function QuotePhotoPicker({
+   const inputId = useId();
+   const inputRef = useRef<HTMLInputElement>(null);
+   const [error, setError] = useState<string | undefined>(undefined);
++  const [dragActive, setDragActive] = useState(false);
+   const acceptedTypes = allowPdf ? ACCEPTED_TYPES_WITH_PDF : ACCEPTED_TYPES;
++  const singularNoun = allowPdf ? "file" : "photo";
+ 
+   function handleFiles(fileList: FileList | null) {
+     if (!fileList || fileList.length === 0) return;
+@@ -48,33 +52,47 @@ export function QuotePhotoPicker({
+     const remainingSlots = maxFiles - files.length;
+ 
+     if (remainingSlots <= 0) {
+-      setError(`You can add up to ${maxFiles} file${maxFiles === 1 ? "" : "s"}.`);
++      setError(`You can upload up to ${maxFiles} ${singularNoun}s. Remove one to add another.`);
+       return;
+     }
+ 
+     const accepted: File[] = [];
++    let rejectedType = 0;
++    let rejectedSize = 0;
+     for (const file of incoming) {
+       if (!acceptedTypes.includes(file.type)) {
+-        setError(
+-          allowPdf
+-            ? "Only JPEG, PNG, WebP or PDF files are accepted."
+-            : "Only JPEG, PNG or WebP photos are accepted.",
+-        );
++        rejectedType += 1;
+         continue;
+       }
+       if (file.size > MAX_FILE_SIZE_BYTES) {
+-        setError("Each file must be 8 MB or smaller.");
++        rejectedSize += 1;
+         continue;
+       }
+       accepted.push(file);
+     }
+ 
+     const toAdd = accepted.slice(0, remainingSlots);
+-    if (accepted.length > toAdd.length) {
+-      setError(
+-        `Only ${maxFiles} file${maxFiles === 1 ? "" : "s"} allowed — some files were not added.`,
+-      );
++    const rejectedForCapacity = accepted.length - toAdd.length;
++
++    if (rejectedType > 0 || rejectedSize > 0 || rejectedForCapacity > 0) {
++      const parts: string[] = [];
++      if (toAdd.length > 0)
++        parts.push(`${toAdd.length} of ${incoming.length} selected files were added`);
++      if (rejectedType > 0) {
++        parts.push(
++          allowPdf
++            ? `${rejectedType} unsupported file${rejectedType === 1 ? "" : "s"} rejected (PDF, JPG, PNG or WebP only)`
++            : `${rejectedType} unsupported file${rejectedType === 1 ? "" : "s"} rejected (JPG, PNG or WebP only)`,
++        );
++      }
++      if (rejectedSize > 0)
++        parts.push(`${rejectedSize} file${rejectedSize === 1 ? "" : "s"} over 8 MB rejected`);
++      if (rejectedForCapacity > 0) {
++        parts.push(`${rejectedForCapacity} exceeded the ${maxFiles}-${singularNoun} limit`);
++      }
++      setError(toAdd.length > 0 ? `${parts.join("; ")}.` : `${parts.join("; ")}.`);
+     }
++
+     if (toAdd.length > 0) {
+       onChange([...files, ...toAdd.map(createLocalFile)]);
+     }
+@@ -87,17 +105,49 @@ export function QuotePhotoPicker({
+     onChange(files.filter((f) => f.id !== id));
+   }
+ 
++  const hasFiles = files.length > 0;
++  const atCapacity = files.length >= maxFiles;
++
+   return (
+     <div>
+-      {files.length < maxFiles && (
++      <div className="flex items-center justify-between">
++        <span className="text-xs text-foreground/50">
++          {files.length} of {maxFiles} {countLabel}
++        </span>
++      </div>
++
++      {!atCapacity && (
+         <label
+           htmlFor={inputId}
+-          className="flex w-full cursor-pointer flex-col items-center gap-2 rounded-2xl border border-dashed border-white/20 px-6 py-8 text-center transition-colors hover:border-copper/50"
++          onDragOver={(e) => {
++            e.preventDefault();
++            setDragActive(true);
++          }}
++          onDragLeave={() => setDragActive(false)}
++          onDrop={(e) => {
++            e.preventDefault();
++            setDragActive(false);
++            handleFiles(e.dataTransfer.files);
++          }}
++          className={`mt-2 flex w-full cursor-pointer flex-col items-center gap-2 rounded-2xl border border-dashed text-center transition-colors ${
++            dragActive
++              ? "border-copper bg-[oklch(0.583_0.135_45.5/0.06)]"
++              : "border-white/20 hover:border-copper/50"
++          } ${hasFiles ? "px-4 py-4" : "px-6 py-8"}`}
+         >
+-          <UploadCloud aria-hidden="true" className="h-6 w-6 text-foreground/50" />
+-          <span className="font-display text-sm font-bold text-foreground">{title}</span>
+-          <span className="text-xs text-foreground/60">{browseLabel}</span>
+-          <span className="text-[0.7rem] text-foreground/40">{acceptLine}</span>
++          {hasFiles ? (
++            <span className="flex items-center gap-2 text-xs font-semibold text-foreground/70">
++              <Plus aria-hidden="true" className="h-3.5 w-3.5" />
++              Add more
++            </span>
++          ) : (
++            <>
++              <UploadCloud aria-hidden="true" className="h-6 w-6 text-foreground/50" />
++              <span className="font-display text-sm font-bold text-foreground">{title}</span>
++              <span className="text-xs text-foreground/60">{browseLabel}</span>
++              <span className="text-[0.7rem] text-foreground/40">{acceptLine}</span>
++            </>
++          )}
+         </label>
+       )}
+ 
+@@ -135,7 +185,9 @@ export function QuotePhotoPicker({
+               ) : (
+                 <div className="flex h-full w-full flex-col items-center justify-center gap-1 px-1 text-center">
+                   <Paperclip aria-hidden="true" className="h-4 w-4 text-foreground/50" />
+-                  <span className="line-clamp-2 text-[0.6rem] text-foreground/60">{f.name}</span>
++                  <span className="line-clamp-2 text-[0.6rem] text-foreground/60" title={f.name}>
++                    {f.name}
++                  </span>
+                 </div>
+               )}
+               <button
+diff --git a/src/components/site/quote/QuoteReadiness.tsx b/src/components/site/quote/QuoteReadiness.tsx
+index 044ae8b..87bc8c7 100644
+--- a/src/components/site/quote/QuoteReadiness.tsx
++++ b/src/components/site/quote/QuoteReadiness.tsx
+@@ -10,6 +10,7 @@ interface QuoteReadinessProps {
+ 
+ const STATE_ICON: Record<ReadinessItem["state"], typeof Check> = {
+   complete: Check,
++  required: Circle,
+   needs_attention: CircleAlert,
+   not_added_yet: Circle,
+   recommended: Sparkles,
+@@ -17,13 +18,15 @@ const STATE_ICON: Record<ReadinessItem["state"], typeof Check> = {
+ 
+ const STATE_STYLES: Record<ReadinessItem["state"], string> = {
+   complete: "text-copper-bright",
+-  needs_attention: "text-foreground/60",
++  required: "text-foreground/70",
++  needs_attention: "text-foreground/70",
+   not_added_yet: "text-foreground/35",
+   recommended: "text-foreground/55",
+ };
+ 
+ const STATE_LABEL: Record<ReadinessItem["state"], string> = {
+   complete: "Complete",
++  required: "Required",
+   needs_attention: "Needs attention",
+   not_added_yet: "Not added yet",
+   recommended: "Recommended",
+@@ -37,6 +40,7 @@ export function QuoteReadiness({ items, compact = false, labelOverrides }: Quote
+         {items.map((item) => {
+           const Icon = STATE_ICON[item.state];
+           const label = labelOverrides?.[item.key] ?? item.label;
++          const stateLabel = item.stateLabelOverride ?? STATE_LABEL[item.state];
+           return (
+             <li key={item.key} className="flex items-center gap-2 text-xs">
+               <Icon
+@@ -49,10 +53,10 @@ export function QuoteReadiness({ items, compact = false, labelOverrides }: Quote
+                 <span
+                   className={`ml-auto shrink-0 text-[0.68rem] font-medium whitespace-nowrap ${STATE_STYLES[item.state]}`}
+                 >
+-                  {STATE_LABEL[item.state]}
++                  {stateLabel}
+                 </span>
+               )}
+-              <span className="sr-only">{!compact ? "" : `: ${STATE_LABEL[item.state]}`}</span>
++              <span className="sr-only">{!compact ? "" : `: ${stateLabel}`}</span>
+             </li>
+           );
+         })}
+diff --git a/src/components/site/quote/quote-options.ts b/src/components/site/quote/quote-options.ts
+index d9ab5e1..37dcbda 100644
+--- a/src/components/site/quote/quote-options.ts
++++ b/src/components/site/quote/quote-options.ts
+@@ -21,9 +21,9 @@ export const UNIT_LABELS: Record<QuoteUnit, string> = {
+ export const CONDITIONS = ["clean_separated", "mixed", "used_surplus", "not_sure"] as const;
+ export type QuoteCondition = (typeof CONDITIONS)[number];
+ export const CONDITION_LABELS: Record<QuoteCondition, string> = {
+-  clean_separated: "Clean / separated",
+-  mixed: "Mixed material",
+-  used_surplus: "Used / surplus",
++  clean_separated: "Clean and separated",
++  mixed: "Mixed or unsorted",
++  used_surplus: "Used or surplus",
+   not_sure: "Not sure",
+ };
+ 
+@@ -57,9 +57,10 @@ export const EMIRATE_LABELS: Record<QuoteEmirate, string> = {
+ 
+ export const FULFILMENT_CHOICES = ["delivery", "collection", "discuss"] as const;
+ export type QuoteFulfilment = (typeof FULFILMENT_CHOICES)[number];
++/** Actor-based copy (D-13) — subject to owner confirmation of exact wording. */
+ export const FULFILMENT_LABELS: Record<QuoteFulfilment, string> = {
+-  delivery: "Delivery required",
+-  collection: "Buyer collection",
++  delivery: "MSM-arranged delivery",
++  collection: "Buyer-arranged collection",
+   discuss: "Discuss with MSM",
+ };
+ 
+@@ -71,18 +72,21 @@ export const PREFERRED_CONTACT_LABELS: Record<QuotePreferredContact, string> = {
+   email: "Email",
+ };
+ 
++/** Customer-facing, perspective-explicit route terminology (D-06). */
+ export const TRADE_REQUIREMENT_LABELS: Record<QuoteTradeRoute, string> = {
+   local: "UAE local supply",
+-  import: "Import enquiry",
+-  export: "Export enquiry",
++  import: "Import into UAE",
++  export: "Export from UAE",
+ };
+ 
+-export const PREFERRED_PORTS = ["jebel_ali", "khalifa_port", "other_not_sure"] as const;
++/** D-18: `other` (known but unlisted, reveals a port-name field) is kept separate from `no_preference` (genuinely unsure/open). */
++export const PREFERRED_PORTS = ["jebel_ali", "khalifa_port", "other", "no_preference"] as const;
+ export type QuotePreferredPort = (typeof PREFERRED_PORTS)[number];
+ export const PREFERRED_PORT_LABELS: Record<QuotePreferredPort, string> = {
+   jebel_ali: "Jebel Ali",
+   khalifa_port: "Khalifa Port",
+-  other_not_sure: "Other / Not sure",
++  other: "Other",
++  no_preference: "No preference / Not sure",
+ };
+ 
+ export interface MaterialSubtype {
+diff --git a/src/components/site/quote/quote-schema.ts b/src/components/site/quote/quote-schema.ts
+index f1bcc9a..c1acbed 100644
+--- a/src/components/site/quote/quote-schema.ts
++++ b/src/components/site/quote/quote-schema.ts
+@@ -36,17 +36,20 @@ export interface QuoteFormValues {
+ 
+   material?: QuoteMaterialKey | undefined;
+   subtype?: string | undefined;
++  subtypeOtherText?: string | undefined;
+   otherMaterialText?: string | undefined;
+   materialSpec?: string | undefined;
+ 
+   sellerQuantityValue?: string | undefined;
+   sellerQuantityUnit?: (typeof QUOTE_UNITS)[number] | undefined;
++  sellerQuantityUnitOther?: string | undefined;
+   sellerQuantityUnsure?: boolean | undefined;
+   sellerCondition?: (typeof CONDITIONS)[number] | undefined;
+   sellerDescription?: string | undefined;
+ 
+   buyerQuantityValue?: string | undefined;
+   buyerQuantityUnit?: (typeof QUOTE_UNITS)[number] | undefined;
++  buyerQuantityUnitOther?: string | undefined;
+   buyerTradeRequirement?: QuoteTradeRoute | undefined;
+   buyerRequiredByDate?: string | undefined;
+   buyerAdditionalSpec?: string | undefined;
+@@ -60,10 +63,12 @@ export interface QuoteFormValues {
+ 
+   buyerDestinationEmirate?: (typeof EMIRATES)[number] | undefined;
+   buyerDestinationArea?: string | undefined;
++  buyerDestinationMapLink?: string | undefined;
+   buyerFulfilment?: (typeof FULFILMENT_CHOICES)[number] | undefined;
+   buyerDestinationCountry?: string | undefined;
+   buyerDestinationCityPort?: string | undefined;
+   buyerPreferredPort?: (typeof PREFERRED_PORTS)[number] | undefined;
++  buyerPreferredPortOther?: string | undefined;
+   buyerOriginCountryPreference?: string | undefined;
+   buyerLogisticsRequirement?: (typeof FULFILMENT_CHOICES)[number] | undefined;
+   buyerLogisticsNote?: string | undefined;
+@@ -96,14 +101,123 @@ export function buildDefaultQuoteValues(context: QuoteInitialContext): QuoteForm
+   };
+ }
+ 
+-/** UAE-friendly but not overly strict: 7-15 digits, optional +, spaces/dashes allowed. */
++/* ------------------------------------------------------------------------ *
++ * Shared validity predicates (F-07 / F-08) — the SAME functions drive step
++ * validation (via the zod schemas below), Review/dev-preview gating and
++ * readiness (quote-summary.ts imports these directly). There is exactly one
++ * place that decides whether a phone/email/contact is valid.
++ * ------------------------------------------------------------------------ */
++
++function normalizePhoneDigits(raw: string): string {
++  return raw.replace(/[^\d+]/g, "");
++}
++
++/**
++ * UAE numbers are checked against the real national length (+971 + 9 digits);
++ * anything else falls back to a permissive-but-bounded international check
++ * (8-15 digits) so legitimate overseas buyers are never blocked (E-09).
++ */
++export function isValidPhoneNumber(raw: string | undefined): boolean {
++  const trimmed = raw?.trim();
++  if (!trimmed) return false;
++  const digits = normalizePhoneDigits(trimmed);
++
++  const looksUae = digits.startsWith("+971") || digits.startsWith("971") || digits.startsWith("05");
++  if (looksUae) {
++    const national = digits.startsWith("+971")
++      ? digits.slice(4)
++      : digits.startsWith("971")
++        ? digits.slice(3)
++        : digits.slice(1); // local 0-prefixed
++    return /^\d{9}$/.test(national);
++  }
++
++  const intl = digits.startsWith("+") ? digits.slice(1) : digits;
++  return /^\d{8,15}$/.test(intl);
++}
++
++export function isValidEmailAddress(raw: string | undefined): boolean {
++  const trimmed = raw?.trim();
++  if (!trimmed) return false;
++  return z.string().email().safeParse(trimmed).success;
++}
++
++/** Reused by materialStepSchema and readiness — a selected-but-unspecified "Other" never counts as valid. */
++export function isMaterialComplete(
++  material: QuoteMaterialKey | undefined,
++  otherText: string | undefined,
++): boolean {
++  if (!material) return false;
++  if (material === "other") return !!otherText?.trim();
++  return true;
++}
++
++export function isSellerContactComplete(values: QuoteFormValues): boolean {
++  if (!values.sellerName?.trim()) return false;
++  if (!isValidPhoneNumber(values.sellerPhone)) return false;
++  if (values.sellerEmail?.trim() && !isValidEmailAddress(values.sellerEmail)) return false;
++  if (values.sellerPreferredContact === "email" && !isValidEmailAddress(values.sellerEmail))
++    return false;
++  if (!values.sellerPreferredContact) return false;
++  return true;
++}
++
++export function isBuyerContactComplete(values: QuoteFormValues): boolean {
++  if (!values.buyerContactPerson?.trim()) return false;
++  if (!isValidPhoneNumber(values.buyerPhone)) return false;
++  if (values.buyerEmail?.trim() && !isValidEmailAddress(values.buyerEmail)) return false;
++  if (values.buyerPreferredContact === "email" && !isValidEmailAddress(values.buyerEmail))
++    return false;
++  if (!values.buyerPreferredContact) return false;
++  if (values.buyerTradeRequirement !== "local" && !values.buyerCompany?.trim()) return false;
++  return true;
++}
++
++/* ------------------------------------------------------------------------ */
++
+ const phoneSchema = z
+   .string()
+   .trim()
+-  .min(7, "Enter a valid phone number.")
+-  .regex(/^\+?[0-9\s-]{7,16}$/, "Enter a valid phone number.");
++  .min(1, "Enter your phone or WhatsApp number.")
++  .refine((val) => isValidPhoneNumber(val), "Enter a valid phone or WhatsApp number.");
++
++const optionalEmailSchema = z
++  .string()
++  .trim()
++  .optional()
++  .refine((val) => !val || isValidEmailAddress(val), "Enter a valid email.");
+ 
+-const requiredText = (message: string) => z.string().trim().min(1, message);
++const requiredText = (message: string, min = 1) => z.string().trim().min(min, message);
++
++/** Rejects blank/whitespace-only and single-character placeholder text (E-17 / E-18) while allowing short legitimate names. */
++const meaningfulText = (message: string) => z.string().trim().min(2, message);
++
++function isPastDate(value: string): boolean {
++  const parsed = new Date(value);
++  if (Number.isNaN(parsed.getTime())) return true; // unparsable is treated as invalid, not "past"
++  const today = new Date();
++  today.setHours(0, 0, 0, 0);
++  parsed.setHours(0, 0, 0, 0);
++  return parsed.getTime() < today.getTime();
++}
++
++/** Blank is valid; anything entered must look like a real link (C-03) — permissive enough for Google's various short/share URL shapes. */
++const optionalMapLinkSchema = z
++  .string()
++  .trim()
++  .optional()
++  .refine(
++    (val) => !val || /^https?:\/\/\S+\.\S+/i.test(val),
++    "Enter a valid map link or leave this blank.",
++  );
++
++/** Optional date field: blank is valid, but an entered date must parse and must not be in the past (C-07 / D-07). */
++const optionalFutureDateSchema = z
++  .string()
++  .trim()
++  .optional()
++  .refine((val) => !val || !Number.isNaN(new Date(val).getTime()), "Enter a valid date.")
++  .refine((val) => !val || !isPastDate(val), "Choose today or a future date.");
+ 
+ export const enquiryTypeStepSchema = z.object({
+   intent: z.enum(["sell", "buy"], { message: "Choose whether you want to sell or buy." }),
+@@ -115,6 +229,8 @@ export const materialStepSchema = z
+       message: "Select a material.",
+     }),
+     otherMaterialText: z.string().trim().optional(),
++    subtype: z.string().trim().optional(),
++    subtypeOtherText: z.string().trim().optional(),
+   })
+   .superRefine((val, ctx) => {
+     if (val.material === "other" && !val.otherMaterialText?.trim()) {
+@@ -124,12 +240,20 @@ export const materialStepSchema = z
+         message: "Describe the material.",
+       });
+     }
++    if (val.subtype === "other" && !val.subtypeOtherText?.trim()) {
++      ctx.addIssue({
++        code: "custom",
++        path: ["subtypeOtherText"],
++        message: "Describe the material type.",
++      });
++    }
+   });
+ 
+ export const sellerDetailsStepSchema = z
+   .object({
+     sellerQuantityValue: z.string().trim().optional(),
+     sellerQuantityUnit: z.enum(QUOTE_UNITS).optional(),
++    sellerQuantityUnitOther: z.string().trim().optional(),
+     sellerQuantityUnsure: z.boolean().optional(),
+     sellerCondition: z.enum(CONDITIONS, { message: "Select the material condition." }),
+   })
+@@ -139,30 +263,68 @@ export const sellerDetailsStepSchema = z
+       ctx.addIssue({
+         code: "custom",
+         path: ["sellerQuantityValue"],
+-        message: "Enter an approximate quantity or mark it as unsure.",
++        message: "Enter an approximate quantity or choose Not sure.",
++      });
++      // B-09: don't also flag the unit when the quantity value itself is missing.
++      return;
++    }
++    const numeric = Number(val.sellerQuantityValue.trim());
++    if (!Number.isFinite(numeric) || numeric <= 0) {
++      ctx.addIssue({
++        code: "custom",
++        path: ["sellerQuantityValue"],
++        message: "Enter a quantity greater than zero.",
+       });
++      return;
+     }
+     if (!val.sellerQuantityUnit) {
+       ctx.addIssue({ code: "custom", path: ["sellerQuantityUnit"], message: "Select a unit." });
++      return;
++    }
++    if (val.sellerQuantityUnit === "other" && !val.sellerQuantityUnitOther?.trim()) {
++      ctx.addIssue({
++        code: "custom",
++        path: ["sellerQuantityUnitOther"],
++        message: "Specify the unit.",
++      });
+     }
+   });
+ 
+-export const buyerDetailsStepSchema = z.object({
+-  buyerQuantityValue: requiredText("Enter the required quantity."),
+-  buyerQuantityUnit: z.enum(QUOTE_UNITS, { message: "Select a unit." }),
+-  buyerTradeRequirement: z.enum(["local", "import", "export"], {
+-    message: "Select a trade requirement.",
+-  }),
+-  buyerRequiredByDate: z.string().trim().optional(),
+-  buyerAdditionalSpec: z.string().trim().optional(),
+-});
++export const buyerDetailsStepSchema = z
++  .object({
++    buyerQuantityValue: requiredText("Enter the required quantity."),
++    buyerQuantityUnit: z.enum(QUOTE_UNITS, { message: "Select a unit." }),
++    buyerQuantityUnitOther: z.string().trim().optional(),
++    buyerTradeRequirement: z.enum(["local", "import", "export"], {
++      message: "Select a trade requirement.",
++    }),
++    buyerRequiredByDate: optionalFutureDateSchema,
++    buyerAdditionalSpec: z.string().trim().optional(),
++  })
++  .superRefine((val, ctx) => {
++    const numeric = Number(val.buyerQuantityValue.trim());
++    if (!Number.isFinite(numeric) || numeric <= 0) {
++      ctx.addIssue({
++        code: "custom",
++        path: ["buyerQuantityValue"],
++        message: "Enter a quantity greater than zero.",
++      });
++    }
++    if (val.buyerQuantityUnit === "other" && !val.buyerQuantityUnitOther?.trim()) {
++      ctx.addIssue({
++        code: "custom",
++        path: ["buyerQuantityUnitOther"],
++        message: "Specify the unit.",
++      });
++    }
++  });
+ 
+ export const sellerLogisticsStepSchema = z.object({
+   sellerEmirate: z.enum(EMIRATES, { message: "Select an emirate." }),
+-  sellerArea: requiredText("Enter the area."),
+-  sellerMapLink: z.string().trim().optional(),
++  sellerArea: meaningfulText("Enter the area."),
++  sellerMapLink: optionalMapLinkSchema,
+   sellerPickupRequired: z.enum(PICKUP_CHOICES, { message: "Let us know if pickup is required." }),
+-  sellerPickupDate: z.string().trim().optional(),
++  sellerPickupDate: optionalFutureDateSchema,
+   sellerAccessNote: z.string().trim().optional(),
+ });
+ 
+@@ -171,10 +333,12 @@ export const buyerLogisticsStepSchema = z
+     buyerTradeRequirement: z.enum(["local", "import", "export"]).optional(),
+     buyerDestinationEmirate: z.enum(EMIRATES).optional(),
+     buyerDestinationArea: z.string().trim().optional(),
++    buyerDestinationMapLink: optionalMapLinkSchema,
+     buyerFulfilment: z.enum(FULFILMENT_CHOICES).optional(),
+     buyerDestinationCountry: z.string().trim().optional(),
+     buyerDestinationCityPort: z.string().trim().optional(),
+     buyerPreferredPort: z.enum(PREFERRED_PORTS).optional(),
++    buyerPreferredPortOther: z.string().trim().optional(),
+     buyerOriginCountryPreference: z.string().trim().optional(),
+     buyerLogisticsRequirement: z.enum(FULFILMENT_CHOICES).optional(),
+     buyerLogisticsNote: z.string().trim().optional(),
+@@ -188,7 +352,7 @@ export const buyerLogisticsStepSchema = z
+           message: "Select a destination emirate.",
+         });
+       }
+-      if (!val.buyerDestinationArea?.trim()) {
++      if (!val.buyerDestinationArea?.trim() || val.buyerDestinationArea.trim().length < 2) {
+         ctx.addIssue({
+           code: "custom",
+           path: ["buyerDestinationArea"],
+@@ -210,41 +374,74 @@ export const buyerLogisticsStepSchema = z
+           message: "Select the emirate the material should arrive in.",
+         });
+       }
+-    } else {
+-      if (!val.buyerDestinationCountry?.trim()) {
++      if (val.buyerPreferredPort === "other" && !val.buyerPreferredPortOther?.trim()) {
++        ctx.addIssue({
++          code: "custom",
++          path: ["buyerPreferredPortOther"],
++          message: "Enter the port name.",
++        });
++      }
++      // D-27: a logistics choice is required across every branch; "Discuss with MSM" is the safe fallback.
++      if (!val.buyerLogisticsRequirement) {
++        ctx.addIssue({
++          code: "custom",
++          path: ["buyerLogisticsRequirement"],
++          message: "Select a logistics requirement.",
++        });
++      }
++    } else if (val.buyerTradeRequirement === "export") {
++      if (!val.buyerDestinationCountry?.trim() || val.buyerDestinationCountry.trim().length < 2) {
+         ctx.addIssue({
+           code: "custom",
+           path: ["buyerDestinationCountry"],
+           message: "Enter the destination country.",
+         });
+       }
+-      if (!val.buyerDestinationCityPort?.trim()) {
++      if (!val.buyerDestinationCityPort?.trim() || val.buyerDestinationCityPort.trim().length < 2) {
+         ctx.addIssue({
+           code: "custom",
+           path: ["buyerDestinationCityPort"],
+           message: "Enter the destination city or port.",
+         });
+       }
++      // D-27 (HIGH-PRIORITY BUG): export previously allowed Continue with logistics left blank.
++      if (!val.buyerLogisticsRequirement) {
++        ctx.addIssue({
++          code: "custom",
++          path: ["buyerLogisticsRequirement"],
++          message: "Select a logistics requirement.",
++        });
++      }
+     }
+   });
+ 
+-export const sellerContactStepSchema = z.object({
+-  sellerName: requiredText("Enter your name."),
+-  sellerPhone: phoneSchema,
+-  sellerCompany: z.string().trim().optional(),
+-  sellerEmail: z.string().trim().email("Enter a valid email.").optional().or(z.literal("")),
+-  sellerPreferredContact: z.enum(PREFERRED_CONTACTS, {
+-    message: "Select a preferred contact method.",
+-  }),
+-  sellerNotes: z.string().trim().optional(),
+-});
++export const sellerContactStepSchema = z
++  .object({
++    sellerName: requiredText("Enter your name."),
++    sellerPhone: phoneSchema,
++    sellerCompany: z.string().trim().optional(),
++    sellerEmail: optionalEmailSchema,
++    sellerPreferredContact: z.enum(PREFERRED_CONTACTS, {
++      message: "Select a preferred contact method.",
++    }),
++    sellerNotes: z.string().trim().optional(),
++  })
++  .superRefine((val, ctx) => {
++    if (val.sellerPreferredContact === "email" && !isValidEmailAddress(val.sellerEmail)) {
++      ctx.addIssue({
++        code: "custom",
++        path: ["sellerEmail"],
++        message: "Enter a valid email — it's your preferred contact method.",
++      });
++    }
++  });
+ 
+ export const buyerContactStepSchema = z
+   .object({
+     buyerCompany: z.string().trim().optional(),
+     buyerContactPerson: requiredText("Enter the contact person's name."),
+     buyerPhone: phoneSchema,
+-    buyerEmail: z.string().trim().email("Enter a valid email.").optional().or(z.literal("")),
++    buyerEmail: optionalEmailSchema,
+     buyerPreferredContact: z.enum(PREFERRED_CONTACTS, {
+       message: "Select a preferred contact method.",
+     }),
+@@ -259,6 +456,13 @@ export const buyerContactStepSchema = z
+         message: "Company is required for import/export enquiries.",
+       });
+     }
++    if (val.buyerPreferredContact === "email" && !isValidEmailAddress(val.buyerEmail)) {
++      ctx.addIssue({
++        code: "custom",
++        path: ["buyerEmail"],
++        message: "Enter a valid email — it's your preferred contact method.",
++      });
++    }
+   });
+ 
+ export type QuoteStepSchema =
+diff --git a/src/components/site/quote/quote-storage.ts b/src/components/site/quote/quote-storage.ts
+index 4022a7e..1f3678a 100644
+--- a/src/components/site/quote/quote-storage.ts
++++ b/src/components/site/quote/quote-storage.ts
+@@ -12,6 +12,9 @@ import { QUOTE_INTENTS, QUOTE_MATERIAL_KEYS, QUOTE_TRADE_ROUTES } from "./quote-
+ import type { QuoteFormValues } from "./quote-schema";
+ 
+ const DRAFT_KEY = "msm-quote-draft-v1";
++const DRAFT_VERSION = 1;
++/** F-13: a stale draft (e.g. from a much earlier visit) is discarded rather than silently resumed. */
++const DRAFT_EXPIRY_MS = 24 * 60 * 60 * 1000;
+ 
+ const optionalString = z.string().optional().catch(undefined);
+ function optionalEnum<T extends readonly [string, ...string[]]>(values: T) {
+@@ -28,15 +31,18 @@ const draftValuesSchema = z.object({
+   intent: optionalEnum(QUOTE_INTENTS),
+   material: optionalEnum(QUOTE_MATERIAL_KEYS),
+   subtype: optionalString,
++  subtypeOtherText: optionalString,
+   otherMaterialText: optionalString,
+   materialSpec: optionalString,
+   sellerQuantityValue: optionalString,
+   sellerQuantityUnit: optionalEnum(QUOTE_UNITS),
++  sellerQuantityUnitOther: optionalString,
+   sellerQuantityUnsure: z.boolean().optional().catch(undefined),
+   sellerCondition: optionalEnum(CONDITIONS),
+   sellerDescription: optionalString,
+   buyerQuantityValue: optionalString,
+   buyerQuantityUnit: optionalEnum(QUOTE_UNITS),
++  buyerQuantityUnitOther: optionalString,
+   buyerTradeRequirement: optionalEnum(QUOTE_TRADE_ROUTES),
+   buyerRequiredByDate: optionalString,
+   buyerAdditionalSpec: optionalString,
+@@ -48,10 +54,12 @@ const draftValuesSchema = z.object({
+   sellerAccessNote: optionalString,
+   buyerDestinationEmirate: optionalEnum(EMIRATES),
+   buyerDestinationArea: optionalString,
++  buyerDestinationMapLink: optionalString,
+   buyerFulfilment: optionalEnum(FULFILMENT_CHOICES),
+   buyerDestinationCountry: optionalString,
+   buyerDestinationCityPort: optionalString,
+   buyerPreferredPort: optionalEnum(PREFERRED_PORTS),
++  buyerPreferredPortOther: optionalString,
+   buyerOriginCountryPreference: optionalString,
+   buyerLogisticsRequirement: optionalEnum(FULFILMENT_CHOICES),
+   buyerLogisticsNote: optionalString,
+@@ -70,6 +78,7 @@ const draftValuesSchema = z.object({
+ });
+ 
+ const draftEnvelopeSchema = z.object({
++  version: z.literal(DRAFT_VERSION),
+   step: z.number().int().min(1).max(6).catch(1),
+   values: draftValuesSchema,
+   hadSellerPhotos: z.boolean().catch(false),
+@@ -88,6 +97,7 @@ export function saveQuoteDraft(step: number, values: QuoteFormValues): void {
+   if (!isBrowser()) return;
+   const { sellerPhotos, buyerDocuments, ...rest } = values;
+   const envelope: QuoteDraftEnvelope = {
++    version: DRAFT_VERSION,
+     step,
+     values: rest,
+     hadSellerPhotos: sellerPhotos.length > 0,
+@@ -108,7 +118,15 @@ export function loadQuoteDraft(): QuoteDraftEnvelope | null {
+   try {
+     const parsed: unknown = JSON.parse(raw);
+     const result = draftEnvelopeSchema.safeParse(parsed);
+-    return result.success ? result.data : null;
++    if (!result.success) {
++      window.sessionStorage.removeItem(DRAFT_KEY);
++      return null;
++    }
++    if (Date.now() - result.data.savedAt > DRAFT_EXPIRY_MS) {
++      window.sessionStorage.removeItem(DRAFT_KEY);
++      return null;
++    }
++    return result.data;
+   } catch {
+     return null;
+   }
+diff --git a/src/components/site/quote/quote-summary.ts b/src/components/site/quote/quote-summary.ts
+index 17b60e5..4b674e6 100644
+--- a/src/components/site/quote/quote-summary.ts
++++ b/src/components/site/quote/quote-summary.ts
+@@ -2,14 +2,21 @@ import {
+   EMIRATE_LABELS,
+   FULFILMENT_LABELS,
+   PREFERRED_CONTACT_LABELS,
++  PREFERRED_PORT_LABELS,
+   TRADE_REQUIREMENT_LABELS,
+   UNIT_LABELS,
+   getMaterialLabel,
+   getSubtypeLabel,
+ } from "./quote-options";
+-import type { QuoteFormValues } from "./quote-schema";
++import {
++  isBuyerContactComplete,
++  isMaterialComplete,
++  isSellerContactComplete,
++  type QuoteFormValues,
++} from "./quote-schema";
+ 
+-export type ReadinessState = "complete" | "needs_attention" | "not_added_yet" | "recommended";
++export type ReadinessState =
++  "complete" | "required" | "needs_attention" | "not_added_yet" | "recommended";
+ 
+ export interface ReadinessItem {
+   key: string;
+@@ -17,6 +24,8 @@ export interface ReadinessItem {
+   state: ReadinessState;
+   /** The step this field lives on — used to tell "not yet visited" apart from "visited but incomplete". */
+   step: number;
++  /** Overrides the generic state label with an evidence count, e.g. "3 added". */
++  stateLabelOverride?: string | undefined;
+ }
+ 
+ type RawReadiness = "complete" | "incomplete" | "recommended";
+@@ -26,32 +35,58 @@ interface RawReadinessItem {
+   label: string;
+   step: number;
+   raw: RawReadiness;
++  /** True if the user has entered *something* for this item, even if it's invalid — distinguishes "empty" from "wrong". */
++  hasValue: boolean;
++  count?: number;
++  countUnit?: "added" | "attached";
+ }
+ 
++/**
++ * A5/A6/A7/A8 readiness-state contract:
++ * - complete/recommended pass straight through.
++ * - a field that HAS a value but fails validation is always "needs attention",
++ *   regardless of timing (covers restored invalid drafts — F-08).
++ * - an empty field on a step beyond the furthest one reached is "not added yet".
++ * - an empty field on a step already attempted-and-failed is "needs attention".
++ * - an empty field on the current step, never attempted, is "required" (neutral, not an error).
++ */
+ function resolveState(
+-  raw: RawReadiness,
+-  step: number,
++  item: RawReadinessItem,
++  currentStep: number,
+   furthestStepReached: number,
++  attemptedSteps: ReadonlySet<number>,
+ ): ReadinessState {
+-  if (raw === "complete") return "complete";
+-  if (raw === "recommended") return "recommended";
+-  return step > furthestStepReached ? "not_added_yet" : "needs_attention";
++  if (item.raw === "complete") return "complete";
++  if (item.raw === "recommended") return "recommended";
++  if (item.hasValue) return "needs_attention";
++  if (item.step > furthestStepReached) return "not_added_yet";
++  if (attemptedSteps.has(item.step)) return "needs_attention";
++  if (item.step === currentStep) return "required";
++  return "needs_attention";
+ }
+ 
+-function materialComplete(values: QuoteFormValues): boolean {
+-  if (!values.material) return false;
+-  if (values.material === "other") return !!values.otherMaterialText?.trim();
+-  return true;
++function sellerMaterialDetailsComplete(values: QuoteFormValues): boolean {
++  const quantityOk = !!values.sellerQuantityUnsure || sellerQuantityComplete(values);
++  return quantityOk && !!values.sellerCondition;
+ }
+ 
+ function sellerQuantityComplete(values: QuoteFormValues): boolean {
+-  return !!values.sellerQuantityValue?.trim() && !!values.sellerQuantityUnit;
++  if (!values.sellerQuantityValue?.trim() || !values.sellerQuantityUnit) return false;
++  if (values.sellerQuantityUnit === "other" && !values.sellerQuantityUnitOther?.trim())
++    return false;
++  return true;
+ }
+ 
+ function sellerLocationComplete(values: QuoteFormValues): boolean {
+   return !!values.sellerEmirate && !!values.sellerArea?.trim();
+ }
+ 
++function buyerQuantityComplete(values: QuoteFormValues): boolean {
++  if (!values.buyerQuantityValue?.trim() || !values.buyerQuantityUnit) return false;
++  if (values.buyerQuantityUnit === "other" && !values.buyerQuantityUnitOther?.trim()) return false;
++  return true;
++}
++
+ function buyerDestinationComplete(values: QuoteFormValues): boolean {
+   if (values.buyerTradeRequirement === "local") {
+     return (
+@@ -61,17 +96,42 @@ function buyerDestinationComplete(values: QuoteFormValues): boolean {
+     );
+   }
+   if (values.buyerTradeRequirement === "import") {
+-    return !!values.buyerDestinationEmirate;
++    return !!values.buyerDestinationEmirate && !!values.buyerLogisticsRequirement;
+   }
+   if (values.buyerTradeRequirement === "export") {
+-    return !!values.buyerDestinationCountry?.trim() && !!values.buyerDestinationCityPort?.trim();
++    return (
++      !!values.buyerDestinationCountry?.trim() &&
++      !!values.buyerDestinationCityPort?.trim() &&
++      !!values.buyerLogisticsRequirement
++    );
+   }
+   return false;
+ }
+ 
+-function buyerCompanyOk(values: QuoteFormValues): boolean {
+-  if (values.buyerTradeRequirement === "local") return true;
+-  return !!values.buyerCompany?.trim();
++function buyerDestinationHasValue(values: QuoteFormValues): boolean {
++  if (values.buyerTradeRequirement === "local") {
++    return (
++      !!values.buyerDestinationEmirate ||
++      !!values.buyerDestinationArea?.trim() ||
++      !!values.buyerFulfilment
++    );
++  }
++  if (values.buyerTradeRequirement === "import") {
++    return (
++      !!values.buyerDestinationEmirate ||
++      !!values.buyerPreferredPort ||
++      !!values.buyerOriginCountryPreference?.trim() ||
++      !!values.buyerLogisticsRequirement
++    );
++  }
++  if (values.buyerTradeRequirement === "export") {
++    return (
++      !!values.buyerDestinationCountry?.trim() ||
++      !!values.buyerDestinationCityPort?.trim() ||
++      !!values.buyerLogisticsRequirement
++    );
++  }
++  return false;
+ }
+ 
+ function getSellerReadinessRaw(values: QuoteFormValues): RawReadinessItem[] {
+@@ -81,46 +141,58 @@ function getSellerReadinessRaw(values: QuoteFormValues): RawReadinessItem[] {
+       label: "Enquiry type",
+       step: 1,
+       raw: values.intent === "sell" ? "complete" : "incomplete",
++      hasValue: false,
+     },
+     {
+       key: "material",
+       label: "Material",
+       step: 2,
+-      raw: materialComplete(values) ? "complete" : "incomplete",
++      raw: isMaterialComplete(values.material, values.otherMaterialText)
++        ? "complete"
++        : "incomplete",
++      hasValue: !!values.material,
+     },
+     {
+-      key: "quantity",
+-      label: "Quantity",
++      key: "materialDetails",
++      label: "Material details",
+       step: 3,
+-      raw: values.sellerQuantityUnsure
+-        ? "incomplete"
+-        : sellerQuantityComplete(values)
+-          ? "complete"
+-          : "incomplete",
++      raw: sellerMaterialDetailsComplete(values) ? "complete" : "incomplete",
++      hasValue:
++        !!values.sellerQuantityValue?.trim() ||
++        !!values.sellerQuantityUnsure ||
++        !!values.sellerQuantityUnit ||
++        !!values.sellerCondition,
+     },
+     {
+       key: "location",
+       label: "Location",
+       step: 4,
+       raw: sellerLocationComplete(values) ? "complete" : "incomplete",
++      hasValue: !!values.sellerEmirate || !!values.sellerArea?.trim(),
+     },
+     {
+       key: "pickup",
+       label: "Pickup",
+       step: 4,
+       raw: values.sellerPickupRequired ? "complete" : "incomplete",
++      hasValue: false,
+     },
+     {
+       key: "contact",
+       label: "Contact details",
+       step: 5,
+-      raw: values.sellerName?.trim() && values.sellerPhone?.trim() ? "complete" : "incomplete",
++      raw: isSellerContactComplete(values) ? "complete" : "incomplete",
++      hasValue:
++        !!values.sellerName?.trim() || !!values.sellerPhone?.trim() || !!values.sellerEmail?.trim(),
+     },
+     {
+       key: "photos",
+       label: "Photos",
+       step: 5,
+       raw: values.sellerPhotos.length > 0 ? "complete" : "recommended",
++      hasValue: false,
++      count: values.sellerPhotos.length,
++      countUnit: "added",
+     },
+   ];
+ }
+@@ -132,70 +204,89 @@ function getBuyerReadinessRaw(values: QuoteFormValues): RawReadinessItem[] {
+       label: "Enquiry type",
+       step: 1,
+       raw: values.intent === "buy" ? "complete" : "incomplete",
++      hasValue: false,
+     },
+     {
+       key: "material",
+       label: "Material",
+       step: 2,
+-      raw: materialComplete(values) ? "complete" : "incomplete",
++      raw: isMaterialComplete(values.material, values.otherMaterialText)
++        ? "complete"
++        : "incomplete",
++      hasValue: !!values.material,
+     },
+     {
+       key: "quantity",
+       label: "Quantity",
+       step: 3,
+-      raw:
+-        values.buyerQuantityValue?.trim() && values.buyerQuantityUnit ? "complete" : "incomplete",
++      raw: buyerQuantityComplete(values) ? "complete" : "incomplete",
++      hasValue: !!values.buyerQuantityValue?.trim() || !!values.buyerQuantityUnit,
+     },
+     {
+       key: "tradeRoute",
+       label: "Trade route",
+       step: 3,
+       raw: values.buyerTradeRequirement ? "complete" : "incomplete",
++      hasValue: false,
+     },
+     {
+       key: "destination",
+       label: "Destination & logistics",
+       step: 4,
+       raw: buyerDestinationComplete(values) ? "complete" : "incomplete",
++      hasValue: buyerDestinationHasValue(values),
+     },
+     {
+       key: "contact",
+       label: "Contact details",
+       step: 5,
+-      raw:
+-        values.buyerContactPerson?.trim() && values.buyerPhone?.trim() && buyerCompanyOk(values)
+-          ? "complete"
+-          : "incomplete",
++      raw: isBuyerContactComplete(values) ? "complete" : "incomplete",
++      hasValue:
++        !!values.buyerContactPerson?.trim() ||
++        !!values.buyerPhone?.trim() ||
++        !!values.buyerEmail?.trim(),
+     },
+     {
+-      key: "specification",
+-      label: "Specification / documents",
++      key: "documents",
++      label: "Documents",
+       step: 5,
+-      raw:
+-        values.buyerAdditionalSpec?.trim() ||
+-        values.materialSpec?.trim() ||
+-        values.buyerDocuments.length > 0
+-          ? "complete"
+-          : "recommended",
++      raw: values.buyerDocuments.length > 0 ? "complete" : "recommended",
++      hasValue: false,
++      count: values.buyerDocuments.length,
++      countUnit: "attached",
+     },
+   ];
+ }
+ 
+-/** `furthestStepReached` distinguishes a genuinely-skipped required field ("Needs attention") from one the user hasn't reached yet ("Not added yet"). */
+-export function getReadiness(values: QuoteFormValues, furthestStepReached = 6): ReadinessItem[] {
+-  const raw =
+-    values.intent === "buy" ? getBuyerReadinessRaw(values) : getSellerReadinessRaw(values);
+-  return raw.map((item) => ({
++function getRawReadiness(values: QuoteFormValues): RawReadinessItem[] {
++  return values.intent === "buy" ? getBuyerReadinessRaw(values) : getSellerReadinessRaw(values);
++}
++
++/**
++ * `currentStep`/`furthestStepReached`/`attemptedSteps` are UI-only concerns — they exist
++ * purely to pick between "required" and "needs attention" for an empty field, per A-05/A-06.
++ */
++export function getReadiness(
++  values: QuoteFormValues,
++  currentStep: number,
++  furthestStepReached: number,
++  attemptedSteps: ReadonlySet<number>,
++): ReadinessItem[] {
++  return getRawReadiness(values).map((item) => ({
+     key: item.key,
+     label: item.label,
+     step: item.step,
+-    state: resolveState(item.raw, item.step, furthestStepReached),
++    state: resolveState(item, currentStep, furthestStepReached, attemptedSteps),
++    stateLabelOverride:
++      item.raw === "complete" && item.count !== undefined && item.count > 0
++        ? `${item.count} ${item.countUnit}`
++        : undefined,
+   }));
+ }
+ 
+-/** Blocking items only — "recommended" items (photos/spec) never gate submission. */
++/** Pure business-rule gate for Review/dev-preview — ignores UI timing (required vs needs-attention) entirely. */
+ export function isReadyForReview(values: QuoteFormValues): boolean {
+-  return getReadiness(values, 6).every((item) => item.state !== "needs_attention");
++  return getRawReadiness(values).every((item) => item.raw !== "incomplete");
+ }
+ 
+ function materialLine(values: QuoteFormValues): string {
+@@ -203,17 +294,32 @@ function materialLine(values: QuoteFormValues): string {
+     values.material === "other"
+       ? values.otherMaterialText?.trim()
+       : getMaterialLabel(values.material);
+-  const subtype = getSubtypeLabel(values.material, values.subtype);
+   if (!label) return "Material not specified";
+-  return subtype && subtype !== "Not sure" ? `${label} · ${subtype}` : label;
++  const subtypeLabel =
++    values.subtype === "other"
++      ? values.subtypeOtherText?.trim()
++      : getSubtypeLabel(values.material, values.subtype);
++  return subtypeLabel && subtypeLabel !== "Not sure" ? `${label} · ${subtypeLabel}` : label;
++}
++
++function unitLabel(
++  values: QuoteFormValues,
++  unit: QuoteFormValues["sellerQuantityUnit"],
++  other: string | undefined,
++): string | undefined {
++  if (!unit) return undefined;
++  if (unit === "other") return other?.trim() || UNIT_LABELS.other;
++  return UNIT_LABELS[unit];
+ }
+ 
+ function compactQuantity(
+   value: string | undefined,
+   unit: QuoteFormValues["sellerQuantityUnit"],
++  unitOther?: string,
+ ): string | undefined {
+   if (!value?.trim() || !unit) return undefined;
+-  return `${value.trim()} ${UNIT_LABELS[unit]}`;
++  const label = unit === "other" ? unitOther?.trim() || UNIT_LABELS.other : UNIT_LABELS[unit];
++  return `${value.trim()} ${label}`;
+ }
+ 
+ /** "Area, Emirate" — the natural order people use when describing a UAE location. */
+@@ -233,7 +339,7 @@ function buyerDestinationLine(values: QuoteFormValues): string | undefined {
+   }
+   if (values.buyerTradeRequirement === "import") {
+     return values.buyerDestinationEmirate
+-      ? `${EMIRATE_LABELS[values.buyerDestinationEmirate]}, UAE (import arrival)`
++      ? EMIRATE_LABELS[values.buyerDestinationEmirate]
+       : undefined;
+   }
+   if (values.buyerTradeRequirement === "export") {
+@@ -255,10 +361,18 @@ export function buildSmartBrief(values: QuoteFormValues): string {
+     if (values.sellerQuantityUnsure) {
+       parts.push("quantity unsure");
+     } else {
+-      const qty = compactQuantity(values.sellerQuantityValue, values.sellerQuantityUnit);
++      const qty = compactQuantity(
++        values.sellerQuantityValue,
++        values.sellerQuantityUnit,
++        values.sellerQuantityUnitOther,
++      );
+       if (qty) parts.push(`approx. ${qty}`);
+     }
+-    if (values.sellerEmirate) parts.push(EMIRATE_LABELS[values.sellerEmirate]);
++    const location = naturalLocation(
++      values.sellerArea,
++      values.sellerEmirate ? EMIRATE_LABELS[values.sellerEmirate] : undefined,
++    );
++    if (location) parts.push(location);
+     if (values.sellerPickupRequired === "yes") parts.push("pickup required");
+     if (values.sellerPhotos.length > 0) {
+       parts.push(
+@@ -268,12 +382,22 @@ export function buildSmartBrief(values: QuoteFormValues): string {
+   } else if (values.intent === "buy") {
+     parts.push("Buy enquiry");
+     parts.push(materialLine(values));
+-    const qty = compactQuantity(values.buyerQuantityValue, values.buyerQuantityUnit);
++    const qty = compactQuantity(
++      values.buyerQuantityValue,
++      values.buyerQuantityUnit,
++      values.buyerQuantityUnitOther,
++    );
+     if (qty) parts.push(qty);
+     if (values.buyerTradeRequirement)
+       parts.push(TRADE_REQUIREMENT_LABELS[values.buyerTradeRequirement]);
+     const destination = buyerDestinationLine(values);
+-    if (destination) parts.push(`destination: ${destination}`);
++    if (destination) {
++      parts.push(
++        values.buyerTradeRequirement === "import"
++          ? `Final delivery: ${destination}`
++          : `destination: ${destination}`,
++      );
++    }
+   } else {
+     return "Enquiry details not yet complete.";
+   }
+@@ -287,13 +411,21 @@ function pushBullet(lines: string[], label: string, value: string | undefined |
+ 
+ function condLabel(condition: NonNullable<QuoteFormValues["sellerCondition"]>): string {
+   return {
+-    clean_separated: "Clean / separated",
+-    mixed: "Mixed material",
+-    used_surplus: "Used / surplus",
++    clean_separated: "Clean and separated",
++    mixed: "Mixed or unsorted",
++    used_surplus: "Used or surplus",
+     not_sure: "Not sure",
+   }[condition];
+ }
+ 
++function buyerLogisticsLabel(values: QuoteFormValues): string | undefined {
++  const requirement =
++    values.buyerTradeRequirement === "local"
++      ? values.buyerFulfilment
++      : values.buyerLogisticsRequirement;
++  return requirement ? FULFILMENT_LABELS[requirement] : undefined;
++}
++
+ /** Deterministic WhatsApp handoff message — never emits "undefined" or empty rows. */
+ export function buildWhatsAppMessage(values: QuoteFormValues): string {
+   const lines: string[] = [];
+@@ -306,7 +438,11 @@ export function buildWhatsAppMessage(values: QuoteFormValues): string {
+       "Approx. quantity",
+       values.sellerQuantityUnsure
+         ? "Not sure"
+-        : compactQuantity(values.sellerQuantityValue, values.sellerQuantityUnit),
++        : compactQuantity(
++            values.sellerQuantityValue,
++            values.sellerQuantityUnit,
++            values.sellerQuantityUnitOther,
++          ),
+     );
+     pushBullet(
+       lines,
+@@ -321,6 +457,7 @@ export function buildWhatsAppMessage(values: QuoteFormValues): string {
+         values.sellerEmirate ? EMIRATE_LABELS[values.sellerEmirate] : undefined,
+       ),
+     );
++    pushBullet(lines, "Maps link", values.sellerMapLink);
+     pushBullet(
+       lines,
+       "Pickup",
+@@ -332,6 +469,10 @@ export function buildWhatsAppMessage(values: QuoteFormValues): string {
+             ? "Not sure"
+             : undefined,
+     );
++    if (values.sellerPickupRequired === "yes") {
++      pushBullet(lines, "Preferred pickup date", formatDateForDisplay(values.sellerPickupDate));
++      pushBullet(lines, "Access and loading notes", values.sellerAccessNote);
++    }
+     pushBullet(
+       lines,
+       "Preferred contact",
+@@ -339,11 +480,14 @@ export function buildWhatsAppMessage(values: QuoteFormValues): string {
+         ? PREFERRED_CONTACT_LABELS[values.sellerPreferredContact]
+         : undefined,
+     );
++    pushBullet(lines, "Notes", values.sellerNotes);
+ 
+     const closing: string[] = [];
+     if (values.sellerName?.trim()) closing.push(`- Name: ${values.sellerName.trim()}`);
+     if (values.sellerCompany?.trim()) closing.push(`- Company: ${values.sellerCompany.trim()}`);
+-    if (values.sellerPhotos.length > 0) closing.push("- I will attach the photos here.");
++    if (values.sellerPhotos.length > 0) {
++      closing.push(`- Photos: ${values.sellerPhotos.length} selected — I will attach them here.`);
++    }
+     if (closing.length > 0) lines.push("", ...closing);
+ 
+     lines.push("", "Could you review this and advise the next step?");
+@@ -353,7 +497,11 @@ export function buildWhatsAppMessage(values: QuoteFormValues): string {
+     pushBullet(
+       lines,
+       "Required quantity",
+-      compactQuantity(values.buyerQuantityValue, values.buyerQuantityUnit),
++      compactQuantity(
++        values.buyerQuantityValue,
++        values.buyerQuantityUnit,
++        values.buyerQuantityUnitOther,
++      ),
+     );
+     pushBullet(
+       lines,
+@@ -363,24 +511,42 @@ export function buildWhatsAppMessage(values: QuoteFormValues): string {
+         : undefined,
+     );
+     pushBullet(lines, "Destination", buyerDestinationLine(values));
+-    const logistics =
+-      values.buyerTradeRequirement === "local"
+-        ? values.buyerFulfilment
+-          ? FULFILMENT_LABELS[values.buyerFulfilment]
+-          : undefined
+-        : values.buyerLogisticsRequirement
+-          ? FULFILMENT_LABELS[values.buyerLogisticsRequirement]
+-          : undefined;
+-    pushBullet(lines, "Fulfilment/logistics requirement", logistics);
+-    pushBullet(lines, "Required-by", values.buyerRequiredByDate);
+-    pushBullet(lines, "Specification", values.buyerAdditionalSpec ?? values.materialSpec);
++    if (values.buyerTradeRequirement === "local") {
++      pushBullet(lines, "Maps link", values.buyerDestinationMapLink);
++    }
++    if (values.buyerTradeRequirement === "import") {
++      pushBullet(
++        lines,
++        "Preferred port",
++        values.buyerPreferredPort === "other"
++          ? values.buyerPreferredPortOther
++          : values.buyerPreferredPort
++            ? PREFERRED_PORT_LABELS[values.buyerPreferredPort]
++            : undefined,
++      );
++      pushBullet(lines, "Origin preference", values.buyerOriginCountryPreference);
++    }
++    pushBullet(lines, "Fulfilment/logistics requirement", buyerLogisticsLabel(values));
++    if (values.buyerTradeRequirement !== "local") {
++      pushBullet(lines, "Logistics note", values.buyerLogisticsNote);
++    }
++    pushBullet(lines, "Needed by", formatDateForDisplay(values.buyerRequiredByDate));
++    pushBullet(lines, "Specification", values.materialSpec);
++    pushBullet(lines, "Additional requirements", values.buyerAdditionalSpec);
+ 
+     const closing: string[] = [];
+     if (values.buyerContactPerson?.trim())
+       closing.push(`- Contact person: ${values.buyerContactPerson.trim()}`);
+     if (values.buyerCompany?.trim()) closing.push(`- Company: ${values.buyerCompany.trim()}`);
+-    if (values.buyerDocuments.length > 0)
+-      closing.push("- I will attach the specification or document here.");
++    if (values.buyerPhone?.trim())
++      closing.push(`- Phone: ${formatPhoneForDisplay(values.buyerPhone)}`);
++    if (values.buyerEmail?.trim()) closing.push(`- Email: ${values.buyerEmail.trim()}`);
++    if (values.buyerNotes?.trim()) closing.push(`- Notes: ${values.buyerNotes.trim()}`);
++    if (values.buyerDocuments.length > 0) {
++      closing.push(
++        `- Supporting files: ${values.buyerDocuments.length} selected — I will attach them here.`,
++      );
++    }
+     if (closing.length > 0) lines.push("", ...closing);
+ 
+     lines.push("", "Please confirm availability and the next step.");
+@@ -394,7 +560,7 @@ export function buildWhatsAppUrl(phoneNumber: string, message: string): string {
+ }
+ 
+ /**
+- * Display-only UAE phone formatting for the Review screen — never mutates the
++ * Display-only UAE phone formatting for Review/WhatsApp — never mutates the
+  * stored value, and falls back to the raw trimmed input for anything that
+  * doesn't match a recognisable UAE shape rather than guessing at digits.
+  */
+@@ -416,3 +582,12 @@ export function formatPhoneForDisplay(raw: string | undefined): string | undefin
+   }
+   return trimmed;
+ }
++
++/** E-15: renders a stored ISO (`2026-09-24`) or free date string as `24 Sep 2026`; falls back to the raw value if unparsable. */
++export function formatDateForDisplay(raw: string | undefined): string | undefined {
++  const trimmed = raw?.trim();
++  if (!trimmed) return undefined;
++  const parsed = new Date(trimmed);
++  if (Number.isNaN(parsed.getTime())) return trimmed;
++  return parsed.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
++}
+diff --git a/src/components/site/quote/steps/ContactEvidenceStep.tsx b/src/components/site/quote/steps/ContactEvidenceStep.tsx
+index 23f95ca..be1e364 100644
+--- a/src/components/site/quote/steps/ContactEvidenceStep.tsx
++++ b/src/components/site/quote/steps/ContactEvidenceStep.tsx
+@@ -43,8 +43,9 @@ export function ContactEvidenceStep({ restoredFilesNotice }: ContactEvidenceStep
+ 
+       {restoredFilesNotice && (
+         <p className="mt-3 rounded-xl border border-copper/25 bg-[oklch(0.583_0.135_45.5/0.08)] px-4 py-2.5 text-xs leading-relaxed text-foreground/75">
+-          We restored your saved answers, but files aren't kept between sessions — please re-add any
+-          photos or documents.
++          {isSeller
++            ? "We restored your saved answers. Uploaded photos aren't included in saved drafts, so please add them again."
++            : "We restored your saved answers. Uploaded files aren't included in saved drafts, so please add them again."}
+         </p>
+       )}
+ 
+@@ -53,6 +54,10 @@ export function ContactEvidenceStep({ restoredFilesNotice }: ContactEvidenceStep
+         <div className="space-y-4">
+           {isSeller ? (
+             <>
++              <p className="text-sm font-semibold text-foreground/90">
++                Photos{" "}
++                <span className="font-normal text-foreground/50">(recommended, not required)</span>
++              </p>
+               <p className="text-xs leading-relaxed text-foreground/60">
+                 Add one wide photo showing the approximate quantity and one close-up of the
+                 material. Visible markings or cut ends are also helpful.
+@@ -61,6 +66,7 @@ export function ContactEvidenceStep({ restoredFilesNotice }: ContactEvidenceStep
+                 title="Add photos"
+                 browseLabel="Browse files or use your camera"
+                 acceptLine="JPG, PNG or WebP · Up to 5 photos"
++                countLabel="photos added"
+                 files={form.watch("sellerPhotos")}
+                 onChange={(files) => form.setValue("sellerPhotos", files, { shouldDirty: true })}
+                 maxFiles={5}
+@@ -72,6 +78,10 @@ export function ContactEvidenceStep({ restoredFilesNotice }: ContactEvidenceStep
+             </>
+           ) : (
+             <>
++              <p className="text-sm font-semibold text-foreground/90">
++                Supporting files{" "}
++                <span className="font-normal text-foreground/50">(recommended, not required)</span>
++              </p>
+               <p className="text-xs leading-relaxed text-foreground/60">
+                 A specification sheet, sample photo or purchase reference can help MSM review the
+                 requirement.
+@@ -80,6 +90,7 @@ export function ContactEvidenceStep({ restoredFilesNotice }: ContactEvidenceStep
+                 title="Add a supporting document or image"
+                 browseLabel="Browse files"
+                 acceptLine="PDF, JPG, PNG or WebP · Up to 3 files"
++                countLabel="files attached"
+                 files={form.watch("buyerDocuments")}
+                 onChange={(files) => form.setValue("buyerDocuments", files, { shouldDirty: true })}
+                 maxFiles={3}
+@@ -207,7 +218,9 @@ export function ContactEvidenceStep({ restoredFilesNotice }: ContactEvidenceStep
+                     {isImportExport ? (
+                       ""
+                     ) : (
+-                      <span className="font-normal text-foreground/50">(optional)</span>
++                      <span className="font-normal text-foreground/50">
++                        (optional, recommended)
++                      </span>
+                     )}
+                   </Label>
+                   <Input
+@@ -258,6 +271,7 @@ export function ContactEvidenceStep({ restoredFilesNotice }: ContactEvidenceStep
+                   shouldDirty: true,
+                 });
+                 form.clearErrors(field);
++                if (v !== "email") form.clearErrors(isSeller ? "sellerEmail" : "buyerEmail");
+               }}
+               error={
+                 isSeller
+diff --git a/src/components/site/quote/steps/DetailsStep.tsx b/src/components/site/quote/steps/DetailsStep.tsx
+index 5a0413e..0a4320d 100644
+--- a/src/components/site/quote/steps/DetailsStep.tsx
++++ b/src/components/site/quote/steps/DetailsStep.tsx
+@@ -66,15 +66,49 @@ export function DetailsStep() {
+             label="Unit"
+             options={UNIT_OPTIONS}
+             value={form.watch("buyerQuantityUnit")}
+-            onChange={(v) =>
++            onChange={(v) => {
+               form.setValue("buyerQuantityUnit", v as QuoteFormValues["buyerQuantityUnit"], {
+                 shouldValidate: true,
+-              })
+-            }
++              });
++              form.clearErrors("buyerQuantityUnit");
++              if (v !== "other") form.setValue("buyerQuantityUnitOther", undefined);
++            }}
+             error={errors.buyerQuantityUnit?.message}
+           />
+         </div>
+ 
++        {form.watch("buyerQuantityUnit") === "other" && (
++          <div className="mt-4 max-w-xs">
++            <Label
++              htmlFor="buyerQuantityUnitOther"
++              className="text-sm font-semibold text-foreground/90"
++            >
++              Specify unit
++            </Label>
++            <Input
++              id="buyerQuantityUnitOther"
++              className="mt-2 h-11 rounded-xl border-white/15 bg-white/5"
++              placeholder="e.g. bales, drums, m³"
++              aria-invalid={!!errors.buyerQuantityUnitOther}
++              aria-describedby={
++                errors.buyerQuantityUnitOther ? "buyerQuantityUnitOther-error" : undefined
++              }
++              {...form.register("buyerQuantityUnitOther", {
++                onChange: () => form.clearErrors("buyerQuantityUnitOther"),
++              })}
++            />
++            {errors.buyerQuantityUnitOther && (
++              <p
++                id="buyerQuantityUnitOther-error"
++                role="alert"
++                className="mt-1.5 text-[0.8rem] font-medium text-destructive"
++              >
++                {errors.buyerQuantityUnitOther.message}
++              </p>
++            )}
++          </div>
++        )}
++
+         <div className="mt-6">
+           <QuotePillGroup
+             label="Trade requirement"
+@@ -122,20 +156,38 @@ export function DetailsStep() {
+               htmlFor="buyerRequiredByDate"
+               className="text-sm font-semibold text-foreground/90"
+             >
+-              Required-by date <span className="font-normal text-foreground/50">(optional)</span>
++              Needed by <span className="font-normal text-foreground/50">(optional)</span>
+             </Label>
+             <Input
+               id="buyerRequiredByDate"
+               type="date"
+               className="mt-2 h-11 rounded-xl border-white/15 bg-white/5"
+-              {...form.register("buyerRequiredByDate")}
++              aria-invalid={!!errors.buyerRequiredByDate}
++              aria-describedby={
++                errors.buyerRequiredByDate ? "buyerRequiredByDate-error" : undefined
++              }
++              {...form.register("buyerRequiredByDate", {
++                onChange: () => form.clearErrors("buyerRequiredByDate"),
++              })}
+             />
++            <p className="mt-1.5 text-xs text-foreground/50">
++              Subject to availability and logistics confirmation.
++            </p>
++            {errors.buyerRequiredByDate && (
++              <p
++                id="buyerRequiredByDate-error"
++                role="alert"
++                className="mt-1.5 text-[0.8rem] font-medium text-destructive"
++              >
++                {errors.buyerRequiredByDate.message}
++              </p>
++            )}
+           </div>
+         </div>
+ 
+         <div className="mt-6">
+           <Label htmlFor="buyerAdditionalSpec" className="text-sm font-semibold text-foreground/90">
+-            Additional specification{" "}
++            Additional requirements{" "}
+             <span className="font-normal text-foreground/50">
+               {form.watch("material") === "other" ? "" : "(optional)"}
+             </span>
+@@ -143,7 +195,7 @@ export function DetailsStep() {
+           <Textarea
+             id="buyerAdditionalSpec"
+             className="mt-2 min-h-24 rounded-xl border-white/15 bg-white/5"
+-            placeholder="Any grade, packaging or sourcing requirement worth mentioning"
++            placeholder="Dimensions, packing, acceptable alternatives or application"
+             {...form.register("buyerAdditionalSpec")}
+           />
+         </div>
+@@ -189,15 +241,49 @@ export function DetailsStep() {
+           label="Unit"
+           options={UNIT_OPTIONS}
+           value={form.watch("sellerQuantityUnit")}
+-          onChange={(v) =>
++          onChange={(v) => {
+             form.setValue("sellerQuantityUnit", v as QuoteFormValues["sellerQuantityUnit"], {
+               shouldValidate: true,
+-            })
+-          }
++            });
++            form.clearErrors("sellerQuantityUnit");
++            if (v !== "other") form.setValue("sellerQuantityUnitOther", undefined);
++          }}
+           error={errors.sellerQuantityUnit?.message}
+         />
+       </div>
+ 
++      {form.watch("sellerQuantityUnit") === "other" && !form.watch("sellerQuantityUnsure") && (
++        <div className="mt-4 max-w-xs">
++          <Label
++            htmlFor="sellerQuantityUnitOther"
++            className="text-sm font-semibold text-foreground/90"
++          >
++            Specify unit
++          </Label>
++          <Input
++            id="sellerQuantityUnitOther"
++            className="mt-2 h-11 rounded-xl border-white/15 bg-white/5"
++            placeholder="e.g. bales, drums, m³"
++            aria-invalid={!!errors.sellerQuantityUnitOther}
++            aria-describedby={
++              errors.sellerQuantityUnitOther ? "sellerQuantityUnitOther-error" : undefined
++            }
++            {...form.register("sellerQuantityUnitOther", {
++              onChange: () => form.clearErrors("sellerQuantityUnitOther"),
++            })}
++          />
++          {errors.sellerQuantityUnitOther && (
++            <p
++              id="sellerQuantityUnitOther-error"
++              role="alert"
++              className="mt-1.5 text-[0.8rem] font-medium text-destructive"
++            >
++              {errors.sellerQuantityUnitOther.message}
++            </p>
++          )}
++        </div>
++      )}
++
+       <label className="mt-4 flex items-center gap-2.5">
+         <Checkbox
+           checked={!!form.watch("sellerQuantityUnsure")}
+@@ -209,7 +295,12 @@ export function DetailsStep() {
+             if (checked === true) {
+               form.setValue("sellerQuantityValue", undefined);
+               form.setValue("sellerQuantityUnit", undefined);
+-              form.clearErrors(["sellerQuantityValue", "sellerQuantityUnit"]);
++              form.setValue("sellerQuantityUnitOther", undefined);
++              form.clearErrors([
++                "sellerQuantityValue",
++                "sellerQuantityUnit",
++                "sellerQuantityUnitOther",
++              ]);
+             }
+           }}
+         />
+diff --git a/src/components/site/quote/steps/LogisticsStep.tsx b/src/components/site/quote/steps/LogisticsStep.tsx
+index 264e31f..47b5b33 100644
+--- a/src/components/site/quote/steps/LogisticsStep.tsx
++++ b/src/components/site/quote/steps/LogisticsStep.tsx
+@@ -50,7 +50,7 @@ export function LogisticsStep() {
+ 
+           <div className="mt-8 space-y-6">
+             <QuotePillGroup
+-              label="Destination emirate"
++              label="Final delivery emirate"
+               options={EMIRATE_OPTIONS}
+               value={form.watch("buyerDestinationEmirate")}
+               onChange={(v) => {
+@@ -68,17 +68,45 @@ export function LogisticsStep() {
+             />
+ 
+             <QuotePillGroup
+-              label="Preferred UAE port"
+-              ariaLabel="Preferred UAE port (optional)"
++              label="Preferred UAE arrival port (optional)"
+               options={PORT_OPTIONS}
+               value={form.watch("buyerPreferredPort")}
+-              onChange={(v) =>
++              onChange={(v) => {
+                 form.setValue("buyerPreferredPort", v as QuoteFormValues["buyerPreferredPort"], {
+                   shouldDirty: true,
+-                })
+-              }
++                });
++                if (v !== "other") form.setValue("buyerPreferredPortOther", undefined);
++                form.clearErrors("buyerPreferredPortOther");
++              }}
+             />
+ 
++            {form.watch("buyerPreferredPort") === "other" && (
++              <div className="max-w-xs">
++                <Label
++                  htmlFor="buyerPreferredPortOther"
++                  className="text-sm font-semibold text-foreground/90"
++                >
++                  Port name
++                </Label>
++                <Input
++                  id="buyerPreferredPortOther"
++                  className="mt-2 h-11 rounded-xl border-white/15 bg-white/5"
++                  placeholder="e.g. Hamriyah Port"
++                  aria-invalid={!!errors.buyerPreferredPortOther}
++                  aria-describedby={
++                    errors.buyerPreferredPortOther ? "buyerPreferredPortOther-error" : undefined
++                  }
++                  {...form.register("buyerPreferredPortOther", {
++                    onChange: () => form.clearErrors("buyerPreferredPortOther"),
++                  })}
++                />
++                <FieldError
++                  id="buyerPreferredPortOther-error"
++                  message={errors.buyerPreferredPortOther?.message}
++                />
++              </div>
++            )}
++
+             <div className="max-w-md">
+               <Label
+                 htmlFor="buyerOriginCountryPreference"
+@@ -99,15 +127,15 @@ export function LogisticsStep() {
+               label="Logistics requirement"
+               options={FULFILMENT_OPTIONS}
+               value={form.watch("buyerLogisticsRequirement")}
+-              onChange={(v) =>
++              onChange={(v) => {
+                 form.setValue(
+                   "buyerLogisticsRequirement",
+                   v as QuoteFormValues["buyerLogisticsRequirement"],
+-                  {
+-                    shouldDirty: true,
+-                  },
+-                )
+-              }
++                  { shouldValidate: true, shouldDirty: true },
++                );
++                form.clearErrors("buyerLogisticsRequirement");
++              }}
++              error={errors.buyerLogisticsRequirement?.message}
+             />
+ 
+             <div>
+@@ -193,15 +221,15 @@ export function LogisticsStep() {
+               label="Logistics requirement"
+               options={FULFILMENT_OPTIONS}
+               value={form.watch("buyerLogisticsRequirement")}
+-              onChange={(v) =>
++              onChange={(v) => {
+                 form.setValue(
+                   "buyerLogisticsRequirement",
+                   v as QuoteFormValues["buyerLogisticsRequirement"],
+-                  {
+-                    shouldDirty: true,
+-                  },
+-                )
+-              }
++                  { shouldValidate: true, shouldDirty: true },
++                );
++                form.clearErrors("buyerLogisticsRequirement");
++              }}
++              error={errors.buyerLogisticsRequirement?.message}
+             />
+ 
+             <div>
+@@ -236,6 +264,7 @@ export function LogisticsStep() {
+             options={EMIRATE_OPTIONS}
+             value={form.watch("buyerDestinationEmirate")}
+             onChange={(v) => {
++              const prev = form.getValues("buyerDestinationEmirate");
+               form.setValue(
+                 "buyerDestinationEmirate",
+                 v as QuoteFormValues["buyerDestinationEmirate"],
+@@ -244,33 +273,67 @@ export function LogisticsStep() {
+                   shouldDirty: true,
+                 },
+               );
+-              form.clearErrors("buyerDestinationEmirate");
++              // C-02/D-10: an Emirate change invalidates any Area/Maps link entered for the previous one.
++              if (prev && prev !== v) {
++                form.setValue("buyerDestinationArea", undefined);
++                form.setValue("buyerDestinationMapLink", undefined);
++              }
++              form.clearErrors(["buyerDestinationEmirate", "buyerDestinationArea"]);
+             }}
+             error={errors.buyerDestinationEmirate?.message}
+           />
+-          <div className="max-w-md">
+-            <Label
+-              htmlFor="buyerDestinationArea"
+-              className="text-sm font-semibold text-foreground/90"
+-            >
+-              Area
+-            </Label>
+-            <Input
+-              id="buyerDestinationArea"
+-              className="mt-2 h-11 rounded-xl border-white/15 bg-white/5"
+-              placeholder="e.g. Al Quoz Industrial"
+-              aria-invalid={!!errors.buyerDestinationArea}
+-              aria-describedby={
+-                errors.buyerDestinationArea ? "buyerDestinationArea-error" : undefined
+-              }
+-              {...form.register("buyerDestinationArea", {
+-                onChange: () => form.clearErrors("buyerDestinationArea"),
+-              })}
+-            />
+-            <FieldError
+-              id="buyerDestinationArea-error"
+-              message={errors.buyerDestinationArea?.message}
+-            />
++          <div className="grid gap-6 sm:grid-cols-2">
++            <div>
++              <Label
++                htmlFor="buyerDestinationArea"
++                className="text-sm font-semibold text-foreground/90"
++              >
++                Area
++              </Label>
++              <Input
++                id="buyerDestinationArea"
++                className="mt-2 h-11 rounded-xl border-white/15 bg-white/5"
++                placeholder="e.g. Al Quoz Industrial"
++                aria-invalid={!!errors.buyerDestinationArea}
++                aria-describedby={
++                  errors.buyerDestinationArea ? "buyerDestinationArea-error" : undefined
++                }
++                {...form.register("buyerDestinationArea", {
++                  onChange: () => form.clearErrors("buyerDestinationArea"),
++                })}
++              />
++              <FieldError
++                id="buyerDestinationArea-error"
++                message={errors.buyerDestinationArea?.message}
++              />
++            </div>
++            <div>
++              <Label
++                htmlFor="buyerDestinationMapLink"
++                className="text-sm font-semibold text-foreground/90"
++              >
++                Google Maps link
++              </Label>
++              <Input
++                id="buyerDestinationMapLink"
++                className="mt-2 h-11 rounded-xl border-white/15 bg-white/5"
++                placeholder="Paste a maps link"
++                aria-invalid={!!errors.buyerDestinationMapLink}
++                aria-describedby={
++                  errors.buyerDestinationMapLink ? "buyerDestinationMapLink-error" : undefined
++                }
++                {...form.register("buyerDestinationMapLink", {
++                  onChange: () => form.clearErrors("buyerDestinationMapLink"),
++                })}
++              />
++              <p className="mt-1.5 text-xs text-foreground/50">
++                Optional — paste the shared location link from Google Maps.
++              </p>
++              <FieldError
++                id="buyerDestinationMapLink-error"
++                message={errors.buyerDestinationMapLink?.message}
++              />
++            </div>
+           </div>
+           <QuotePillGroup
+             label="Fulfilment"
+@@ -305,11 +368,17 @@ export function LogisticsStep() {
+           options={EMIRATE_OPTIONS}
+           value={form.watch("sellerEmirate")}
+           onChange={(v) => {
++            const prev = form.getValues("sellerEmirate");
+             form.setValue("sellerEmirate", v as QuoteFormValues["sellerEmirate"], {
+               shouldValidate: true,
+               shouldDirty: true,
+             });
+-            form.clearErrors("sellerEmirate");
++            // C-02: an Emirate change invalidates any Area/Maps link entered for the previous one.
++            if (prev && prev !== v) {
++              form.setValue("sellerArea", undefined);
++              form.setValue("sellerMapLink", undefined);
++            }
++            form.clearErrors(["sellerEmirate", "sellerArea"]);
+           }}
+           error={errors.sellerEmirate?.message}
+         />
+@@ -337,11 +406,16 @@ export function LogisticsStep() {
+               id="sellerMapLink"
+               className="mt-2 h-11 rounded-xl border-white/15 bg-white/5"
+               placeholder="Paste a maps link"
+-              {...form.register("sellerMapLink")}
++              aria-invalid={!!errors.sellerMapLink}
++              aria-describedby={errors.sellerMapLink ? "sellerMapLink-error" : undefined}
++              {...form.register("sellerMapLink", {
++                onChange: () => form.clearErrors("sellerMapLink"),
++              })}
+             />
+             <p className="mt-1.5 text-xs text-foreground/50">
+               Optional — paste the shared location link from Google Maps.
+             </p>
++            <FieldError id="sellerMapLink-error" message={errors.sellerMapLink?.message} />
+           </div>
+         </div>
+ 
+@@ -354,7 +428,12 @@ export function LogisticsStep() {
+               shouldValidate: true,
+               shouldDirty: true,
+             });
+-            form.clearErrors("sellerPickupRequired");
++            // C-09: Yes-only fields can't silently survive a switch to No/Not sure.
++            if (v !== "yes") {
++              form.setValue("sellerPickupDate", undefined);
++              form.setValue("sellerAccessNote", undefined);
++            }
++            form.clearErrors(["sellerPickupRequired", "sellerPickupDate"]);
+           }}
+           error={errors.sellerPickupRequired?.message}
+         />
+@@ -373,21 +452,27 @@ export function LogisticsStep() {
+                 id="sellerPickupDate"
+                 type="date"
+                 className="mt-2 h-11 rounded-xl border-white/15 bg-white/5"
+-                {...form.register("sellerPickupDate")}
++                aria-invalid={!!errors.sellerPickupDate}
++                aria-describedby={errors.sellerPickupDate ? "sellerPickupDate-error" : undefined}
++                {...form.register("sellerPickupDate", {
++                  onChange: () => form.clearErrors("sellerPickupDate"),
++                })}
+               />
++              <p className="mt-1.5 text-xs text-foreground/50">Subject to MSM confirmation.</p>
++              <FieldError id="sellerPickupDate-error" message={errors.sellerPickupDate?.message} />
+             </div>
+             <div>
+               <Label
+                 htmlFor="sellerAccessNote"
+                 className="text-sm font-semibold text-foreground/90"
+               >
+-                Access / loading note{" "}
++                Access and loading notes{" "}
+                 <span className="font-normal text-foreground/50">(optional)</span>
+               </Label>
+               <Input
+                 id="sellerAccessNote"
+                 className="mt-2 h-11 rounded-xl border-white/15 bg-white/5"
+-                placeholder="Vehicle access, loading help, floor/site restrictions"
++                placeholder="Gate access, equipment needed, timing or site restrictions"
+                 {...form.register("sellerAccessNote")}
+               />
+             </div>
+diff --git a/src/components/site/quote/steps/MaterialStep.tsx b/src/components/site/quote/steps/MaterialStep.tsx
+index 4c9a79e..c80fc8b 100644
+--- a/src/components/site/quote/steps/MaterialStep.tsx
++++ b/src/components/site/quote/steps/MaterialStep.tsx
+@@ -65,34 +65,97 @@ export function MaterialStep() {
+       {family && family.subtypes.length > 0 && (
+         <div className="mt-8">
+           <p className="text-sm font-semibold text-foreground/90">
+-            Material type <span className="font-normal text-foreground/50">(optional)</span>
++            Material type <span className="font-normal text-foreground/50">(if known)</span>
+           </p>
+           <div
+-            className="mt-3 flex flex-wrap gap-2"
++            className="mt-3 flex flex-wrap items-center gap-2"
+             role="radiogroup"
+             aria-label="Material subtype"
+           >
+-            {family.subtypes.map((s) => (
+-              <button
+-                key={s.value}
+-                type="button"
+-                role="radio"
+-                aria-checked={subtype === s.value}
+-                onClick={() =>
+-                  form.setValue("subtype", subtype === s.value ? undefined : s.value, {
+-                    shouldDirty: true,
+-                  })
+-                }
+-                className={`font-display rounded-full border px-4 py-2 text-xs font-semibold tracking-[0.04em] transition-colors ${
+-                  subtype === s.value
+-                    ? "border-copper/70 bg-[oklch(0.583_0.135_45.5/0.16)] text-copper-bright"
+-                    : "glass-panel border-white/12 text-foreground/75 hover:border-copper/40"
+-                }`}
+-              >
+-                {s.label}
+-              </button>
+-            ))}
++            {/* B-01/B-02: known subtypes stay in the primary group; Other/Not sure form a
++                visually separated fallback group at the right, Not sure always last. */}
++            {family.subtypes
++              .filter((s) => s.value !== "other" && s.value !== "not_sure")
++              .map((s) => (
++                <button
++                  key={s.value}
++                  type="button"
++                  role="radio"
++                  aria-checked={subtype === s.value}
++                  onClick={() =>
++                    form.setValue("subtype", subtype === s.value ? undefined : s.value, {
++                      shouldDirty: true,
++                    })
++                  }
++                  className={`font-display rounded-full border px-4 py-2 text-xs font-semibold tracking-[0.04em] transition-colors ${
++                    subtype === s.value
++                      ? "border-copper/70 bg-[oklch(0.583_0.135_45.5/0.16)] text-copper-bright"
++                      : "glass-panel border-white/12 text-foreground/75 hover:border-copper/40"
++                  }`}
++                >
++                  {s.label}
++                </button>
++              ))}
++            <span
++              aria-hidden="true"
++              className="mx-1 hidden h-5 w-px self-center bg-white/15 sm:block"
++            />
++            {family.subtypes
++              .filter((s) => s.value === "other" || s.value === "not_sure")
++              .map((s) => (
++                <button
++                  key={s.value}
++                  type="button"
++                  role="radio"
++                  aria-checked={subtype === s.value}
++                  onClick={() => {
++                    form.setValue("subtype", subtype === s.value ? undefined : s.value, {
++                      shouldDirty: true,
++                    });
++                    form.clearErrors("subtypeOtherText");
++                  }}
++                  className={`font-display rounded-full border px-4 py-2 text-xs font-semibold tracking-[0.04em] transition-colors ${
++                    subtype === s.value
++                      ? "border-copper/70 bg-[oklch(0.583_0.135_45.5/0.16)] text-copper-bright"
++                      : "glass-panel border-white/12 text-foreground/75 hover:border-copper/40"
++                  }`}
++                >
++                  {s.label}
++                </button>
++              ))}
+           </div>
++
++          {subtype === "other" && (
++            <div className="mt-4 max-w-md">
++              <Label
++                htmlFor="subtypeOtherText"
++                className="text-sm font-semibold text-foreground/90"
++              >
++                Describe the material type
++              </Label>
++              <Input
++                id="subtypeOtherText"
++                className="mt-2 h-11 rounded-xl border-white/15 bg-white/5"
++                placeholder="e.g. Motor windings, cable offcuts"
++                aria-invalid={!!form.formState.errors.subtypeOtherText}
++                aria-describedby={
++                  form.formState.errors.subtypeOtherText ? "subtypeOtherText-error" : undefined
++                }
++                {...form.register("subtypeOtherText", {
++                  onChange: () => form.clearErrors("subtypeOtherText"),
++                })}
++              />
++              {form.formState.errors.subtypeOtherText && (
++                <p
++                  id="subtypeOtherText-error"
++                  role="alert"
++                  className="mt-1.5 text-[0.8rem] font-medium text-destructive"
++                >
++                  {form.formState.errors.subtypeOtherText.message}
++                </p>
++              )}
++            </div>
++          )}
+         </div>
+       )}
+ 
+@@ -104,7 +167,7 @@ export function MaterialStep() {
+           <Input
+             id="materialSpec"
+             className="mt-2 h-11 rounded-xl border-white/15 bg-white/5"
+-            placeholder="e.g. Grade A, insulated only"
++            placeholder="e.g. alloy/grade, dimensions, coating or purity"
+             {...form.register("materialSpec")}
+           />
+         </div>
+diff --git a/src/components/site/quote/steps/ReviewStep.tsx b/src/components/site/quote/steps/ReviewStep.tsx
+index 13e3438..161f8f0 100644
+--- a/src/components/site/quote/steps/ReviewStep.tsx
++++ b/src/components/site/quote/steps/ReviewStep.tsx
+@@ -1,5 +1,5 @@
+-import { MessageCircle, Pencil } from "lucide-react";
+-import type { QuoteFormValues } from "../quote-schema";
++import { MessageCircle, Paperclip, Pencil } from "lucide-react";
++import type { QuoteFormValues, QuoteLocalFile } from "../quote-schema";
+ import {
+   CONDITION_LABELS,
+   EMIRATE_LABELS,
+@@ -17,6 +17,7 @@ import {
+   buildSmartBrief,
+   buildWhatsAppMessage,
+   buildWhatsAppUrl,
++  formatDateForDisplay,
+   formatPhoneForDisplay,
+   isReadyForReview,
+ } from "../quote-summary";
+@@ -38,21 +39,25 @@ interface ReviewSection {
+   step: number;
+   title: string;
+   rows: ReviewRow[];
++  files?: QuoteLocalFile[];
+ }
+ 
+ function materialAndSubtype(v: QuoteFormValues): string | undefined {
+   const label = v.material === "other" ? v.otherMaterialText?.trim() : getMaterialLabel(v.material);
+   if (!label) return undefined;
+-  const subtype = getSubtypeLabel(v.material, v.subtype);
+-  return subtype && subtype !== "Not sure" ? `${label} · ${subtype}` : label;
++  const subtypeLabel =
++    v.subtype === "other" ? v.subtypeOtherText?.trim() : getSubtypeLabel(v.material, v.subtype);
++  return subtypeLabel && subtypeLabel !== "Not sure" ? `${label} · ${subtypeLabel}` : label;
+ }
+ 
+ function compactQuantity(
+   value: string | undefined,
+   unit: QuoteFormValues["sellerQuantityUnit"],
++  unitOther?: string,
+ ): string | undefined {
+   if (!value?.trim() || !unit) return undefined;
+-  return `${value.trim()} ${UNIT_LABELS[unit]}`;
++  const label = unit === "other" ? unitOther?.trim() || UNIT_LABELS.other : UNIT_LABELS[unit];
++  return `${value.trim()} ${label}`;
+ }
+ 
+ function buildSellerSections(v: QuoteFormValues): ReviewSection[] {
+@@ -67,7 +72,11 @@ function buildSellerSections(v: QuoteFormValues): ReviewSection[] {
+           label: "Quantity",
+           value: v.sellerQuantityUnsure
+             ? "Not sure"
+-            : compactQuantity(v.sellerQuantityValue, v.sellerQuantityUnit),
++            : compactQuantity(
++                v.sellerQuantityValue,
++                v.sellerQuantityUnit,
++                v.sellerQuantityUnitOther,
++              ),
+         },
+         {
+           label: "Condition",
+@@ -87,16 +96,26 @@ function buildSellerSections(v: QuoteFormValues): ReviewSection[] {
+               .filter(Boolean)
+               .join(", ") || undefined,
+         },
++        { label: "Maps link", value: v.sellerMapLink },
+         {
+           label: "Pickup required",
+           value: v.sellerPickupRequired ? PICKUP_CHOICE_LABELS[v.sellerPickupRequired] : undefined,
+         },
+-        { label: "Pickup date", value: v.sellerPickupDate },
++        {
++          label: "Preferred pickup date",
++          value:
++            v.sellerPickupRequired === "yes" ? formatDateForDisplay(v.sellerPickupDate) : undefined,
++        },
++        {
++          label: "Access and loading notes",
++          value: v.sellerPickupRequired === "yes" ? v.sellerAccessNote : undefined,
++        },
+       ],
+     },
+     {
+       step: 5,
+       title: "Photos & Contact",
++      files: v.sellerPhotos,
+       rows: [
+         { label: "Name", value: v.sellerName },
+         { label: "Phone", value: formatPhoneForDisplay(v.sellerPhone) },
+@@ -108,11 +127,12 @@ function buildSellerSections(v: QuoteFormValues): ReviewSection[] {
+             ? PREFERRED_CONTACT_LABELS[v.sellerPreferredContact]
+             : undefined,
+         },
++        { label: "Notes", value: v.sellerNotes },
+         {
+           label: "Photos",
+           value:
+             v.sellerPhotos.length > 0
+-              ? `${v.sellerPhotos.length} attached`
++              ? undefined // shown as thumbnails instead of a text row
+               : "No photos added — recommended for a faster review.",
+         },
+       ],
+@@ -133,6 +153,7 @@ function buyerDestinationRows(v: QuoteFormValues): ReviewRow[] {
+             .filter(Boolean)
+             .join(", ") || undefined,
+       },
++      { label: "Maps link", value: v.buyerDestinationMapLink },
+       {
+         label: "Fulfilment",
+         value: v.buyerFulfilment ? FULFILMENT_LABELS[v.buyerFulfilment] : undefined,
+@@ -142,12 +163,17 @@ function buyerDestinationRows(v: QuoteFormValues): ReviewRow[] {
+   if (v.buyerTradeRequirement === "import") {
+     return [
+       {
+-        label: "Arrival emirate",
++        label: "Final delivery emirate",
+         value: v.buyerDestinationEmirate ? EMIRATE_LABELS[v.buyerDestinationEmirate] : undefined,
+       },
+       {
+         label: "Preferred port",
+-        value: v.buyerPreferredPort ? PREFERRED_PORT_LABELS[v.buyerPreferredPort] : undefined,
++        value:
++          v.buyerPreferredPort === "other"
++            ? v.buyerPreferredPortOther
++            : v.buyerPreferredPort
++              ? PREFERRED_PORT_LABELS[v.buyerPreferredPort]
++              : undefined,
+       },
+       { label: "Origin preference", value: v.buyerOriginCountryPreference },
+       {
+@@ -196,7 +222,11 @@ function buildBuyerSections(v: QuoteFormValues): ReviewSection[] {
+       rows: [
+         {
+           label: "Required quantity",
+-          value: compactQuantity(v.buyerQuantityValue, v.buyerQuantityUnit),
++          value: compactQuantity(
++            v.buyerQuantityValue,
++            v.buyerQuantityUnit,
++            v.buyerQuantityUnitOther,
++          ),
+         },
+         {
+           label: "Trade route",
+@@ -204,14 +234,15 @@ function buildBuyerSections(v: QuoteFormValues): ReviewSection[] {
+             ? TRADE_REQUIREMENT_LABELS[v.buyerTradeRequirement]
+             : undefined,
+         },
+-        { label: "Required by", value: v.buyerRequiredByDate },
+-        { label: "Additional spec", value: v.buyerAdditionalSpec },
++        { label: "Needed by", value: formatDateForDisplay(v.buyerRequiredByDate) },
++        { label: "Additional requirements", value: v.buyerAdditionalSpec },
+       ],
+     },
+     { step: 4, title: "Location & Logistics", rows: buyerDestinationRows(v) },
+     {
+       step: 5,
+       title: "Documents & Contact",
++      files: v.buyerDocuments,
+       rows: [
+         { label: "Contact person", value: v.buyerContactPerson },
+         { label: "Phone", value: formatPhoneForDisplay(v.buyerPhone) },
+@@ -223,11 +254,12 @@ function buildBuyerSections(v: QuoteFormValues): ReviewSection[] {
+             ? PREFERRED_CONTACT_LABELS[v.buyerPreferredContact]
+             : undefined,
+         },
++        { label: "Notes", value: v.buyerNotes },
+         {
+           label: "Documents",
+           value:
+             v.buyerDocuments.length > 0
+-              ? `${v.buyerDocuments.length} attached`
++              ? undefined
+               : "No documents added — recommended for a faster review.",
+         },
+       ],
+@@ -235,6 +267,31 @@ function buildBuyerSections(v: QuoteFormValues): ReviewSection[] {
+   ];
+ }
+ 
++function FileThumbnails({ files }: { files: QuoteLocalFile[] }) {
++  if (files.length === 0) return null;
++  return (
++    <div className="mt-2 flex flex-wrap gap-2 sm:col-span-2">
++      {files.map((f) => (
++        <div
++          key={f.id}
++          className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-lg border border-white/12 bg-white/5"
++          title={f.name}
++        >
++          {f.previewUrl ? (
++            <img
++              src={f.previewUrl}
++              alt={`Preview of ${f.name}`}
++              className="h-full w-full object-cover"
++            />
++          ) : (
++            <Paperclip aria-hidden="true" className="h-4 w-4 text-foreground/50" />
++          )}
++        </div>
++      ))}
++    </div>
++  );
++}
++
+ export function ReviewStep({ values, onEditStep, onPreviewConfirmation, isDev }: ReviewStepProps) {
+   const sections =
+     values.intent === "buy" ? buildBuyerSections(values) : buildSellerSections(values);
+@@ -288,10 +345,12 @@ export function ReviewStep({ values, onEditStep, onPreviewConfirmation, isDev }:
+                     </dd>
+                   </div>
+                 ))}
+-              {section.rows.every((row) => !row.value) && (
+-                <p className="text-[0.8rem] text-foreground/45">Not provided.</p>
+-              )}
++              {section.rows.every((row) => !row.value) &&
++                (!section.files || section.files.length === 0) && (
++                  <p className="text-[0.8rem] text-foreground/45">Not provided.</p>
++                )}
+             </dl>
++            {section.files && <FileThumbnails files={section.files} />}
+           </div>
+         ))}
+       </div>
+diff --git a/src/styles.css b/src/styles.css
+index 7c88122..f84a1f3 100644
+--- a/src/styles.css
++++ b/src/styles.css
+@@ -407,3 +407,30 @@
+ @utility animate-material-zoom {
+   animation: material-zoom 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+ }
++
++/* Quote Experience content scroller (E-16): thin, dark, restrained-copper
++   thumb instead of the bright default OS scrollbar, using existing tokens. */
++.quote-scroll {
++  scrollbar-width: thin;
++  scrollbar-color: oklch(0.583 0.135 45.5 / 0.4) transparent;
++}
++
++.quote-scroll::-webkit-scrollbar {
++  width: 8px;
++}
++
++.quote-scroll::-webkit-scrollbar-track {
++  background: transparent;
++}
++
++.quote-scroll::-webkit-scrollbar-thumb {
++  background-color: oklch(0.583 0.135 45.5 / 0.4);
++  border-radius: 9999px;
++  border: 2px solid transparent;
++  background-clip: padding-box;
++}
++
++.quote-scroll::-webkit-scrollbar-thumb:hover {
++  background-color: oklch(0.583 0.135 45.5 / 0.6);
++  background-clip: padding-box;
++}

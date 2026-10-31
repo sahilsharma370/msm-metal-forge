@@ -14,6 +14,19 @@ const badgeVariants = cva(
         destructive:
           "border-transparent bg-destructive text-destructive-foreground shadow hover:bg-destructive/80",
         outline: "text-foreground",
+        warning:
+          "border-copper-bright/40 bg-copper-bright/10 text-copper-bright hover:bg-copper-bright/15",
+        /**
+         * CHECKPOINT C2L-V4b — restrained copper for purely informational
+         * emphasis (e.g. a "Selling" intent tag), distinct from `warning`
+         * (genuine alerts) even though the visual recipe is identical: a
+         * solid `--primary` (raw copper) fill here would compete with the
+         * page's real primary-CTA buttons, which is exactly what this
+         * variant exists to avoid — translucent tint + subtle border +
+         * readable copper text, never a second solid-orange treatment on
+         * the same screen.
+         */
+        accent: "border-copper-bright/40 bg-copper-bright/10 text-copper-bright hover:bg-copper-bright/15",
       },
     },
     defaultVariants: {

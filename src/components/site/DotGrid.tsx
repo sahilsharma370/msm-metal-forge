@@ -1,9 +1,14 @@
 import { useEffect, useRef } from "react";
 
-type Props = { className?: string; glow?: number };
+type Props = { className?: string; glow?: number; glowColor?: string; interactive?: boolean };
 
 /** Interactive dot grid: dots ease toward the cursor and glow softly nearby. */
-export function DotGrid({ className = "", glow = 1 }: Props) {
+export function DotGrid({
+  className = "",
+  glow = 1,
+  glowColor = "193, 98, 46",
+  interactive = true,
+}: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   useEffect(() => {
@@ -47,9 +52,9 @@ export function DotGrid({ className = "", glow = 1 }: Props) {
       const fx = width * 0.72;
       const fy = height * 0.18;
       const focal = ctx.createRadialGradient(fx, fy, 0, fx, fy, Math.max(width, height) * 0.75);
-      focal.addColorStop(0, `rgba(193, 98, 46, ${0.42 * glow})`);
-      focal.addColorStop(0.35, `rgba(193, 98, 46, ${0.16 * glow})`);
-      focal.addColorStop(1, "rgba(193, 98, 46, 0)");
+      focal.addColorStop(0, `rgba(${glowColor}, ${0.42 * glow})`);
+      focal.addColorStop(0.35, `rgba(${glowColor}, ${0.16 * glow})`);
+      focal.addColorStop(1, `rgba(${glowColor}, 0)`);
       ctx.fillStyle = focal;
       ctx.fillRect(0, 0, width, height);
 
@@ -61,7 +66,7 @@ export function DotGrid({ className = "", glow = 1 }: Props) {
           let ox = 0;
           let oy = 0;
           let intensity = 0;
-          if (dist < radius) {
+          if (interactive && dist < radius) {
             const f = 1 - dist / radius;
             intensity = f * f;
             const push = intensity * 9;
@@ -84,15 +89,19 @@ export function DotGrid({ className = "", glow = 1 }: Props) {
     draw();
     const ro = new ResizeObserver(resize);
     ro.observe(canvas);
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerleave", onLeave);
+    if (interactive) {
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerleave", onLeave);
+    }
     return () => {
       cancelAnimationFrame(raf);
       ro.disconnect();
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerleave", onLeave);
+      if (interactive) {
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerleave", onLeave);
+      }
     };
-  }, [glow]);
+  }, [glow, glowColor, interactive]);
 
   return (
     <canvas
