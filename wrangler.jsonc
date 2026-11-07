@@ -108,6 +108,13 @@
       "name": "RATE_LIMITER_OWNER_LOGIN_VERIFY_CODE",
       "namespace_id": "10005",
       "simple": { "limit": 8, "period": 60 }
+    },
+    {
+      // QT-CLI audit — see rate-limit.server.ts's own suggested-ceilings
+      // doc comment for why 10/60s.
+      "name": "RATE_LIMITER_QUOTE_CLIENT_DIAGNOSTICS",
+      "namespace_id": "10006",
+      "simple": { "limit": 10, "period": 60 }
     }
   ],
 
@@ -167,5 +174,23 @@
   // worker). See src/server/notifications/cron-sweep.server.ts.
   "triggers": {
     "crons": ["* * * * *"]
-  }
+  },
+
+  // NOT ENABLED for this release candidate. What this app explicitly
+  // writes — logOutcome's and logUnhandledError's fixed categories — is
+  // demonstrated safe (src/lib/error-capture.test.ts, initiate-quote.test.ts
+  // both assert no customer data survives). What is NOT demonstrated safe:
+  // whether Cloudflare's own Observability, once `enabled: true`, also
+  // retains a Worker's *truly* uncaught exceptions (one that escapes every
+  // try/catch here entirely) with their real message/stack automatically,
+  // independent of what this app ever passes to console.*. src/lib/error-
+  // capture.ts's own comment states plainly that this path is outside its
+  // control and was "not reproduced live this session" either way — so
+  // enabling this is deferred until that's checked against Cloudflare's
+  // actual behavior, not merely its config schema. The scoped shape below
+  // (logs on, Cloudflare's own automatic per-request metadata off) is
+  // confirmed by two real `npm run build` runs to survive into
+  // `.output/server/wrangler.json` unchanged, so it's ready the moment
+  // that check is done:
+  // "observability": { "enabled": true, "logs": { "enabled": true, "invocation_logs": false } }
 }

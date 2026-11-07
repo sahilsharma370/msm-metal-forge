@@ -20,6 +20,7 @@ const validSeller = {
   sellerPickupRequired: "no",
   sellerName: "Ahmed Seller",
   sellerPhone: "+971501234567",
+  sellerEmail: "ahmed.seller@example.com",
   sellerPreferredContact: "whatsapp",
 };
 
@@ -35,6 +36,7 @@ const validBuyerLocal = {
   buyerFulfilment: "delivery",
   buyerContactPerson: "Fatima Buyer",
   buyerPhone: "+971502345678",
+  buyerEmail: "fatima.buyer@example.com",
   buyerPreferredContact: "whatsapp",
 };
 
@@ -323,5 +325,137 @@ describe("normalizeSubmission — CHECKPOINT C2F-B phone canonicalization", () =
     if (!parsed.success) throw new Error("fixture must parse");
     const normalized = normalizeSubmission(parsed.data.submission as SubmissionShape);
     expect(normalized["sellerPhone"]).toBeNull();
+  });
+});
+
+describe("normalizeSubmission — MEASURED GAP, fixed: blank/cased email vs leads_seller_email_check", () => {
+  it("normalizes a blank sellerEmail to null, not an empty string, at the raw normalization layer", () => {
+    // normalizeSubmission itself is requiredness-agnostic — it normalizes
+    // whatever value is present, independent of checkSubmissionCompleteness.
+    // Blank must still become null here (defense-in-depth matching
+    // leads_seller_email_check, which allows NULL but never "") even though
+    // checkSubmissionCompleteness now separately rejects a blank email
+    // outright (see "email is required regardless of preferred contact" below).
+    const normalized = normalizeSubmission({
+      ...validSeller,
+      sellerEmail: "",
+    } as SubmissionShape);
+    expect(normalized["sellerEmail"]).toBeNull();
+  });
+
+  it("normalizes a whitespace-only sellerEmail to null, same as blank", () => {
+    const normalized = normalizeSubmission({
+      ...validSeller,
+      sellerEmail: "   ",
+    } as SubmissionShape);
+    expect(normalized["sellerEmail"]).toBeNull();
+  });
+
+  it("lowercases a syntactically valid but mixed-case sellerEmail to match leads_seller_email_check's own lower(...) requirement", () => {
+    const parsed = initiateQuoteRequestSchema.safeParse(
+      validRequestBody({
+        submission: {
+          ...validSeller,
+          sellerEmail: "Test.User@EXAMPLE.com",
+        },
+      }),
+    );
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    // Format validation (isValidEmailAddress) is case-insensitive by spec and
+    // must NOT reject this — only normalization changes the case.
+    expect(checkSubmissionCompleteness(parsed.data.submission)).toHaveLength(0);
+    const normalized = normalizeSubmission(parsed.data.submission as SubmissionShape);
+    expect(normalized["sellerEmail"]).toBe("test.user@example.com");
+  });
+
+  it("buyer path: lowercases a mixed-case buyerEmail", () => {
+    const parsed = initiateQuoteRequestSchema.safeParse(
+      validRequestBody({
+        submission: {
+          ...validBuyerLocal,
+          buyerEmail: "Buyer@EXAMPLE.com",
+        },
+      }),
+    );
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    expect(checkSubmissionCompleteness(parsed.data.submission)).toHaveLength(0);
+    const normalized = normalizeSubmission(parsed.data.submission as SubmissionShape);
+    expect(normalized["buyerEmail"]).toBe("buyer@example.com");
+  });
+});
+
+describe("checkSubmissionCompleteness — email is required regardless of preferred contact", () => {
+  it.each(["whatsapp", "call", "email"] as const)(
+    "rejects a blank sellerEmail even when preferred contact is '%s'",
+    (preferredContact) => {
+      const parsed = initiateQuoteRequestSchema.safeParse(
+        validRequestBody({
+          submission: { ...validSeller, sellerEmail: "", sellerPreferredContact: preferredContact },
+        }),
+      );
+      expect(parsed.success).toBe(true);
+      if (!parsed.success) return;
+      expect(checkSubmissionCompleteness(parsed.data.submission).length).toBeGreaterThan(0);
+    },
+  );
+
+  it.each(["whatsapp", "call", "email"] as const)(
+    "rejects a blank buyerEmail even when preferred contact is '%s'",
+    (preferredContact) => {
+      const parsed = initiateQuoteRequestSchema.safeParse(
+        validRequestBody({
+          submission: { ...validBuyerLocal, buyerEmail: "", buyerPreferredContact: preferredContact },
+        }),
+      );
+      expect(parsed.success).toBe(true);
+      if (!parsed.success) return;
+      expect(checkSubmissionCompleteness(parsed.data.submission).length).toBeGreaterThan(0);
+    },
+  );
+
+  it("rejects a malformed (non-email-shaped) sellerEmail", () => {
+    const parsed = initiateQuoteRequestSchema.safeParse(
+      validRequestBody({
+        submission: { ...validSeller, sellerEmail: "not-an-email" },
+      }),
+    );
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    expect(checkSubmissionCompleteness(parsed.data.submission).length).toBeGreaterThan(0);
+  });
+
+  it("rejects a malformed (non-email-shaped) buyerEmail", () => {
+    const parsed = initiateQuoteRequestSchema.safeParse(
+      validRequestBody({
+        submission: { ...validBuyerLocal, buyerEmail: "not-an-email" },
+      }),
+    );
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    expect(checkSubmissionCompleteness(parsed.data.submission).length).toBeGreaterThan(0);
+  });
+
+  it("accepts a present, valid sellerEmail regardless of preferred contact", () => {
+    const parsed = initiateQuoteRequestSchema.safeParse(
+      validRequestBody({
+        submission: { ...validSeller, sellerPreferredContact: "call" },
+      }),
+    );
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    expect(checkSubmissionCompleteness(parsed.data.submission)).toHaveLength(0);
+  });
+
+  it("accepts a present, valid buyerEmail regardless of preferred contact", () => {
+    const parsed = initiateQuoteRequestSchema.safeParse(
+      validRequestBody({
+        submission: { ...validBuyerLocal, buyerPreferredContact: "whatsapp" },
+      }),
+    );
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    expect(checkSubmissionCompleteness(parsed.data.submission)).toHaveLength(0);
   });
 });

@@ -29,6 +29,8 @@
  *   hash is stable regardless of whether a field was omitted or sent null.
  */
 
+import { sha256 as noblesha256 } from "@noble/hashes/sha2.js";
+
 export type CanonicalJsonValue =
   | string
   | number
@@ -48,11 +50,63 @@ export function canonicalize(value: CanonicalJsonValue): string {
   return `{${keys.map((key) => `${JSON.stringify(key)}:${canonicalize(record[key] as CanonicalJsonValue)}`).join(",")}}`;
 }
 
-/** Lowercase hex SHA-256, computed via the Web Crypto API (available identically on Cloudflare Workers, Node >=19 and every browser, so this needs no platform-specific import). */
+/**
+ * Lowercase hex SHA-256. Primarily computed via the Web Crypto API
+ * (available identically on Cloudflare Workers, Node >=19 and every
+ * browser, so this needs no platform-specific import on that path).
+ *
+ * MEASURED-PLAUSIBLE GAP, fixed — auditing the Google in-app browser
+ * QT-CLI path. CORRECTION to an earlier draft of this audit, which wrongly
+ * assumed crypto.subtle being unavailable implies crypto.getRandomValues
+ * is unavailable too: per the Web Crypto spec these are gated
+ * independently. crypto.subtle (the SubtleCrypto interface, which
+ * crypto.subtle.digest belongs to) is restricted to secure contexts;
+ * crypto.getRandomValues is part of the base Crypto interface and has
+ * been available in every context, secure or not, since long before
+ * SubtleCrypto existed. A restricted in-app WebView could very plausibly
+ * expose one without the other — in EITHER direction, not just the one
+ * this file previously assumed. This function's own fallback therefore
+ * does not depend on getRandomValues at all; it is independent from, and
+ * complementary to, resolveIdempotencyKey's own getRandomValues-based
+ * fallback in quote-submission-identity.ts.
+ *
+ * Falls back to @noble/hashes — an independently audited, zero-dependency,
+ * pure-JS FIPS 180-4 SHA-256 implementation — never a hand-written one,
+ * and never a weaker/non-cryptographic hash. SHA-256 is a fully specified,
+ * deterministic algorithm: any correct implementation (native or this
+ * one) MUST produce byte-identical output for the same input. Proven,
+ * not merely asserted — see canonicalize.test.ts, which checks this
+ * fallback against NIST's own published SHA-256 test vectors AND against
+ * a direct runtime comparison with crypto.subtle.digest on the same
+ * input.
+ *
+ * CORRECTED FRAMING: this hash is never transmitted to or compared
+ * against the server directly — initiate's request body carries only
+ * idempotencyKey/submission/files (see quote-submission-transport.ts);
+ * the server (src/server/quote/initiate-quote.ts) independently
+ * recomputes its own payload_hash from those via this SAME shared
+ * module, and that server-side value alone is what create_website_quote_v1
+ * actually keys its idempotency check on. The reason this fallback must
+ * still match crypto.subtle.digest exactly is CLIENT-side self-
+ * consistency: reconcileSubmissionAttempt (quote-storage.ts) compares a
+ * previously-stored payloadHash against a freshly-computed one, within
+ * the SAME browser session, to decide whether to reuse or discard an
+ * idempotency key. If crypto.subtle's availability ever flickered within
+ * one session (native, then fallback, or vice versa) and the two paths
+ * produced different hashes for IDENTICAL form data, that mismatch alone
+ * would look like "the form changed" and wrongly discard a still-valid
+ * key — never a client-vs-server hash disagreement, which this code has
+ * no mechanism to even observe.
+ */
 export async function sha256Hex(input: string): Promise<string> {
   const bytes = new TextEncoder().encode(input);
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
-  return Array.from(new Uint8Array(digest))
+  let digestBytes: Uint8Array;
+  try {
+    digestBytes = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+  } catch {
+    digestBytes = noblesha256(bytes);
+  }
+  return Array.from(digestBytes)
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("");
 }

@@ -18,7 +18,7 @@
  * *.supabase.co hostname.
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 const LEAD_FILES_BUCKET = "lead-files";
@@ -84,8 +84,137 @@ function getLocalSupabaseSettingsOrThrow(): LocalSupabaseSettings {
   return { apiUrl, anonKey, secretKey };
 }
 
-function resetLocalDatabase(): void {
-  execFileSync("npx", ["supabase", "db", "reset"], { cwd: process.cwd(), stdio: "pipe" });
+/**
+ * Bounded milliseconds for the reset subprocess itself — comfortably under
+ * every existing hook/test budget that calls this (all are explicit
+ * 120_000ms in this file; none rely on the bare 60_000ms default), leaving
+ * real margin for whatever RPC work a test does after the reset returns.
+ * Never raised to accommodate a slow reset — a reset that cannot finish in
+ * 60s is exactly the failure this bound exists to surface promptly.
+ */
+const RESET_SUBPROCESS_DEADLINE_MS = 60_000;
+/** Grace period after SIGTERM before escalating to SIGKILL — bounds total teardown time even if the child/group ignores SIGTERM. */
+const RESET_KILL_GRACE_MS = 5_000;
+
+/**
+ * Async, bounded, logged replacement for the previous execFileSync-based
+ * reset. execFileSync is synchronous — it blocks the entire Node event
+ * loop until the child exits, which means Vitest's own async hook/test
+ * timeout can never preempt a hung `supabase db reset`: the timer can only
+ * fire once the blocking call finally returns, so a genuinely stuck reset
+ * can silently run far longer than any declared timeout before Vitest even
+ * gets a chance to report it — measured directly this session: a test in
+ * this same integration suite failed with `AuthRetryableFetchError:
+ * Database error creating new user` immediately after one of these resets,
+ * during a period when the local stack was under heavy cumulative reset
+ * load; whether that failure is itself reset-contamination or an
+ * independent Auth-service issue was not established and is not assumed
+ * here — this change only makes reset execution itself bounded, observed,
+ * and interruptible, never silently blocking indefinitely. This version
+ * spawns the child detached (its own process group, POSIX) so a
+ * deadline-triggered kill can target the whole owned subprocess tree — not
+ * just the immediate `npx` process, which would otherwise risk leaving an
+ * orphaned `supabase`/docker-cli child behind — and always resolves or
+ * rejects within RESET_SUBPROCESS_DEADLINE_MS (+ the short kill grace
+ * period), never by raising any Vitest timeout value. Throwing on
+ * deadline/non-zero-exit (rather than swallowing either) is deliberate: a
+ * `beforeAll`/`afterAll` throw fails that hook immediately, which is what
+ * stops Vitest from running any further test in this file against a
+ * database left in an unknown, possibly-mid-reset state.
+ */
+async function resetLocalDatabase(): Promise<void> {
+  const command = "npx supabase db reset";
+  const startedAt = new Date();
+  let stdout = "";
+  let stderr = "";
+
+  const child = spawn("npx", ["supabase", "db", "reset"], {
+    cwd: process.cwd(),
+    detached: true,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  child.stdout.on("data", (chunk: Buffer) => {
+    stdout += chunk.toString("utf8");
+  });
+  child.stderr.on("data", (chunk: Buffer) => {
+    stderr += chunk.toString("utf8");
+  });
+
+  let timedOut = false;
+  let killTimer: NodeJS.Timeout | undefined;
+  const termTimer = setTimeout(() => {
+    timedOut = true;
+    if (child.pid) {
+      try {
+        process.kill(-child.pid, "SIGTERM"); // negative pid = whole process group
+      } catch {
+        // Process group already gone — nothing further to do.
+      }
+    }
+    // Escalate to SIGKILL on the same group if SIGTERM alone hasn't finished it within the grace period.
+    killTimer = setTimeout(() => {
+      if (child.pid) {
+        try {
+          process.kill(-child.pid, "SIGKILL");
+        } catch {
+          // Already gone.
+        }
+      }
+    }, RESET_KILL_GRACE_MS);
+  }, RESET_SUBPROCESS_DEADLINE_MS);
+
+  // `settled` guards against the documented Node case where a spawn
+  // failure can fire 'error' without 'close' ever following (there was no
+  // real process to close) — without this listener, that path would hang
+  // this promise forever, reproducing the exact unbounded-hang pathology
+  // this rewrite exists to eliminate. Both listeners funnel through the
+  // same settle() so timers are cleared identically on every exit path.
+  let settled = false;
+  let spawnError: Error | undefined;
+  const { exitCode, signal } = await new Promise<{ exitCode: number | null; signal: NodeJS.Signals | null }>((resolve) => {
+    const settle = (code: number | null, sig: NodeJS.Signals | null) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(termTimer);
+      if (killTimer) clearTimeout(killTimer);
+      resolve({ exitCode: code, signal: sig });
+    };
+    child.on("error", (err) => {
+      spawnError = err;
+      settle(null, null);
+    });
+    child.on("close", (code, sig) => {
+      settle(code, sig);
+    });
+  });
+
+  const endedAt = new Date();
+  const elapsedMs = endedAt.getTime() - startedAt.getTime();
+
+  console.log(
+    `[resetLocalDatabase] command=${JSON.stringify(command)} startedAt=${startedAt.toISOString()} ` +
+      `endedAt=${endedAt.toISOString()} elapsedMs=${elapsedMs} exitCode=${exitCode} signal=${signal} ` +
+      `timedOut=${timedOut} spawnError=${spawnError ? spawnError.message : "none"}`,
+  );
+  if (stdout.trim()) console.log(`[resetLocalDatabase] stdout:\n${stdout}`);
+  if (stderr.trim()) console.log(`[resetLocalDatabase] stderr:\n${stderr}`);
+
+  if (spawnError) {
+    throw new Error(`resetLocalDatabase: failed to spawn ${command}: ${spawnError.message}`);
+  }
+  if (timedOut) {
+    throw new Error(
+      `resetLocalDatabase: deadline of ${RESET_SUBPROCESS_DEADLINE_MS}ms exceeded after ${elapsedMs}ms — ` +
+        `subprocess tree terminated deliberately (not a completed reset). The local database's state is not ` +
+        `guaranteed consistent; no further test in this file should run against it.`,
+    );
+  }
+  if (exitCode !== 0) {
+    throw new Error(
+      `resetLocalDatabase: ${command} exited with code=${exitCode} signal=${signal} after ${elapsedMs}ms.\n` +
+        `stdout:\n${stdout}\nstderr:\n${stderr}`,
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -140,6 +269,7 @@ function validSellerSubmission(overrides: Record<string, unknown> = {}) {
     sellerPickupRequired: "no",
     sellerName: "C2J-BC Seller Fixture",
     sellerPhone: "+971500020001",
+    sellerEmail: "c2j-bc.integration.seller@example.com",
     sellerPreferredContact: "whatsapp",
     ...overrides,
   };
@@ -191,7 +321,7 @@ beforeAll(async () => {
     auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
   });
 
-  resetLocalDatabase();
+  await resetLocalDatabase();
   ownerAccessToken = await mintOwnerAccessToken(serviceClient);
 
   // Seller lead: full initiate -> upload -> complete through the real
@@ -290,7 +420,7 @@ afterAll(async () => {
       await cleanupClient.storage.from(LEAD_FILES_BUCKET).remove(createdObjectPaths).catch(() => undefined);
     }
   } finally {
-    resetLocalDatabase();
+    await resetLocalDatabase();
     await reprovisionDemoOwnerIfMissing(serviceClient);
   }
 }, 120_000);
@@ -313,7 +443,7 @@ describe("CHECKPOINT C2J-B — real local owner lead-detail service", () => {
     const body = await response.json();
     expect(body.ok).toBe(true);
     expect(body.data.lead.intent).toBe("sell");
-    expect(body.data.lead.contact).toEqual({ name: "C2J-BC Seller Fixture", phone: "+971500020001", email: null, company: null });
+    expect(body.data.lead.contact).toEqual({ name: "C2J-BC Seller Fixture", phone: "+971500020001", email: "c2j-bc.integration.seller@example.com", company: null });
     expect(body.data.lead.enquiry.condition).toBe("clean_separated");
     expect(body.data.files).toHaveLength(1);
     expect(body.data.files[0].id).toBe(sellFileId);
@@ -421,7 +551,7 @@ describe("CHECKPOINT C2J-B/C — cleanup", () => {
     const removal = await serviceClient.storage.from(LEAD_FILES_BUCKET).remove(createdObjectPaths);
     expect(removal.error).toBeNull();
 
-    resetLocalDatabase();
+    await resetLocalDatabase();
 
     const [leads, activities, slots, files, notifications, ownerAccounts] = await Promise.all([
       serviceClient.from("leads").select("id", { count: "exact", head: true }),
@@ -451,5 +581,5 @@ describe("CHECKPOINT C2J-B/C — cleanup", () => {
     await reprovisionDemoOwnerIfMissing(serviceClient);
     const { count: reprovisioned } = await serviceClient.from("owner_accounts").select("user_id", { count: "exact", head: true });
     expect(reprovisioned).toBe(1);
-  });
+  }, 120_000); // resetLocalDatabase() alone can take the majority of the default 60s budget.
 });

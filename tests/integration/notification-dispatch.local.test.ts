@@ -21,7 +21,7 @@
  * against the validated local API_URL are ever run here.
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import {
   dispatchOwnerNotification,
@@ -123,8 +123,139 @@ function getLocalSupabaseSettingsOrThrow(): LocalSupabaseSettings {
   return { apiUrl, anonKey, secretKey };
 }
 
-function resetLocalDatabase(): void {
-  execFileSync("npx", ["supabase", "db", "reset"], { cwd: process.cwd(), stdio: "pipe" });
+/**
+ * Bounded milliseconds for the reset subprocess itself — comfortably under
+ * every existing hook/test budget that calls this (all are explicit
+ * 120_000ms in this file; none rely on the bare 60_000ms default), leaving
+ * real margin for whatever RPC work a test does after the reset returns.
+ * Never raised to accommodate a slow reset — a reset that cannot finish in
+ * 60s is exactly the failure this bound exists to surface promptly.
+ */
+const RESET_SUBPROCESS_DEADLINE_MS = 60_000;
+/** Grace period after SIGTERM before escalating to SIGKILL — bounds total teardown time even if the child/group ignores SIGTERM. */
+const RESET_KILL_GRACE_MS = 5_000;
+
+/**
+ * Async, bounded, logged replacement for the previous execFileSync-based
+ * reset. execFileSync is synchronous — it blocks the entire Node event
+ * loop until the child exits, which means Vitest's own async hook/test
+ * timeout can never preempt a hung `supabase db reset`: the timer can only
+ * fire once the blocking call finally returns, so a genuinely stuck reset
+ * can silently run far longer than any declared timeout before Vitest even
+ * gets a chance to report it — measured directly this session: one test
+ * reported "Test timed out in 120000ms" after an actual elapsed time of
+ * roughly 27 minutes, because the synchronous call inside it could not be
+ * interrupted. This version spawns the child detached (its own process
+ * group, POSIX) so a deadline-triggered kill can target the whole owned
+ * subprocess tree — not just the immediate `npx` process, which would
+ * otherwise risk leaving an orphaned `supabase`/docker-cli child behind —
+ * and always resolves or rejects within RESET_SUBPROCESS_DEADLINE_MS (+ the
+ * short kill grace period), never by raising any Vitest timeout value.
+ * Throwing on deadline/non-zero-exit (rather than swallowing either) is
+ * deliberate: a `beforeAll`/`afterAll` throw fails that hook immediately,
+ * which is what stops Vitest from running any further test in this file
+ * against a database left in an unknown, possibly-mid-reset state — the
+ * same protection a successful reset's own correctness already relies on,
+ * now also covering the failure path explicitly instead of only timing out
+ * much later with no indication of why.
+ */
+async function resetLocalDatabase(): Promise<void> {
+  const command = "npx supabase db reset";
+  const startedAt = new Date();
+  let stdout = "";
+  let stderr = "";
+
+  const child = spawn("npx", ["supabase", "db", "reset"], {
+    cwd: process.cwd(),
+    detached: true,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  child.stdout.on("data", (chunk: Buffer) => {
+    stdout += chunk.toString("utf8");
+  });
+  child.stderr.on("data", (chunk: Buffer) => {
+    stderr += chunk.toString("utf8");
+  });
+
+  let timedOut = false;
+  let killTimer: NodeJS.Timeout | undefined;
+  const termTimer = setTimeout(() => {
+    timedOut = true;
+    if (child.pid) {
+      try {
+        process.kill(-child.pid, "SIGTERM"); // negative pid = whole process group
+      } catch {
+        // Process group already gone — nothing further to do.
+      }
+    }
+    // Escalate to SIGKILL on the same group if SIGTERM alone hasn't finished it within the grace period.
+    killTimer = setTimeout(() => {
+      if (child.pid) {
+        try {
+          process.kill(-child.pid, "SIGKILL");
+        } catch {
+          // Already gone.
+        }
+      }
+    }, RESET_KILL_GRACE_MS);
+  }, RESET_SUBPROCESS_DEADLINE_MS);
+
+  // `settled` guards against the documented Node case where a spawn
+  // failure can fire 'error' without 'close' ever following (there was no
+  // real process to close) — without this listener, that path would hang
+  // this promise forever, reproducing the exact unbounded-hang pathology
+  // this rewrite exists to eliminate. Both listeners funnel through the
+  // same settle() so timers are cleared identically on every exit path.
+  let settled = false;
+  let spawnError: Error | undefined;
+  const { exitCode, signal } = await new Promise<{ exitCode: number | null; signal: NodeJS.Signals | null }>((resolve) => {
+    const settle = (code: number | null, sig: NodeJS.Signals | null) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(termTimer);
+      if (killTimer) clearTimeout(killTimer);
+      resolve({ exitCode: code, signal: sig });
+    };
+    child.on("error", (err) => {
+      spawnError = err;
+      settle(null, null);
+    });
+    child.on("close", (code, sig) => {
+      settle(code, sig);
+    });
+  });
+
+  const endedAt = new Date();
+  const elapsedMs = endedAt.getTime() - startedAt.getTime();
+
+  // Full, unredacted (no secret ever appears in this CLI's own stdout/stderr
+  // — it only ever logs migration/container-lifecycle text) capture of
+  // every reset attempt, success or failure, so a future stall has a real
+  // record instead of a lost container's own logs.
+  console.log(
+    `[resetLocalDatabase] command=${JSON.stringify(command)} startedAt=${startedAt.toISOString()} ` +
+      `endedAt=${endedAt.toISOString()} elapsedMs=${elapsedMs} exitCode=${exitCode} signal=${signal} ` +
+      `timedOut=${timedOut} spawnError=${spawnError ? spawnError.message : "none"}`,
+  );
+  if (stdout.trim()) console.log(`[resetLocalDatabase] stdout:\n${stdout}`);
+  if (stderr.trim()) console.log(`[resetLocalDatabase] stderr:\n${stderr}`);
+
+  if (spawnError) {
+    throw new Error(`resetLocalDatabase: failed to spawn ${command}: ${spawnError.message}`);
+  }
+  if (timedOut) {
+    throw new Error(
+      `resetLocalDatabase: deadline of ${RESET_SUBPROCESS_DEADLINE_MS}ms exceeded after ${elapsedMs}ms — ` +
+        `subprocess tree terminated deliberately (not a completed reset). The local database's state is not ` +
+        `guaranteed consistent; no further test in this file should run against it.`,
+    );
+  }
+  if (exitCode !== 0) {
+    throw new Error(
+      `resetLocalDatabase: ${command} exited with code=${exitCode} signal=${signal} after ${elapsedMs}ms.\n` +
+        `stdout:\n${stdout}\nstderr:\n${stderr}`,
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -173,6 +304,7 @@ function sellSubmission(overrides: Record<string, unknown> = {}) {
     sellerPickupRequired: "no",
     sellerName: "Batch4 Integration Seller",
     sellerPhone: "+971501234567",
+    sellerEmail: "batch4.integration.seller@example.com",
     sellerPreferredContact: "whatsapp",
     ...overrides,
   };
@@ -191,6 +323,7 @@ function buySubmission(overrides: Record<string, unknown> = {}) {
     buyerFulfilment: "delivery",
     buyerContactPerson: "Batch4 Integration Buyer",
     buyerPhone: "+971502345678",
+    buyerEmail: "batch4.integration.buyer@example.com",
     buyerPreferredContact: "whatsapp",
     ...overrides,
   };
@@ -238,17 +371,43 @@ function fakeSendingProvider(): EmailProvider & { calls: EmailSendInput[] } {
   };
 }
 
-async function fetchDelivery(leadId: string) {
+/**
+ * CHECKPOINT (customer receipt) — defaults to 'submission_completed' so
+ * every one of this file's existing call sites (written before
+ * customer_receipt existed, when exactly one row existed per lead) keeps
+ * resolving the exact same row it always meant, unchanged. Pass
+ * 'customer_receipt' explicitly to target the new sibling row instead.
+ */
+async function fetchDelivery(leadId: string, eventType: "submission_completed" | "customer_receipt" = "submission_completed") {
   const { data } = await serviceClient
     .from("notification_deliveries")
     .select("id, status, attempt_count, next_attempt_at, claim_token, claimed_at, lease_expires_at, last_error_code, manual_requeue_count")
     .eq("lead_id", leadId)
+    .eq("event_type", eventType)
     .single();
   return data!;
 }
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * CHECKPOINT (customer receipt) — several pre-existing tests below stage a
+ * lead's submission_completed row into a specific lifecycle state (pending/
+ * retry_wait/processing/sent/dead_letter) to prove the cron sweep's
+ * eligibility predicate precisely. Each such lead now also carries a
+ * customer_receipt sibling that defaults to 'pending' and would otherwise
+ * be an EXTRA eligible row the sweep picks up, inflating every expected
+ * count. Claimed and dead-lettered immediately after fixture creation — a
+ * real, valid lifecycle transition, not a mock — so each of those tests'
+ * original, carefully-staged math (one row per fixture) holds unchanged.
+ */
+async function neutralizeCustomerReceiptSibling(leadId: string): Promise<void> {
+  const row = await fetchDelivery(leadId, "customer_receipt");
+  const claim = await serviceClient.rpc("claim_notification_delivery_v1", { p_claim_token: crypto.randomUUID(), p_delivery_id: row.id, p_lease_seconds: 60 });
+  const claimToken = (claim.data as { claim_token: string }).claim_token;
+  await serviceClient.rpc("dead_letter_notification_delivery_v1", { p_delivery_id: row.id, p_claim_token: claimToken, p_error_code: "TEST_FIXTURE_NEUTRALIZED" });
 }
 
 // ---------------------------------------------------------------------------
@@ -258,7 +417,7 @@ function sleep(ms: number): Promise<void> {
 let settings: LocalSupabaseSettings;
 let serviceClient: SupabaseClient;
 
-beforeAll(() => {
+beforeAll(async () => {
   settings = getLocalSupabaseSettingsOrThrow();
   process.env["SUPABASE_URL"] = settings.apiUrl;
   process.env["SUPABASE_SECRET_KEY"] = settings.secretKey;
@@ -267,11 +426,11 @@ beforeAll(() => {
     auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
   });
 
-  resetLocalDatabase();
+  await resetLocalDatabase();
 }, 120_000);
 
-afterAll(() => {
-  resetLocalDatabase();
+afterAll(async () => {
+  await resetLocalDatabase();
 }, 120_000);
 
 describe("CHECKPOINT C2H-B2 — real local outbox + dispatcher + Queue-consumer orchestration", () => {
@@ -337,7 +496,13 @@ describe("CHECKPOINT C2H-B2 — real local outbox + dispatcher + Queue-consumer 
     expect(provider.calls).toHaveLength(1);
   });
 
-  it("creates a real zero-file website enquiry with a pending notification row, then the Queue consumer sends it exactly once, and a replayed wake-up never sends a duplicate", async () => {
+  it("creates a real zero-file website enquiry with TWO pending notification rows (owner + customer_receipt), a single Queue wake-up drains both exactly once each (the latency fix's bounded in-message drain), and a further wake-up is a genuine no-op replay", async () => {
+    // This test's own fallback-dispatch assertions require a clean slate —
+    // specifically "exactly one of these two recipients, nothing else" —
+    // same isolation reasoning (and same resetLocalDatabase() precedent) as
+    // the cron-sweep/concurrent-sweep tests further down this file.
+    await resetLocalDatabase();
+
     const idempotencyKey = crypto.randomUUID();
     const payloadHashBytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`c2h-b2-integration-${idempotencyKey}`));
     const payloadHash = Array.from(new Uint8Array(payloadHashBytes))
@@ -360,6 +525,7 @@ describe("CHECKPOINT C2H-B2 — real local outbox + dispatcher + Queue-consumer 
         sellerPickupRequired: "no",
         sellerName: "C2H-B2 Integration Seller",
         sellerPhone: "+971501234567",
+        sellerEmail: "c2h-b2.integration.seller@example.com",
         sellerPreferredContact: "whatsapp",
       },
       p_files: [],
@@ -368,14 +534,18 @@ describe("CHECKPOINT C2H-B2 — real local outbox + dispatcher + Queue-consumer 
     const leadId = (createResult as { lead_id: string }).lead_id;
     expect(leadId).toBeTruthy();
 
-    // Confirm the pending notification row exists (CHECKPOINT C2H-A's own
-    // completion side effect, unmodified by this checkpoint).
-    const { data: pendingRow } = await serviceClient
+    // CHECKPOINT (customer receipt) — complete_lead_if_ready now creates
+    // TWO pending rows atomically alongside the lead's own completion, not
+    // one: the unchanged owner submission_completed row, and the new
+    // customer_receipt row this feature adds.
+    const { data: pendingRows } = await serviceClient
       .from("notification_deliveries")
-      .select("id, status, attempt_count")
+      .select("id, event_type, channel, status")
       .eq("lead_id", leadId)
-      .single();
-    expect(pendingRow?.status).toBe("pending");
+      .order("event_type", { ascending: true });
+    expect(pendingRows).toHaveLength(2);
+    expect(pendingRows!.every((r) => r.status === "pending" && r.channel === "email")).toBe(true);
+    expect(pendingRows!.map((r) => r.event_type).sort()).toEqual(["customer_receipt", "submission_completed"]);
 
     // Real RPC client + real lead lookup, wired to the local Supabase
     // stack; only the EmailProvider and its config are faked — never a
@@ -404,67 +574,232 @@ describe("CHECKPOINT C2H-B2 — real local outbox + dispatcher + Queue-consumer 
       createEmailProvider: () => fakeProvider,
     };
 
-    // First wake-up (as the real Queue consumer would process it).
+    // First wake-up (exactly as the real Queue consumer calls it): the
+    // latency fix's bounded in-message drain loop claims and sends the
+    // first due row, sees it's still the same message, continues the loop,
+    // claims and sends the SECOND due row too, then gets no_work and acks —
+    // all within this ONE wake-up. Both rows were inserted inside the SAME
+    // transaction (create_website_quote_v1's own call to
+    // complete_lead_if_ready), and Postgres's now() is frozen for a whole
+    // transaction's duration — the two rows can share an identical
+    // created_at, so which one the fallback scan claims first is not
+    // guaranteed to be submission_completed specifically. This test proves
+    // "both get sent exactly once each, from a single wake-up" — not a
+    // specific order — which is the whole point of the fix: no second
+    // wake-up is needed to dispatch the customer row promptly.
     const firstMessage = fakeWakeupMessage();
     await handleOwnerNotificationQueueBatch(
       { messages: [firstMessage] },
       { dispatch: () => dispatchOwnerNotification({}, deps), logger: createNoopNotificationLogger() },
     );
     expect(firstMessage.acked).toBe(true);
-    expect(sendCalls).toHaveLength(1);
+    expect(sendCalls).toHaveLength(2);
+    // The single wake-up reached exactly one owner recipient and exactly
+    // one customer recipient — never the same recipient twice.
+    const recipients = sendCalls.map((c) => c.to).sort();
+    expect(recipients).toEqual([testEmailConfig.ownerNotificationEmail, "c2h-b2.integration.seller@example.com"].sort());
+    const customerSend = sendCalls.find((c) => c.to === "c2h-b2.integration.seller@example.com")!;
+    expect(customerSend.subject).toContain((createResult as { reference: string }).reference);
 
-    const { data: sentRow } = await serviceClient
-      .from("notification_deliveries")
-      .select("status, provider, provider_message_id, sent_at")
-      .eq("lead_id", leadId)
-      .single();
-    expect(sentRow?.status).toBe("sent");
-    expect(sentRow?.provider).toBe("fake");
-    expect(sentRow?.provider_message_id).toBe("fake-msg-1");
+    expect((await fetchDelivery(leadId, "submission_completed")).status).toBe("sent");
+    expect((await fetchDelivery(leadId, "customer_receipt")).status).toBe("sent");
 
-    // Replayed/duplicate wake-up (Cloudflare Queue may deliver more than
-    // once) — must be acknowledged, and must NOT send a second email.
+    // Second wake-up: both rows are now resolved — nothing left due anywhere
+    // in the table from this fixture — a genuine replay/duplicate Queue
+    // message must be acknowledged as a safe no-op, never a further send.
     const replayMessage = fakeWakeupMessage();
     await handleOwnerNotificationQueueBatch(
       { messages: [replayMessage] },
       { dispatch: () => dispatchOwnerNotification({}, deps), logger: createNoopNotificationLogger() },
     );
     expect(replayMessage.acked).toBe(true);
-    expect(sendCalls).toHaveLength(1); // still exactly one — no duplicate send
+    expect(sendCalls).toHaveLength(2); // still exactly two — no duplicate of either
 
-    const { data: finalRow } = await serviceClient
-      .from("notification_deliveries")
-      .select("status")
-      .eq("lead_id", leadId)
-      .single();
-    expect(finalRow?.status).toBe("sent");
-  });
+    expect((await fetchDelivery(leadId, "submission_completed")).status).toBe("sent");
+    expect((await fetchDelivery(leadId, "customer_receipt")).status).toBe("sent");
+  }, 120_000); // same resetLocalDatabase()-driven-test convention as the cron-sweep/concurrent-sweep/HTML-injection tests further down this file — a full `supabase db reset` alone can take the majority of the default 60s budget.
 
   // -------------------------------------------------------------------------
   // A — Durable creation (Buyer + replay-safety)
   // -------------------------------------------------------------------------
 
-  it("a completed Buyer quote creates exactly one pending notification row, correctly linked to that lead", async () => {
+  it("a completed Buyer quote creates exactly TWO pending notification rows — owner submission_completed and the new customer_receipt — correctly linked to that lead", async () => {
     const { leadId } = await createCompletedLead(buySubmission());
-    const { data: rows } = await serviceClient.from("notification_deliveries").select("id, lead_id, event_type, channel, status").eq("lead_id", leadId);
-    expect(rows).toHaveLength(1);
-    expect(rows![0]!.event_type).toBe("submission_completed");
-    expect(rows![0]!.channel).toBe("email");
-    expect(rows![0]!.status).toBe("pending");
+    const { data: rows } = await serviceClient
+      .from("notification_deliveries")
+      .select("id, lead_id, event_type, channel, status")
+      .eq("lead_id", leadId)
+      .order("event_type", { ascending: true });
+    expect(rows).toHaveLength(2);
+    expect(rows!.map((r) => r.event_type).sort()).toEqual(["customer_receipt", "submission_completed"]);
+    for (const row of rows!) {
+      expect(row.channel).toBe("email");
+      expect(row.status).toBe("pending");
+      expect(row.lead_id).toBe(leadId);
+    }
   });
 
-  it("replaying an already-completed quote (complete_website_quote_v1 reconciliation) does not create a second notification row", async () => {
+  it("replaying an already-completed quote (complete_website_quote_v1 reconciliation) does not create a second row of either kind", async () => {
     const { leadId, idempotencyKey } = await createCompletedLead(sellSubmission());
     const before = await serviceClient.from("notification_deliveries").select("id", { count: "exact", head: true }).eq("lead_id", leadId);
-    expect(before.count).toBe(1);
+    expect(before.count).toBe(2);
 
     const replay = await serviceClient.rpc("complete_website_quote_v1", { p_lead_id: leadId, p_idempotency_key: idempotencyKey });
     expect(replay.error).toBeNull();
     expect((replay.data as { already_completed: boolean }).already_completed).toBe(true);
 
     const after = await serviceClient.from("notification_deliveries").select("id", { count: "exact", head: true }).eq("lead_id", leadId);
-    expect(after.count).toBe(1);
+    expect(after.count).toBe(2);
   });
+
+  // -------------------------------------------------------------------------
+  // A2 — customer_receipt dispatch, Sell and Buy, content/recipient
+  // correctness, and the normalized-email/historical/owner-created
+  // isolation guarantees this feature promises.
+  // -------------------------------------------------------------------------
+
+  it("Sell: customer_receipt dispatches to the lead's own seller_email, with a safe reference+summary body and no sensitive fields", async () => {
+    // Already-lowercased, matching what the app layer's normalizeOptionalEmail
+    // actually hands to this RPC in production (see submission-schema.ts) —
+    // this fixture calls create_website_quote_v1 directly, bypassing that
+    // app-layer normalization step entirely, so a raw mixed-case value here
+    // would (correctly) fail leads_seller_email_check, which independently
+    // requires `seller_email = lower(seller_email)`. That constraint's own
+    // behavior is already proven directly in submission-schema.test.ts /
+    // the pgTAP suite; this test's own point is dispatch recipient/content
+    // correctness, not re-proving normalization.
+    const { leadId } = await createCompletedLead(
+      sellSubmission({ sellerEmail: "mixed.case.seller@example.com", sellerPhone: "+971509999999", sellerArea: "Secret Yard 7" }),
+    );
+    const { data: lead } = await serviceClient.from("leads").select("reference, seller_email").eq("id", leadId).single();
+    expect(lead?.seller_email).toBe("mixed.case.seller@example.com");
+
+    const row = await fetchDelivery(leadId, "customer_receipt");
+    const provider = uniqueFakeSendingProvider();
+    const result = await dispatchOwnerNotification({ deliveryId: row.id }, buildRealDeps(provider));
+    expect(result.kind).toBe("sent");
+    expect(provider.calls).toHaveLength(1);
+    const sent = provider.calls[0]!;
+    expect(sent.to).toBe("mixed.case.seller@example.com");
+    expect(sent.subject).toContain(lead!.reference);
+    expect(sent.text).toContain(lead!.reference);
+    expect(sent.text).toContain("Sell to MSM");
+    expect(sent.text).not.toContain("+971509999999");
+    expect(sent.text).not.toContain("Secret Yard 7");
+    expect(sent.text.toLowerCase()).not.toContain("dashboard");
+  });
+
+  it("Buy: customer_receipt dispatches to the normalized buyer_email, never the seller_email column", async () => {
+    const { leadId } = await createCompletedLead(
+      buySubmission({ buyerEmail: "buyer.receipt@example.com", buyerPhone: "+971508888888" }),
+    );
+    const row = await fetchDelivery(leadId, "customer_receipt");
+    const provider = uniqueFakeSendingProvider();
+    const result = await dispatchOwnerNotification({ deliveryId: row.id }, buildRealDeps(provider));
+    expect(result.kind).toBe("sent");
+    const sent = provider.calls[0]!;
+    expect(sent.to).toBe("buyer.receipt@example.com");
+    expect(sent.text).toContain("Buy from MSM");
+    expect(sent.text).not.toContain("+971508888888");
+  });
+
+  it("a lead with a null seller_email (simulating a pre-feature historical/owner-created row that somehow still reached this event_type) dead-letters the customer_receipt row with RECIPIENT_EMAIL_MISSING, and never touches the owner row", async () => {
+    const { leadId } = await createCompletedLead(sellSubmission());
+    // Simulate the historical-data edge case directly — this column has no
+    // CHECK requiring it (see the migration's own comment: "historical
+    // nullable leads ... unaffected"), so this update is itself proof that
+    // nothing this feature added can reject it.
+    const nulled = await serviceClient.from("leads").update({ seller_email: null }).eq("id", leadId);
+    expect(nulled.error).toBeNull();
+
+    const customerRow = await fetchDelivery(leadId, "customer_receipt");
+    const customerProvider = uniqueFakeSendingProvider();
+    const result = await dispatchOwnerNotification({ deliveryId: customerRow.id }, buildRealDeps(customerProvider));
+    expect(result).toEqual({ kind: "dead_lettered", deliveryId: customerRow.id, errorCode: "RECIPIENT_EMAIL_MISSING" });
+    expect(customerProvider.calls).toHaveLength(0);
+
+    // The sibling owner row is completely unaffected — still pending, still dispatchable.
+    const ownerRow = await fetchDelivery(leadId, "submission_completed");
+    expect(ownerRow.status).toBe("pending");
+    const ownerProvider = uniqueFakeSendingProvider();
+    const ownerResult = await dispatchOwnerNotification({ deliveryId: ownerRow.id }, buildRealDeps(ownerProvider));
+    expect(ownerResult.kind).toBe("sent");
+    expect(ownerProvider.calls).toHaveLength(1);
+    expect(ownerProvider.calls[0]!.to).toBe(testEmailConfig.ownerNotificationEmail);
+  });
+
+  it("a genuinely non-website (owner-created/phone) lead never gets a customer_receipt row — unaffected by this feature", async () => {
+    const { data: lead, error } = await serviceClient
+      .from("leads")
+      .insert({
+        idempotency_key: crypto.randomUUID(),
+        payload_hash: "0".repeat(64),
+        intent: "sell",
+        capture_channel: "phone",
+        material: "copper",
+        submission_snapshot: {},
+      })
+      .select("id")
+      .single();
+    expect(error).toBeNull();
+
+    const completed = await serviceClient.rpc("complete_lead_if_ready", { p_lead_id: lead!.id });
+    expect(completed.data).toBe(false);
+
+    const { count } = await serviceClient.from("notification_deliveries").select("id", { count: "exact", head: true }).eq("lead_id", lead!.id);
+    expect(count).toBe(0);
+  });
+
+  it("concurrent duplicate submissions (same idempotency_key racing create_website_quote_v1) create exactly one pair of notification rows, never two", async () => {
+    const idempotencyKey = crypto.randomUUID();
+    const payloadHashBytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`customer-receipt-race-${idempotencyKey}`));
+    const payloadHash = Array.from(new Uint8Array(payloadHashBytes)).map((b) => b.toString(16).padStart(2, "0")).join("");
+    const submission = sellSubmission({ sellerName: "Race Fixture" });
+
+    const [first, second] = await Promise.all([
+      serviceClient.rpc("create_website_quote_v1", { p_idempotency_key: idempotencyKey, p_payload_hash: payloadHash, p_submission: submission, p_files: [] }),
+      serviceClient.rpc("create_website_quote_v1", { p_idempotency_key: idempotencyKey, p_payload_hash: payloadHash, p_submission: submission, p_files: [] }),
+    ]);
+    expect(first.error).toBeNull();
+    expect(second.error).toBeNull();
+    const leadIdA = (first.data as { lead_id: string }).lead_id;
+    const leadIdB = (second.data as { lead_id: string }).lead_id;
+    expect(leadIdA).toBe(leadIdB);
+
+    const { count } = await serviceClient.from("notification_deliveries").select("id", { count: "exact", head: true }).eq("lead_id", leadIdA);
+    expect(count).toBe(2);
+  });
+
+  it("retry after a partial/transient failure eventually sends the customer_receipt exactly once — no duplicate on the successful retry", async () => {
+    const { leadId } = await createCompletedLead(sellSubmission({ sellerEmail: "retry.customer@example.com" }));
+    const row = await fetchDelivery(leadId, "customer_receipt");
+
+    const claim = await serviceClient.rpc("claim_notification_delivery_v1", { p_claim_token: crypto.randomUUID(), p_delivery_id: row.id, p_lease_seconds: 60 });
+    expect(claim.error).toBeNull();
+    const claimToken = (claim.data as { claim_token: string }).claim_token;
+    await serviceClient.rpc("reschedule_notification_delivery_v1", {
+      p_delivery_id: row.id,
+      p_claim_token: claimToken,
+      p_error_code: "SERVER_ERROR",
+      p_retry_after_seconds: 1,
+    });
+    expect((await fetchDelivery(leadId, "customer_receipt")).status).toBe("retry_wait");
+
+    await sleep(1200);
+
+    const provider = uniqueFakeSendingProvider();
+    const result = await dispatchOwnerNotification({ deliveryId: row.id }, buildRealDeps(provider));
+    expect(result.kind).toBe("sent");
+    expect(provider.calls).toHaveLength(1);
+    expect(provider.calls[0]!.to).toBe("retry.customer@example.com");
+    expect((await fetchDelivery(leadId, "customer_receipt")).status).toBe("sent");
+
+    // A further dispatch attempt against the now-sent row is already proven
+    // unreachable via the claim's own eligibility predicate — nothing left
+    // to claim, so a direct re-call simply finds no work for THIS row.
+    const stillSentRow = await fetchDelivery(leadId, "customer_receipt");
+    expect(stillSentRow.status).toBe("sent");
+  }, 15_000);
 
   // -------------------------------------------------------------------------
   // B — Queue-dispatch failure boundary: quote success is isolated from an
@@ -664,7 +999,7 @@ describe("CHECKPOINT C2H-B2 — real local outbox + dispatcher + Queue-consumer 
     // this same shared local database. A full reset is safe mid-suite
     // (`supabase db reset`, unconditionally); no other test's data is
     // needed after this point in the file.
-    resetLocalDatabase();
+    await resetLocalDatabase();
 
     const pending = await createCompletedLead(sellSubmission({ sellerName: "Cron Pending Fixture" }));
     const dueRetry = await createCompletedLead(sellSubmission({ sellerName: "Cron Due-Retry Fixture" }));
@@ -673,6 +1008,18 @@ describe("CHECKPOINT C2H-B2 — real local outbox + dispatcher + Queue-consumer 
     const activelyLeased = await createCompletedLead(sellSubmission({ sellerName: "Cron Actively-Leased Fixture" }));
     const alreadySent = await createCompletedLead(sellSubmission({ sellerName: "Cron Already-Sent Fixture" }));
     const deadLettered = await createCompletedLead(sellSubmission({ sellerName: "Cron Dead-Lettered Fixture" }));
+
+    // CHECKPOINT (customer receipt) — see neutralizeCustomerReceiptSibling's
+    // own doc comment: this test's eligibility math (exactly 3 eligible,
+    // exactly these 7 fixtures' submission_completed rows) predates
+    // customer_receipt and is entirely about the generic sweep/claim
+    // mechanism, not event_type-specific — each fixture's new sibling row
+    // is neutralized here so that original math holds unchanged. Sequential
+    // (not Promise.all), matching this file's own established convention of
+    // awaiting one RPC round trip at a time against the local stack.
+    for (const f of [pending, dueRetry, notYetDue, stranded, activelyLeased, alreadySent, deadLettered]) {
+      await neutralizeCustomerReceiptSibling(f.leadId);
+    }
 
     // Set up each fixture's real starting state via the real RPCs.
     const dueRetryRow = await fetchDelivery(dueRetry.leadId);
@@ -754,7 +1101,7 @@ describe("CHECKPOINT C2H-B2 — real local outbox + dispatcher + Queue-consumer 
     // reasoning as the eligibility test immediately above) — this test's
     // own exact-count assertions (2 processed, 2 sent) require a clean
     // slate, not just "no OTHER eligible row happens to exist right now".
-    resetLocalDatabase();
+    await resetLocalDatabase();
 
     const first = await createCompletedLead(sellSubmission({ sellerName: "Concurrent Sweep Fixture One" }));
     const second = await createCompletedLead(sellSubmission({ sellerName: "Concurrent Sweep Fixture Two" }));
@@ -766,17 +1113,23 @@ describe("CHECKPOINT C2H-B2 — real local outbox + dispatcher + Queue-consumer 
     // ticks, or a Cron tick racing a Queue consumer, would each do) draining
     // the same due work — FOR UPDATE SKIP LOCKED (already proven directly
     // in the "two concurrent claim attempts" test above) is what guarantees
-    // no row is ever claimed, and therefore never sent, twice.
+    // no row is ever claimed, and therefore never sent, twice. Each fixture
+    // now carries TWO due rows (submission_completed + customer_receipt),
+    // so 4 total, not 2 — this additionally proves the concurrency
+    // guarantee holds across a mixed-event_type backlog, not merely two
+    // same-type rows.
     const [sweepA, sweepB] = await Promise.all([
       runNotificationCronSweep({ dispatch: () => dispatchOwnerNotification({}, deps), logger: createNoopNotificationLogger(), maxJobs: 5 }),
       runNotificationCronSweep({ dispatch: () => dispatchOwnerNotification({}, deps), logger: createNoopNotificationLogger(), maxJobs: 5 }),
     ]);
     expect(sweepA.stopReason).toBe("no_work");
     expect(sweepB.stopReason).toBe("no_work");
-    expect(sweepA.processed + sweepB.processed).toBe(2);
-    expect(provider.calls).toHaveLength(2);
-    expect((await fetchDelivery(first.leadId)).status).toBe("sent");
-    expect((await fetchDelivery(second.leadId)).status).toBe("sent");
+    expect(sweepA.processed + sweepB.processed).toBe(4);
+    expect(provider.calls).toHaveLength(4);
+    expect((await fetchDelivery(first.leadId, "submission_completed")).status).toBe("sent");
+    expect((await fetchDelivery(first.leadId, "customer_receipt")).status).toBe("sent");
+    expect((await fetchDelivery(second.leadId, "submission_completed")).status).toBe("sent");
+    expect((await fetchDelivery(second.leadId, "customer_receipt")).status).toBe("sent");
   }, 120_000);
 
   // -------------------------------------------------------------------------
@@ -795,7 +1148,7 @@ describe("CHECKPOINT C2H-B2 — real local outbox + dispatcher + Queue-consumer 
     // what correctly reports a genuine transient RPC failure rather than
     // crashing; this reset removes that transient from the equation so
     // this test's own content-safety assertions stay deterministic).
-    resetLocalDatabase();
+    await resetLocalDatabase();
 
     const maliciousArea = '<img src=x onerror="alert(1)"> Al Quoz';
     const maliciousNotes = "Line one\n<script>alert('xss')</script>\nLine two";
@@ -816,9 +1169,15 @@ describe("CHECKPOINT C2H-B2 — real local outbox + dispatcher + Queue-consumer 
     // text (inside `&lt;img ... onerror=&quot;alert(1)&quot;&gt;`) is safe
     // and expected — it can never become a real attribute once its
     // surrounding `<`/`>`/`"` are entity-escaped, so this only checks for
-    // an actual live tag, not the substring "onerror=" in isolation.
+    // an actual live tag, not the substring "onerror=" in isolation. The
+    // approved design legitimately contains exactly one real <img> — the
+    // logo — so "no injected <img>" is now proven by counting real <img>
+    // tags (must stay at exactly 1, the logo), not by a blanket substring
+    // absence check.
+    const realImgTags = [...html.matchAll(/<img\b[^>]*>/g)];
+    expect(realImgTags).toHaveLength(1);
+    expect(realImgTags[0]![0]).toContain("email-logo-msm.png");
     expect(html).not.toContain("<script>");
-    expect(html).not.toContain("<img ");
     expect(html).toContain("&lt;script&gt;");
     expect(html).toContain("&lt;img");
     expect(html).toContain("&lt;b&gt;Bold&lt;/b&gt;");
@@ -828,12 +1187,12 @@ describe("CHECKPOINT C2H-B2 — real local outbox + dispatcher + Queue-consumer 
   }, 120_000);
 
   it("cleans up: resetting the local database leaves zero rows behind", async () => {
-    resetLocalDatabase();
+    await resetLocalDatabase();
     const [leads, notifications] = await Promise.all([
       serviceClient.from("leads").select("id", { count: "exact", head: true }),
       serviceClient.from("notification_deliveries").select("id", { count: "exact", head: true }),
     ]);
     expect(leads.count).toBe(0);
     expect(notifications.count).toBe(0);
-  });
+  }, 120_000); // resetLocalDatabase() alone can take the majority of the default 60s budget.
 });

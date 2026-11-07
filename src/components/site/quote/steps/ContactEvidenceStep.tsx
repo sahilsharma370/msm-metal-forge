@@ -54,13 +54,6 @@ export function ContactEvidenceStep({
   const preferredContact = isSeller
     ? form.watch("sellerPreferredContact")
     : form.watch("buyerPreferredContact");
-  const emailValue = isSeller ? form.watch("sellerEmail") : form.watch("buyerEmail");
-  const emailError = isSeller ? errors.sellerEmail : errors.buyerEmail;
-  // Email is hidden until Email is chosen as the preferred contact — but a
-  // restored draft's saved email, or a validation error on it, must always
-  // reopen the field: data (or an error the customer needs to fix) can
-  // never become invisible/inaccessible just because the toggle is closed.
-  const showEmail = preferredContact === "email" || !!emailValue?.trim() || !!emailError;
 
   const evidenceFiles = isSeller ? form.watch("sellerPhotos") : form.watch("buyerDocuments");
   const hasUnresolvedFiles = unresolvedFilenames.length > 0;
@@ -206,7 +199,6 @@ export function ContactEvidenceStep({
               shouldDirty: true,
             });
             form.clearErrors(field);
-            if (v !== "email") form.clearErrors(isSeller ? "sellerEmail" : "buyerEmail");
           }}
           error={
             isSeller
@@ -216,49 +208,46 @@ export function ContactEvidenceStep({
         />
       </div>
 
-      {/* Email reveals automatically once Email is the preferred contact —
-          and stays visible whenever a restored value or an error exists, so
-          data/errors can never be hidden behind a closed toggle. */}
-      {showEmail && (
-        <div className="mt-4 max-w-md">
-          {isSeller ? (
-            <>
-              <Label htmlFor="sellerEmail" className="text-sm font-semibold text-foreground/90">
-                Email{" "}
-                <span className="font-normal text-foreground/50">
-                  {preferredContact === "email" ? "(required)" : "(optional)"}
-                </span>
-              </Label>
-              <Input
-                id="sellerEmail"
-                type="email"
-                className="mt-2 h-11 rounded-xl border-white/15 bg-navy-deep/95"
-                aria-invalid={!!errors.sellerEmail}
-                aria-describedby={errors.sellerEmail ? "sellerEmail-error" : undefined}
-                {...form.register("sellerEmail", {
-                  onChange: () => form.clearErrors("sellerEmail"),
-                })}
-              />
-              <FieldError id="sellerEmail-error" message={errors.sellerEmail?.message} />
-            </>
-          ) : (
-            <>
-              <Label htmlFor="buyerEmail" className="text-sm font-semibold text-foreground/90">
-                Email <span className="font-normal text-foreground/50">(required)</span>
-              </Label>
-              <Input
-                id="buyerEmail"
-                type="email"
-                className="mt-2 h-11 rounded-xl border-white/15 bg-navy-deep/95"
-                aria-invalid={!!errors.buyerEmail}
-                aria-describedby={errors.buyerEmail ? "buyerEmail-error" : undefined}
-                {...form.register("buyerEmail", { onChange: () => form.clearErrors("buyerEmail") })}
-              />
-              <FieldError id="buyerEmail-error" message={errors.buyerEmail?.message} />
-            </>
-          )}
-        </div>
-      )}
+      {/* Email is always visible and required for both Sell and Buy,
+          regardless of preferred-contact choice — it's the address the
+          customer-receipt confirmation email is sent to, not merely MSM's
+          follow-up channel. Both labels are now the same unconditional
+          "(required)" (no longer tied to preferredContact === "email"). */}
+      <div className="mt-4 max-w-md">
+        {isSeller ? (
+          <>
+            <Label htmlFor="sellerEmail" className="text-sm font-semibold text-foreground/90">
+              Email <span className="font-normal text-foreground/50">(required)</span>
+            </Label>
+            <Input
+              id="sellerEmail"
+              type="email"
+              className="mt-2 h-11 rounded-xl border-white/15 bg-navy-deep/95"
+              aria-invalid={!!errors.sellerEmail}
+              aria-describedby={errors.sellerEmail ? "sellerEmail-error" : undefined}
+              {...form.register("sellerEmail", {
+                onChange: () => form.clearErrors("sellerEmail"),
+              })}
+            />
+            <FieldError id="sellerEmail-error" message={errors.sellerEmail?.message} />
+          </>
+        ) : (
+          <>
+            <Label htmlFor="buyerEmail" className="text-sm font-semibold text-foreground/90">
+              Email <span className="font-normal text-foreground/50">(required)</span>
+            </Label>
+            <Input
+              id="buyerEmail"
+              type="email"
+              className="mt-2 h-11 rounded-xl border-white/15 bg-navy-deep/95"
+              aria-invalid={!!errors.buyerEmail}
+              aria-describedby={errors.buyerEmail ? "buyerEmail-error" : undefined}
+              {...form.register("buyerEmail", { onChange: () => form.clearErrors("buyerEmail") })}
+            />
+            <FieldError id="buyerEmail-error" message={errors.buyerEmail?.message} />
+          </>
+        )}
+      </div>
 
       {/* C2L (surgical contact photo fix) — Photos/Documents now sits right
           after Preferred contact/Email, ahead of the collapsed Company/Note

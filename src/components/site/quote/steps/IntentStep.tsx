@@ -89,18 +89,20 @@ export function IntentStep() {
           instead of stacking directly underneath it, matching the
           approved mockup; it drops back under the subtext on narrow
           screens via `flex-col sm:flex-row`, so mobile is untouched.
-          Mobile-only fit pass (gap-2/mt-2/chip py-1, all `sm:`-restored to
-          the exact original gap-3/mt-3/py-1.5): Step 1's question block +
-          both option cards needed to scroll to see the Buy card on a
-          normal phone viewport with the toolbar visible — this trims the
-          vertical rhythm between blocks, not any text or font size. */}
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
+          Mobile-only fit pass (gap-1.5/mt-1.5/chip py-0.5, all
+          `sm:`-restored to the exact original gap-3/mt-3/py-1.5): the
+          previous gap-2/mt-2/py-1 pass fit a tall ~748px phone but a
+          shorter real-world one (iPhone SE-class, or any phone with
+          Chrome's toolbar actually visible — measured at 375x667) still
+          needed to scroll to see the Buy card. Trims the vertical rhythm
+          between blocks further, not any text or font size. */}
+      <div className="flex flex-col gap-1.5 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
         <div>
           <p className="label-eyebrow text-copper-bright">{getStageEyebrow(1, intent)}</p>
-          <h2 className="font-display mt-2 text-2xl font-bold text-foreground sm:mt-3 sm:text-3xl">
+          <h2 className="font-display mt-1.5 text-2xl font-bold text-foreground sm:mt-3 sm:text-3xl">
             Would you like to sell or buy scrap?
           </h2>
-          <p className="mt-2 max-w-xl text-sm leading-relaxed font-normal text-foreground/70">
+          <p className="mt-1.5 max-w-xl text-sm leading-relaxed font-normal text-foreground/70">
             Choose one to continue. You can review everything before sending.
           </p>
         </div>
@@ -109,43 +111,43 @@ export function IntentStep() {
             instead of plain low-contrast text, so the "quick, no account
             needed" reassurance is clearly visible without competing with
             the copper CTAs below it. */}
-        <p className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-white/12 bg-navy-deep/95 px-2.5 py-1 text-xs font-semibold whitespace-nowrap text-foreground/75 sm:px-3 sm:py-1.5">
+        <p className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-white/12 bg-navy-deep/95 px-2.5 py-0.5 text-xs font-semibold whitespace-nowrap text-foreground/75 sm:px-3 sm:py-1.5">
           <Clock aria-hidden="true" className="h-3.5 w-3.5 text-copper-bright" />
           Takes about 2 minutes · No account needed
         </p>
       </div>
 
-      {/* Mobile-only fit pass continued: mt-4/gap-2 (restored to the
-          original mt-6/gap-3 at sm+), and each card's own p-4 + h-7 w-7
-          icon (restored to p-5 + h-8 w-8 at sm+) — card content/type size
-          and the internal gap-2 between icon/eyebrow/title/description are
-          untouched, so the cards stay exactly as readable, just less
-          padded around that unchanged content. */}
+      {/* Further correction pass: mt-3/gap-1.5 (restored to the original
+          mt-6/gap-3 at sm+), each card's own p-3 + h-6 w-6 icon + internal
+          gap-1 (all restored to p-5 + h-8 w-8 + gap-2 at sm+) — card
+          copy/type size is untouched, only the padding/gaps/icon size
+          around that unchanged content shrink further on the shortest
+          real phone viewports. */}
       <div
         id="intent"
         role="radiogroup"
         aria-label="Enquiry type"
-        className="mt-4 grid gap-2 sm:mt-6 sm:grid-cols-2 sm:gap-3"
+        className="mt-3 grid gap-1.5 sm:mt-6 sm:grid-cols-2 sm:gap-3"
       >
         <QuoteOptionCard
           eyebrow="Sell to Us"
           title="Sell Scrap to MSM"
           description="I have metal scrap or surplus material to sell."
-          icon={<StackedIngotsIcon aria-hidden="true" className="h-7 w-7 sm:h-8 sm:w-8" />}
+          icon={<StackedIngotsIcon aria-hidden="true" className="h-6 w-6 sm:h-8 sm:w-8" />}
           selected={intent === "sell"}
           onSelect={() => selectIntent("sell")}
           showArrowWhenSelected
-          className="gap-2 p-4 sm:p-5"
+          className="gap-1 p-3 sm:gap-2 sm:p-5"
         />
         <QuoteOptionCard
           eyebrow="Buy from Us"
           title="Buy Scrap from MSM"
           description="I need metal scrap or bulk material supply."
-          icon={<BuyDollyIcon aria-hidden="true" className="h-7 w-7 sm:h-8 sm:w-8" />}
+          icon={<BuyDollyIcon aria-hidden="true" className="h-6 w-6 sm:h-8 sm:w-8" />}
           selected={intent === "buy"}
           onSelect={() => selectIntent("buy")}
           showArrowWhenSelected
-          className="gap-2 p-4 sm:p-5"
+          className="gap-1 p-3 sm:gap-2 sm:p-5"
         />
       </div>
 

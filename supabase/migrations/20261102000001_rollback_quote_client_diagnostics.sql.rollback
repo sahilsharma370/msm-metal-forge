@@ -1,0 +1,24 @@
+-- ---------------------------------------------------------------------------
+-- ROLLBACK for 20261102000000_create_quote_client_diagnostics.sql.
+--
+-- NOT a forward migration — deliberately named with a `.rollback` suffix,
+-- not `.sql`, so the Supabase CLI never picks it up and applies it
+-- automatically. Keep it alongside the migration it undoes for discoverability
+-- only. To actually roll back, rename/copy this file's contents into a new,
+-- timestamped `.sql` migration (dated AFTER the last-applied migration at
+-- rollback time) and apply it the normal way — see the release notes for
+-- when this is the right call versus a forward fix instead.
+--
+-- Irreversibly DROPS the table and both functions, destroying every stored
+-- diagnostic row. Since this table is explicitly non-authoritative, best-
+-- effort, and already subject to its own age-based deletion
+-- (prune_quote_client_diagnostics_v1), dropping it early loses nothing the
+-- rest of the system depends on — no other table has a foreign key into
+-- quote_client_diagnostics, and nothing else in this schema references
+-- either function (confirmed: this migration is the only one in
+-- supabase/migrations/ that mentions quote_client_diagnostics).
+-- ---------------------------------------------------------------------------
+
+drop function if exists public.prune_quote_client_diagnostics_v1(integer);
+drop function if exists public.log_quote_client_diagnostic_v1(text, boolean, boolean, boolean, boolean, boolean);
+drop table if exists public.quote_client_diagnostics;

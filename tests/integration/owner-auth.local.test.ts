@@ -262,5 +262,5 @@ describe("CHECKPOINT C2I-A — real local owner authentication + authorization",
     expect(listError).toBeNull();
     const leftoverTestUsers = (usersList?.users ?? []).filter((u) => u.email?.endsWith("@example.test"));
     expect(leftoverTestUsers).toHaveLength(0);
-  });
+  }, 120_000); // resetLocalDatabase() alone (a full `supabase db reset`) can take the majority of the default 60s budget — same convention as notification-dispatch.local.test.ts's own resetLocalDatabase()-driven tests.
 });

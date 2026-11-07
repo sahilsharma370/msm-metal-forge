@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildQuoteSubmissionShape,
   buildOrderedFileDeclarations,
@@ -145,6 +145,36 @@ describe("computeQuoteSubmissionIdentity — hash/idempotency behavior", () => {
     expect(plain.identity.payloadHash).toBe(formatted.identity.payloadHash);
   });
 
+  it("treats equivalent email casing (per the leads_seller_email_check normalization fix) as the same identity", async () => {
+    const lower = await computeQuoteSubmissionIdentity(
+      baseSellerValues({ sellerEmail: "test.user@example.com", sellerPreferredContact: "email" }),
+      sellerContext,
+    );
+    const mixed = await computeQuoteSubmissionIdentity(
+      baseSellerValues({ sellerEmail: "Test.User@EXAMPLE.com", sellerPreferredContact: "email" }),
+      sellerContext,
+    );
+    expect(lower.ok).toBe(true);
+    expect(mixed.ok).toBe(true);
+    if (!lower.ok || !mixed.ok) return;
+    expect(lower.identity.payloadHash).toBe(mixed.identity.payloadHash);
+  });
+
+  it("treats a blank email the same as an absent one — both normalize to null before hashing", async () => {
+    const blank = await computeQuoteSubmissionIdentity(
+      baseSellerValues({ sellerEmail: "", sellerPreferredContact: "call" }),
+      sellerContext,
+    );
+    const absent = await computeQuoteSubmissionIdentity(
+      baseSellerValues({ sellerPreferredContact: "call" }),
+      sellerContext,
+    );
+    expect(blank.ok).toBe(true);
+    expect(absent.ok).toBe(true);
+    if (!blank.ok || !absent.ok) return;
+    expect(blank.identity.payloadHash).toBe(absent.identity.payloadHash);
+  });
+
   it("produces a different hash when a material field changes", async () => {
     const a = await computeQuoteSubmissionIdentity(baseSellerValues({ material: "copper" }), sellerContext);
     const b = await computeQuoteSubmissionIdentity(
@@ -269,5 +299,42 @@ describe("resolveIdempotencyKey", () => {
   it("generates a new key when there is no existing attempt", () => {
     const key = resolveIdempotencyKey("a".repeat(64), null);
     expect(key).toMatch(/^[0-9a-f-]{36}$/);
+  });
+});
+
+describe("resolveIdempotencyKey — crypto.randomUUID fallback", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("falls back to a crypto.getRandomValues-built v4 UUID when crypto.randomUUID throws — never a weaker source", () => {
+    vi.spyOn(crypto, "randomUUID").mockImplementation(() => {
+      throw new Error("crypto.randomUUID is not a function");
+    });
+    const key = resolveIdempotencyKey("a".repeat(64), null);
+    // RFC 4122 v4: version nibble is 4, variant nibble is 8/9/a/b — a real
+    // structural check, not just "looks like a UUID", confirming the
+    // fallback actually assembled the bytes correctly rather than
+    // returning some placeholder.
+    expect(key).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+  });
+
+  it("two fallback-generated keys in a row are different — genuine entropy, not a fixed/deterministic fallback value", () => {
+    vi.spyOn(crypto, "randomUUID").mockImplementation(() => {
+      throw new Error("crypto.randomUUID is not a function");
+    });
+    const first = resolveIdempotencyKey("a".repeat(64), null);
+    const second = resolveIdempotencyKey("b".repeat(64), null);
+    expect(first).not.toBe(second);
+  });
+
+  it("propagates the failure (never falls back to Math.random() or any non-cryptographic source) when crypto.getRandomValues is ALSO unavailable", () => {
+    vi.spyOn(crypto, "randomUUID").mockImplementation(() => {
+      throw new Error("crypto.randomUUID is not a function");
+    });
+    vi.spyOn(crypto, "getRandomValues").mockImplementation(() => {
+      throw new Error("crypto.getRandomValues is not a function");
+    });
+    expect(() => resolveIdempotencyKey("a".repeat(64), null)).toThrow();
   });
 });

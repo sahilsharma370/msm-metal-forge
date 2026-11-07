@@ -81,7 +81,41 @@ export function outcomeBanner(outcome: QuoteSubmissionOutcome): SubmissionBanner
     case "server_error":
       return {
         tone: "retryable",
-        message: "Something went wrong on our end. Please try again.",
+        message: "Something went wrong on our end. Please try again. (Error code: QT-SRV)",
+        showRetry: true,
+      };
+    // Same customer-facing wording and behavior as "server_error" — the
+    // only difference is the trailing code. A customer screenshot of this
+    // exact banner is the only signal support has for which of the two
+    // happened (see QuoteExperience.tsx's own call site comment); never a
+    // stack trace, error message, or any customer data, just this fixed
+    // tag distinguishing it from a genuine server-returned "server_error".
+    //
+    // REVIEWED, kept generic — an earlier draft of this release branched
+    // on `outcome.leadId` (present only when the engine's own catch
+    // recovered a confirmed "initiated" attempt — a real server response,
+    // never a guess) to show a DIFFERENT, more reassuring message for a
+    // customer whose enquiry had already been created server-side. That
+    // branch was reverted deliberately, not because it was inaccurate —
+    // every word of it was true whenever shown — but because this release
+    // is scoped to zero NEW customer-facing copy: the live site today
+    // shows this exact generic wording for every client_exception, with
+    // or without a recoverable leadId, and this release keeps that
+    // byte-for-byte. The engine's leadId recovery itself is untouched and
+    // still populates `outcome.leadId` — it's just no longer read here.
+    // Trade-off, explicit: a customer whose enquiry already exists
+    // server-side loses the extra "may already be saved" reassurance and
+    // sees the same wording as a customer for whom nothing happened yet.
+    // This is NOT a safety regression — retry-safety (same enquiry, no
+    // duplicate) is enforced entirely by the idempotency-key-reuse
+    // mechanism in quote-submission-engine.ts/quote-storage.ts, which
+    // does not depend on which message is shown. "Please try again" is
+    // correct, safe advice in both outcomes; only the customer's
+    // awareness of a lead already existing differs.
+    case "client_exception":
+      return {
+        tone: "retryable",
+        message: "Something went wrong on our end. Please try again. (Error code: QT-CLI)",
         showRetry: true,
       };
     case "not_ready":

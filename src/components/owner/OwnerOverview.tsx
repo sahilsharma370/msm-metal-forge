@@ -98,11 +98,11 @@ interface RankedEntry {
   readonly count: number;
 }
 
-/** Sell/Buy split as two percentages that always sum to exactly 100 (when total > 0) — `sellPercent` is floored (integer truncation, matching the canonical target's 25/17/42 -> 59%/41%, not 60%/40%), and `buyPercent` is the exact remainder, never independently rounded, so the pair can never drift off 100. */
+/** Sell/Buy split as two percentages that always sum to exactly 100 (when total > 0) — `sellPercent` is rounded to the nearest integer (11/16 -> 68.75% -> 69%, matching the approved reference), and `buyPercent` is the exact remainder, never independently rounded, so the pair can never drift off 100. */
 function computeDonutSplit(sell: number, buy: number): { readonly sellPercent: number; readonly buyPercent: number } {
   const total = sell + buy;
   if (total === 0) return { sellPercent: 0, buyPercent: 0 };
-  const sellPercent = Math.floor((sell / total) * 100);
+  const sellPercent = Math.round((sell / total) * 100);
   return { sellPercent, buyPercent: 100 - sellPercent };
 }
 
@@ -251,10 +251,17 @@ function Source({ data }: { readonly data: OwnerLeadOverviewData }) {
 }
 
 /**
- * Selling (orange) vs Buying (blue) donut, total centred, Selling/Buying
- * summaries laid out horizontally to the right of a subtle divider.
+ * Selling (orange) vs Buying (blue) donut, total centred with a `TOTAL`
+ * label beneath it, Selling/Buying summarised as two aligned rows (square
+ * marker, label, count, muted percentage) to the right of a subtle
+ * divider, with a second subtle divider between the two rows themselves.
  * `computeDonutSplit` guarantees the two percentages always sum to exactly
  * 100 (when total > 0).
+ *
+ * `paddingAngle` on `<Pie>` opens the small gaps between the two ring
+ * segments the approved reference shows; it has no visible effect on the
+ * zero-total fallback (a single full-circle entry has no second segment
+ * to gap against).
  *
  * `<Cell>` elements are rendered one-per-entry via `chartData.map()`,
  * DIRECTLY as `<Pie>` children — never wrapped in a `<>...</>` Fragment.
@@ -264,6 +271,21 @@ function Source({ data }: { readonly data: OwnerLeadOverviewData }) {
  * prop actually passed — this, not an unresolved CSS variable, was the
  * real cause of the grey segment (fills here were already explicit hex).
  */
+function EnquiryTypeRow({ color, label, count, percent }: { readonly color: string; readonly label: string; readonly count: number; readonly percent: number }) {
+  return (
+    <div className="flex items-center gap-2">
+      <span aria-hidden="true" className="size-2.5 shrink-0 rounded-[2px]" style={{ backgroundColor: color }} />
+      <span className="flex-1 truncate text-[13px]" style={{ color: TEXT_SECONDARY }}>
+        {label}
+      </span>
+      <span className="text-[15px] font-semibold text-white">{count}</span>
+      <span className="w-9 shrink-0 text-right text-[12px]" style={{ color: TEXT_MUTED }}>
+        {percent}%
+      </span>
+    </div>
+  );
+}
+
 function EnquiryType({ data }: { readonly data: OwnerLeadOverviewData }) {
   const sell = data.byIntent.sell ?? 0;
   const buy = data.byIntent.buy ?? 0;
@@ -285,9 +307,13 @@ function EnquiryType({ data }: { readonly data: OwnerLeadOverviewData }) {
           vertical room in a 204px card; a 148px circle left zero margin
           there (and even less once the card height was trimmed for the
           one-screen-fit pass), which is what read as "too large for its
-          card." 120px diameter / 18px ring (innerRadius 42, outerRadius
-          60) leaves real breathing room while keeping the same ring
-          proportion, colours, 12-o'clock start and exact data. */}
+          card." 120px diameter keeps that same breathing room.
+          Stroke thickness matched to the approved reference separately —
+          that image shows a noticeably thin ring, not the 18px one this
+          pass originally shipped; innerRadius 53 / outerRadius 60 is a 7px
+          stroke at the same 120px outer diameter (same centre, same
+          colours, 12-o'clock start, exact data — only the band width
+          changed). */}
       <div className="grid flex-1 grid-cols-[120px_1px_1fr] items-center gap-4">
         <div className="relative size-[120px] shrink-0" role="img" aria-label={`Selling ${sell} (${sellPercent}%), Buying ${buy} (${buyPercent}%)`}>
           <div aria-hidden="true" className="absolute inset-0">
@@ -296,11 +322,11 @@ function EnquiryType({ data }: { readonly data: OwnerLeadOverviewData }) {
                 <Pie
                   data={chartData}
                   dataKey="value"
-                  innerRadius={42}
+                  innerRadius={53}
                   outerRadius={60}
                   startAngle={90}
                   endAngle={-270}
-                  paddingAngle={0}
+                  paddingAngle={total > 0 ? 6 : 0}
                   stroke="none"
                   isAnimationActive={false}
                 >
@@ -313,33 +339,16 @@ function EnquiryType({ data }: { readonly data: OwnerLeadOverviewData }) {
           </div>
           <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-0.5">
             <span className="text-[27px] leading-none font-bold text-white">{total}</span>
-            <span className="text-[11px] leading-none" style={{ color: TEXT_MUTED }}>
-              Total enquiries
+            <span className="text-[11px] leading-none font-medium tracking-wide uppercase" style={{ color: TEXT_MUTED }}>
+              Total
             </span>
           </div>
         </div>
         <span aria-hidden="true" className="h-[111px] w-px justify-self-center" style={{ backgroundColor: TRACK_BG }} />
-        <div className="grid grid-cols-2 gap-4">
-          <div className="flex flex-col gap-1">
-            <span className="flex items-center gap-1.5 text-[14px]" style={{ color: TEXT_SECONDARY }}>
-              <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: ORANGE }} aria-hidden="true" />
-              Selling
-            </span>
-            <span className="text-[24px] leading-none font-bold text-white">{sell}</span>
-            <span className="text-[14px]" style={{ color: TEXT_MUTED }}>
-              {sellPercent}%
-            </span>
-          </div>
-          <div className="flex flex-col gap-1">
-            <span className="flex items-center gap-1.5 text-[14px]" style={{ color: TEXT_SECONDARY }}>
-              <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: BUYING_BLUE }} aria-hidden="true" />
-              Buying
-            </span>
-            <span className="text-[24px] leading-none font-bold text-white">{buy}</span>
-            <span className="text-[14px]" style={{ color: TEXT_MUTED }}>
-              {buyPercent}%
-            </span>
-          </div>
+        <div className="flex flex-col justify-center gap-2.5">
+          <EnquiryTypeRow color={ORANGE} label="Selling" count={sell} percent={sellPercent} />
+          <span aria-hidden="true" className="h-px w-full" style={{ backgroundColor: TRACK_BG }} />
+          <EnquiryTypeRow color={BUYING_BLUE} label="Buying" count={buy} percent={buyPercent} />
         </div>
       </div>
     </div>

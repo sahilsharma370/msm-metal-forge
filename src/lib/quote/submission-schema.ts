@@ -401,6 +401,33 @@ export type InitiateQuoteRequest = z.infer<typeof initiateQuoteRequestSchema>;
  * implementation, imported by both sides from this neutral module, never
  * duplicated.
  */
+/**
+ * MEASURED GAP, fixed — sellerEmail/buyerEmail are optional (`optionalEmailSchema`
+ * treats "" exactly like "not provided": `!val || isValidEmailAddress(val)`),
+ * but unlike every other optional field, leads.seller_email/buyer_email's own
+ * CHECK constraint exempts NULL only, never an empty string — a blank email
+ * reached create_website_quote_v1 as `""` (not null) and was rejected at the
+ * DB layer, surfacing as an opaque QT-SRV with no lead ever created. Also:
+ * `isValidEmailAddress` only checks FORMAT (via zod's `.email()`), which is
+ * case-insensitive by spec — but the same CHECK constraint additionally
+ * requires `seller_email = lower(seller_email)`, so a syntactically valid,
+ * mixed-/upper-case email (never rejected by any validation layer) would
+ * independently fail the same way. Both are normalization gaps, not
+ * validation gaps: trimming/null-ing a blank value and lowercasing a present
+ * one can never reject input a user already typed, so there is no new
+ * customer-facing error message for either case — the value just becomes
+ * what the database already requires it to be. Scoped to exactly these two
+ * fields, matching sellerPhone/buyerPhone's own precedent immediately below:
+ * every other optional field only has a length-bound CHECK, which an empty
+ * string already satisfies harmlessly, so touching them here would be an
+ * unrelated, unrequested change.
+ */
+function normalizeOptionalEmail(raw: unknown): CanonicalJsonValue {
+  if (typeof raw !== "string") return raw === undefined ? null : (raw as CanonicalJsonValue);
+  const trimmed = raw.trim();
+  return trimmed === "" ? null : trimmed.toLowerCase();
+}
+
 export function normalizeSubmission(value: SubmissionShape): { [key: string]: CanonicalJsonValue } {
   const normalized: { [key: string]: CanonicalJsonValue } = {};
   for (const key of SUBMISSION_KEYS) {
@@ -413,5 +440,7 @@ export function normalizeSubmission(value: SubmissionShape): { [key: string]: Ca
   if (typeof value.buyerPhone === "string") {
     normalized["buyerPhone"] = normalizePhoneNumber(value.buyerPhone) ?? value.buyerPhone;
   }
+  normalized["sellerEmail"] = normalizeOptionalEmail(value.sellerEmail);
+  normalized["buyerEmail"] = normalizeOptionalEmail(value.buyerEmail);
   return normalized;
 }

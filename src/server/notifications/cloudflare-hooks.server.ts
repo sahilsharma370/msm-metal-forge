@@ -6,9 +6,14 @@
  * Registered via `nitro.plugins` in vite.config.ts (see that file's own
  * comment for exactly why an explicit path is required rather than
  * directory-convention auto-discovery). All real logic lives in
- * queue-consumer.server.ts/cron-sweep.server.ts, both fully unit tested
- * with fake deps — this file is intentionally thin, pure wiring that
- * cannot itself be meaningfully unit tested outside a real Nitro runtime.
+ * queue-consumer.server.ts/scheduled-sweep.server.ts (which itself
+ * delegates to cron-sweep.server.ts and
+ * quote-client-diagnostics-retention.server.ts), every one of them fully
+ * unit tested with fake deps — this file is intentionally thin, pure
+ * wiring that cannot itself be meaningfully unit tested outside a real
+ * Nitro runtime. The ordering/failure-isolation between the two scheduled
+ * sweeps below is scheduled-sweep.server.ts's own concern, proven by its
+ * own test, not re-decided here.
  *
  * globalThis.__env__ (and therefore every process.env["..."] read inside
  * createDispatchNotificationDeps() — Supabase admin client, email config)
@@ -21,7 +26,7 @@
  */
 import { definePlugin } from "nitro";
 import { handleOwnerNotificationQueueBatch, createProductionQueueConsumerDeps, type WakeupMessageBatch } from "./queue-consumer.server";
-import { runNotificationCronSweep, createProductionCronSweepDeps } from "./cron-sweep.server";
+import { runScheduledWorkerSweeps, createProductionScheduledSweepDeps } from "../scheduled-sweep.server";
 
 export default definePlugin((nitro) => {
   nitro.hooks.hook("cloudflare:queue", async ({ batch }) => {
@@ -29,6 +34,6 @@ export default definePlugin((nitro) => {
   });
 
   nitro.hooks.hook("cloudflare:scheduled", async () => {
-    await runNotificationCronSweep(createProductionCronSweepDeps());
+    await runScheduledWorkerSweeps(createProductionScheduledSweepDeps());
   });
 });

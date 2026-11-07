@@ -22,6 +22,7 @@ const validSeller = {
   sellerPickupRequired: "no",
   sellerName: "Ahmed Seller",
   sellerPhone: "+971501234567",
+  sellerEmail: "ahmed.seller@example.com",
   sellerPreferredContact: "whatsapp",
 };
 
@@ -37,6 +38,7 @@ const validBuyerLocal = {
   buyerFulfilment: "delivery",
   buyerContactPerson: "Fatima Buyer",
   buyerPhone: "+971502345678",
+  buyerEmail: "fatima.buyer@example.com",
   buyerPreferredContact: "whatsapp",
 };
 
@@ -658,6 +660,56 @@ describe("handleQuoteInitiateBody — RPC failure mapping", () => {
     const result = await handleQuoteInitiateBody(requestBody(), deps(supabase));
     const [, args] = supabase.rpc.mock.calls[0] as [string, { p_payload_hash: string }];
     expect(JSON.stringify(result.body)).not.toContain(args.p_payload_hash);
+  });
+});
+
+describe("handleQuoteInitiateBody — diagnostic logging distinguishes the two INTERNAL_ERROR causes", () => {
+  it("logs rpc_error (never rpc_response_invalid) when the RPC call itself fails", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const supabase = fakeSupabase({ data: null, error: { message: "connection reset" } });
+    const result = await handleQuoteInitiateBody(requestBody(), deps(supabase));
+
+    expect(result.status).toBe(500);
+    expect(logSpy).toHaveBeenCalledTimes(1);
+    const logged = JSON.parse(logSpy.mock.calls[0]?.[0] as string);
+    expect(logged).toEqual({ event: "quote.initiate", outcome: "rpc_error" });
+    logSpy.mockRestore();
+  });
+
+  it("logs rpc_response_invalid (never rpc_error) when the RPC succeeds but its response doesn't parse", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const supabase = fakeSupabase({ data: { unexpected: "shape" }, error: null });
+    const result = await handleQuoteInitiateBody(requestBody(), deps(supabase));
+
+    expect(result.status).toBe(500);
+    expect(logSpy).toHaveBeenCalledTimes(1);
+    const logged = JSON.parse(logSpy.mock.calls[0]?.[0] as string);
+    expect(logged).toEqual({ event: "quote.initiate", outcome: "rpc_response_invalid" });
+    logSpy.mockRestore();
+  });
+
+  it("never logs anything (no distinguishing category fires) on a genuine success", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const supabase = fakeSupabase({ data: rpcSuccessPayload, error: null });
+    await handleQuoteInitiateBody(requestBody(), deps(supabase));
+
+    expect(logSpy).not.toHaveBeenCalled();
+    logSpy.mockRestore();
+  });
+
+  it("the rpc_error log line never carries the RPC's own error message, hash, or any request field", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const supabase = fakeSupabase({
+      data: null,
+      error: { message: 'new row for relation "leads" violates check constraint "leads_website_requiredness"' },
+    });
+    await handleQuoteInitiateBody(requestBody(), deps(supabase));
+
+    const loggedRaw = logSpy.mock.calls[0]?.[0] as string;
+    expect(Object.keys(JSON.parse(loggedRaw))).toEqual(["event", "outcome"]);
+    expect(loggedRaw).not.toContain("leads_website_requiredness");
+    expect(loggedRaw).not.toContain(idempotencyKey);
+    logSpy.mockRestore();
   });
 });
 

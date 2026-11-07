@@ -128,6 +128,7 @@ function validSellerSubmission(overrides: Record<string, unknown> = {}) {
     sellerPickupRequired: "yes",
     sellerName: "C2N Seller Fixture",
     sellerPhone: "+971501234567",
+    sellerEmail: "c2n.integration.seller@example.com",
     sellerPreferredContact: "whatsapp",
     ...overrides,
   };
@@ -146,6 +147,7 @@ function validBuyerSubmission(overrides: Record<string, unknown> = {}) {
     buyerFulfilment: "delivery",
     buyerContactPerson: "C2N Buyer Fixture",
     buyerPhone: "+971502345678",
+    buyerEmail: "c2n.integration.buyer@example.com",
     buyerPreferredContact: "whatsapp",
     ...overrides,
   };
@@ -508,7 +510,7 @@ describe("CHECKPOINT C2N — public Quote -> Owner visibility, real Postgres + r
     expect(firstBody.data.lead.intent).toBe("sell");
     expect(firstBody.data.lead.material).toBe("copper");
     expect(firstBody.data.lead.reference).toBe(sellerReference);
-    expect(firstBody.data.lead.contact).toEqual({ name: "C2N Seller Fixture", phone: "+971501234567", email: null, company: null });
+    expect(firstBody.data.lead.contact).toEqual({ name: "C2N Seller Fixture", phone: "+971501234567", email: "c2n.integration.seller@example.com", company: null });
     expect(firstBody.data.lead.enquiry.condition).toBe("clean_separated");
     expect(firstBody.data.lead.enquiry.quantityValue).toBe(120);
     expect(firstBody.data.lead.enquiry.quantityUnit).toBe("kg");
@@ -531,7 +533,7 @@ describe("CHECKPOINT C2N — public Quote -> Owner visibility, real Postgres + r
     expect(firstBody.data.lead.intent).toBe("buy");
     expect(firstBody.data.lead.material).toBe("aluminium");
     expect(firstBody.data.lead.reference).toBe(buyerReference);
-    expect(firstBody.data.lead.contact).toEqual({ name: "C2N Buyer Fixture", phone: "+971502345678", email: null, company: null });
+    expect(firstBody.data.lead.contact).toEqual({ name: "C2N Buyer Fixture", phone: "+971502345678", email: "c2n.integration.buyer@example.com", company: null });
     expect(firstBody.data.lead.enquiry.tradeRequirement).toBe("local");
     expect(firstBody.data.lead.enquiry.fulfilment).toBe("delivery");
     expect(firstBody.data.lead.location.emirate).toBe("sharjah");

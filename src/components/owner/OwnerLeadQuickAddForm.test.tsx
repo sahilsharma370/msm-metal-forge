@@ -6,6 +6,25 @@ import "@testing-library/jest-dom/vitest";
 import { OwnerLeadQuickAddForm } from "./OwnerLeadQuickAddForm";
 
 /**
+ * MEASURED ROOT CAUSE (full-suite flake: timeouts + scrambled typed values,
+ * e.g. "Ahmed" -> "5A6h7med") — confirmed via an isolated vitest probe that
+ * a test timing out does NOT cancel its own in-flight async work: the
+ * orphaned continuation keeps running and can fire real DOM events during
+ * whichever test runs next in the same file. `userEvent.setup()`'s default
+ * `type()` inserts a real per-keystroke `setTimeout` delay between
+ * characters; under full-suite parallel CPU contention, an 18-character
+ * two-field sequence (name + phone) can legitimately exceed the 5000ms
+ * default `testTimeout`, and once one test times out this way, its still-
+ * pending keystroke timers land on the NEXT test's freshly focused input —
+ * exactly the interleaved-digit corruption observed. `{ delay: null }`
+ * removes the artificial real-timer delay between keystrokes (the
+ * documented `@testing-library/user-event` option for this), which both
+ * keeps every test here comfortably under the timeout and removes the
+ * window during which an abandoned test's typing could still be in flight
+ * when the next one starts. No application code or product behavior
+ * changed — this is scoped entirely to this file's own `userEvent.setup()`
+ * calls.
+ *
  * CHECKPOINT C2M-A — the form's selects moved from native `<select>` to the
  * repository's Radix-based Select primitive. Radix requires pointer-capture/
  * scrollIntoView APIs jsdom does not implement — same established polyfill
@@ -65,14 +84,14 @@ describe("OwnerLeadQuickAddForm — required-field gating", () => {
   });
 
   it("enables Save enquiry once the required fields are valid", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     renderForm();
     await fillRequiredFields(user);
     await waitFor(() => expect(screen.getByRole("button", { name: /save enquiry/i })).toBeEnabled());
   });
 
   it("rejects an invalid phone number", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     renderForm();
     await user.type(screen.getByLabelText(/contact name/i), "Ahmed");
     await user.type(screen.getByLabelText(/phone \/ whatsapp/i), "not-a-phone");
@@ -80,7 +99,7 @@ describe("OwnerLeadQuickAddForm — required-field gating", () => {
   });
 
   it("requires a description when material is 'other'", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     renderForm();
     await fillRequiredFields(user);
     await selectRadixOption(user, /^material$/i, "Other");
@@ -97,7 +116,7 @@ describe("OwnerLeadQuickAddForm — seller/buyer branching", () => {
   });
 
   it("hides seller location fields when intent is switched to buying", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     renderForm();
     await selectRadixOption(user, /enquiry type/i, "Buying");
     expect(screen.queryByLabelText(/emirate/i)).not.toBeInTheDocument();
@@ -120,7 +139,7 @@ describe("OwnerLeadQuickAddForm — Select primitive (CHECKPOINT C2M-A)", () => 
 
 describe("OwnerLeadQuickAddForm — submit", () => {
   it("submits the parsed, validated values", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const { onSubmit } = renderForm();
     await fillRequiredFields(user);
     await user.click(screen.getByRole("button", { name: /save enquiry/i }));
@@ -142,7 +161,7 @@ describe("OwnerLeadQuickAddForm — submit", () => {
 
 describe("OwnerLeadQuickAddForm — failure preserves entered input", () => {
   it("a failed submission leaves the typed fields untouched", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const onSubmit = vi.fn().mockResolvedValue({ ok: false, message: "Something went wrong. Please try again." });
     renderForm({ onSubmit });
     await fillRequiredFields(user);
@@ -155,7 +174,7 @@ describe("OwnerLeadQuickAddForm — failure preserves entered input", () => {
 
 describe("OwnerLeadQuickAddForm — success shows the genuine reference and an open-lead action", () => {
   it("shows the reference and calls onOpenLead with the created lead id", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const { onOpenLead } = renderForm();
     await fillRequiredFields(user);
     await user.click(screen.getByRole("button", { name: /save enquiry/i }));
@@ -165,7 +184,7 @@ describe("OwnerLeadQuickAddForm — success shows the genuine reference and an o
   });
 
   it("'Add another enquiry' returns to a blank form", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     renderForm();
     await fillRequiredFields(user);
     await user.click(screen.getByRole("button", { name: /save enquiry/i }));
@@ -178,14 +197,14 @@ describe("OwnerLeadQuickAddForm — success shows the genuine reference and an o
 
 describe("OwnerLeadQuickAddForm — cancel (OWNER DESKTOP REFINEMENT)", () => {
   it("calls onCancel when the footer Cancel button is clicked", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const { onCancel } = renderForm();
     await user.click(screen.getByRole("button", { name: /^cancel$/i }));
     expect(onCancel).toHaveBeenCalledTimes(1);
   });
 
   it("calls onCancel when the Back to enquiries control is clicked", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const { onCancel } = renderForm();
     await user.click(screen.getByRole("button", { name: /back to enquiries/i }));
     expect(onCancel).toHaveBeenCalledTimes(1);

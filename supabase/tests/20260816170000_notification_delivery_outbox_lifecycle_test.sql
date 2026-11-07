@@ -41,7 +41,7 @@ begin;
 
 set search_path = public, extensions;
 
-select plan(103);
+select plan(105);
 
 -- ---------------------------------------------------------------------------
 -- A. Column structure: new/renamed columns exist with correct type,
@@ -218,7 +218,7 @@ select lives_ok(
 select is(
   (select nd.status from public.notification_deliveries nd
     join public.leads l on l.id = nd.lead_id
-    where l.idempotency_key = 'c2000a00-0000-0000-0000-000000000001'),
+    where l.idempotency_key = 'c2000a00-0000-0000-0000-000000000001' and nd.event_type = 'submission_completed'),
   'pending',
   'the notification row created by real completion defaults to pending under the new lifecycle'
 );
@@ -419,11 +419,35 @@ select is(
 --    exclusivity
 -- ---------------------------------------------------------------------------
 
--- At this point in the file, fixture 1's delivery (from section E) is the
--- ONLY pending-or-otherwise-eligible row in the whole table — every row
--- from sections G/H either never persisted (throws_ok) or was inserted
--- directly as dead_letter. The fallback scan below is therefore
--- unambiguous.
+-- CHECKPOINT (customer receipt) — section E's fixture 1 now also carries a
+-- sibling customer_receipt/email row (the new event_type this migration
+-- adds alongside submission_completed, queued by the same
+-- complete_lead_if_ready call). Every ordering-sensitive fallback-scan
+-- assertion below was written when exactly one row existed per lead;
+-- rather than rewrite each one, that sibling is immediately claimed and
+-- dead-lettered here — a real, valid lifecycle transition, not a
+-- test-only shortcut — so it is no longer pending/eligible and the
+-- original "fixture 1 is the only eligible row" invariant holds again for
+-- everything below.
+select lives_ok(
+  $$ select public.dead_letter_notification_delivery_v1(
+       (select (public.claim_notification_delivery_v1(
+          'f0000000-0000-0000-0000-000000000001'::uuid,
+          (select nd.id from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000a00-0000-0000-0000-000000000001' and nd.event_type = 'customer_receipt'),
+          120
+        ) ->> 'delivery_id')::uuid),
+       'f0000000-0000-0000-0000-000000000001'::uuid,
+       'TEST_FIXTURE_NEUTRALIZED'
+     ) $$,
+  'fixture 1''s customer_receipt sibling is claimed and dead-lettered so it cannot interfere with the fallback-scan ordering tests below'
+);
+
+-- At this point in the file, fixture 1's submission_completed delivery
+-- (from section E) is the ONLY pending-or-otherwise-eligible row in the
+-- whole table — its customer_receipt sibling was just neutralized above,
+-- and every row from sections G/H either never persisted (throws_ok) or
+-- was inserted directly as dead_letter. The fallback scan below is
+-- therefore unambiguous.
 select is(
   (select (public.claim_notification_delivery_v1('d0000000-0000-0000-0000-000000000001'::uuid, null, 120) ->> 'attempt_count')::int),
   1,
@@ -432,14 +456,14 @@ select is(
 select is(
   (select nd.status from public.notification_deliveries nd
     join public.leads l on l.id = nd.lead_id
-    where l.idempotency_key = 'c2000a00-0000-0000-0000-000000000001'),
+    where l.idempotency_key = 'c2000a00-0000-0000-0000-000000000001' and nd.event_type = 'submission_completed'),
   'processing',
   'the claimed row is now processing'
 );
 select ok(
   (select claim_token from public.notification_deliveries nd
     join public.leads l on l.id = nd.lead_id
-    where l.idempotency_key = 'c2000a00-0000-0000-0000-000000000001') = 'd0000000-0000-0000-0000-000000000001'::uuid,
+    where l.idempotency_key = 'c2000a00-0000-0000-0000-000000000001' and nd.event_type = 'submission_completed') = 'd0000000-0000-0000-0000-000000000001'::uuid,
   'the claim_token stored matches exactly what the caller supplied'
 );
 
@@ -447,7 +471,7 @@ select ok(
 select is(
   (select public.claim_notification_delivery_v1(
      'd0000000-0000-0000-0000-000000000002'::uuid,
-     (select nd.id from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000a00-0000-0000-0000-000000000001'),
+     (select nd.id from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000a00-0000-0000-0000-000000000001' and nd.event_type = 'submission_completed'),
      120
    )),
   NULL,
@@ -462,7 +486,7 @@ select is(
 select is(
   (select count(*)::int from public.notification_deliveries nd
     join public.leads l on l.id = nd.lead_id
-    where l.idempotency_key = 'c2000a00-0000-0000-0000-000000000001'
+    where l.idempotency_key = 'c2000a00-0000-0000-0000-000000000001' and nd.event_type = 'submission_completed'
       and nd.status = 'processing' and nd.claim_token = 'd0000000-0000-0000-0000-000000000001'::uuid),
   1,
   'the original claim is untouched by both failed steal attempts'
@@ -481,8 +505,29 @@ select lives_ok(
      ) $$,
   'a second independent zero-file website submission succeeds'
 );
+
+-- CHECKPOINT (customer receipt) — same reasoning as fixture 1's
+-- neutralization above: fixture 2 also now carries a customer_receipt
+-- sibling row, which would otherwise make it a SECOND eligible candidate
+-- for the fallback scan below (not "the only pending row" as this
+-- section's own comment requires). Claimed and dead-lettered here for the
+-- same reason, before that fallback claim runs.
+select lives_ok(
+  $$ select public.dead_letter_notification_delivery_v1(
+       (select (public.claim_notification_delivery_v1(
+          'f0000000-0000-0000-0000-000000000002'::uuid,
+          (select nd.id from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000a00-0000-0000-0000-000000000003' and nd.event_type = 'customer_receipt'),
+          120
+        ) ->> 'delivery_id')::uuid),
+       'f0000000-0000-0000-0000-000000000002'::uuid,
+       'TEST_FIXTURE_NEUTRALIZED'
+     ) $$,
+  'fixture 2''s customer_receipt sibling is claimed and dead-lettered so it cannot interfere with the fallback-scan ordering tests below'
+);
+
 -- Fixture 1's row is still processing (claimed above); fixture 2's fresh
--- row is now the ONLY pending row, so this fallback claim is unambiguous.
+-- submission_completed row (its customer_receipt sibling just neutralized
+-- above) is now the ONLY pending row, so this fallback claim is unambiguous.
 select is(
   (select (public.claim_notification_delivery_v1('d0000000-0000-0000-0000-000000000003'::uuid, null, 120) ->> 'lead_id')),
   (select id::text from public.leads where idempotency_key = 'c2000a00-0000-0000-0000-000000000003'),
@@ -509,10 +554,10 @@ select lives_ok(
 select is(
   (select (public.claim_notification_delivery_v1(
      'd0000000-0000-0000-0000-000000000004'::uuid,
-     (select nd.id from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000a00-0000-0000-0000-000000000004'),
+     (select nd.id from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000a00-0000-0000-0000-000000000004' and nd.event_type = 'submission_completed'),
      120
    ) ->> 'delivery_id')),
-  (select nd.id::text from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000a00-0000-0000-0000-000000000004'),
+  (select nd.id::text from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000a00-0000-0000-0000-000000000004' and nd.event_type = 'submission_completed'),
   'a targeted claim by exact delivery ID claims exactly that row'
 );
 
@@ -533,13 +578,13 @@ select is(
   'an expired-lease processing row is reclaimed by a new caller, and attempt_count increments again on the reclaim'
 );
 select ok(
-  (select claim_token from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000a00-0000-0000-0000-000000000001')
+  (select claim_token from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000a00-0000-0000-0000-000000000001' and nd.event_type = 'submission_completed')
     = 'e0000000-0000-0000-0000-000000000001'::uuid,
   'the reclaimed row now carries the NEW claim_token, not the stale one'
 );
 select throws_ok(
   $$ select public.mark_notification_delivery_sent_v1(
-       (select nd.id from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000a00-0000-0000-0000-000000000001'),
+       (select nd.id from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000a00-0000-0000-0000-000000000001' and nd.event_type = 'submission_completed'),
        'd0000000-0000-0000-0000-000000000001'::uuid, -- the STALE, superseded token
        'resend', 'msg-stale'
      ) $$,
@@ -548,7 +593,7 @@ select throws_ok(
 );
 select throws_ok(
   $$ select public.mark_notification_delivery_sent_v1(
-       (select nd.id from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000a00-0000-0000-0000-000000000001'),
+       (select nd.id from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000a00-0000-0000-0000-000000000001' and nd.event_type = 'submission_completed'),
        gen_random_uuid(), -- a token that was never valid at all
        'resend', 'msg-wrong'
      ) $$,
@@ -579,7 +624,7 @@ select throws_ok(
 
 select is(
   (select (public.mark_notification_delivery_sent_v1(
-     (select nd.id from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000a00-0000-0000-0000-000000000001'),
+     (select nd.id from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000a00-0000-0000-0000-000000000001' and nd.event_type = 'submission_completed'),
      'e0000000-0000-0000-0000-000000000001'::uuid,
      'resend', 'msg-real-12345'
    ) ->> 'status')),
@@ -587,31 +632,31 @@ select is(
   'marking sent with the exact current claim succeeds'
 );
 select is(
-  (select nd.status from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000a00-0000-0000-0000-000000000001'),
+  (select nd.status from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000a00-0000-0000-0000-000000000001' and nd.event_type = 'submission_completed'),
   'sent', 'the row is persisted as sent'
 );
 select ok(
   (select sent_at is not null and provider = 'resend' and provider_message_id = 'msg-real-12345'
     from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id
-    where l.idempotency_key = 'c2000a00-0000-0000-0000-000000000001'),
+    where l.idempotency_key = 'c2000a00-0000-0000-0000-000000000001' and nd.event_type = 'submission_completed'),
   'the sent identity (sent_at, provider, provider_message_id) is stored exactly as supplied'
 );
 select ok(
   (select claim_token is null and claimed_at is null and lease_expires_at is null
     from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id
-    where l.idempotency_key = 'c2000a00-0000-0000-0000-000000000001'),
+    where l.idempotency_key = 'c2000a00-0000-0000-0000-000000000001' and nd.event_type = 'submission_completed'),
   'the active claim is fully cleared once sent'
 );
 select is(
   (select public.claim_notification_delivery_v1(gen_random_uuid(),
-     (select nd.id from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000a00-0000-0000-0000-000000000001')
+     (select nd.id from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000a00-0000-0000-0000-000000000001' and nd.event_type = 'submission_completed')
    )),
   NULL,
   'a sent row is terminal — a targeted claim against it returns null, never re-claimable'
 );
 select is(
   (select (public.mark_notification_delivery_sent_v1(
-     (select nd.id from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000a00-0000-0000-0000-000000000001'),
+     (select nd.id from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000a00-0000-0000-0000-000000000001' and nd.event_type = 'submission_completed'),
      '11111111-1111-1111-1111-111111111111'::uuid, -- any token — irrelevant for a matching-identity replay
      'resend', 'msg-real-12345'
    ) ->> 'status')),
@@ -620,7 +665,7 @@ select is(
 );
 select throws_ok(
   $$ select public.mark_notification_delivery_sent_v1(
-       (select nd.id from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000a00-0000-0000-0000-000000000001'),
+       (select nd.id from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000a00-0000-0000-0000-000000000001' and nd.event_type = 'submission_completed'),
        gen_random_uuid(), 'resend', 'msg-DIFFERENT'
      ) $$,
   'P0001', 'mark_notification_delivery_sent_v1: delivery already finalized with a different identity',
@@ -649,7 +694,7 @@ select throws_ok(
 );
 select throws_ok(
   $$ select public.reschedule_notification_delivery_v1(
-       (select nd.id from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000a00-0000-0000-0000-000000000001'),
+       (select nd.id from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000a00-0000-0000-0000-000000000001' and nd.event_type = 'submission_completed'),
        gen_random_uuid(), 'ANY_CODE', 60
      ) $$,
   'P0001', 'reschedule_notification_delivery_v1: a sent delivery can never be rescheduled',
@@ -660,7 +705,7 @@ select throws_ok(
 -- transient-retry / max-attempts sequence.
 select is(
   (select (public.reschedule_notification_delivery_v1(
-     (select nd.id from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000a00-0000-0000-0000-000000000003'),
+     (select nd.id from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000a00-0000-0000-0000-000000000003' and nd.event_type = 'submission_completed'),
      'd0000000-0000-0000-0000-000000000003'::uuid,
      'PROVIDER_TIMEOUT', 300
    ) ->> 'status')),
@@ -670,31 +715,31 @@ select is(
 select ok(
   (select next_attempt_at > now() and next_attempt_at <= now() + interval '301 seconds'
     from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id
-    where l.idempotency_key = 'c2000a00-0000-0000-0000-000000000003'),
+    where l.idempotency_key = 'c2000a00-0000-0000-0000-000000000003' and nd.event_type = 'submission_completed'),
   'next_attempt_at is set to a real future time matching the requested delay'
 );
 select ok(
   (select claim_token is null and claimed_at is null and lease_expires_at is null
     from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id
-    where l.idempotency_key = 'c2000a00-0000-0000-0000-000000000003'),
+    where l.idempotency_key = 'c2000a00-0000-0000-0000-000000000003' and nd.event_type = 'submission_completed'),
   'the active claim is cleared on reschedule'
 );
 select ok(
   (select last_error_code = 'PROVIDER_TIMEOUT' and last_error_at is not null
     from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id
-    where l.idempotency_key = 'c2000a00-0000-0000-0000-000000000003'),
+    where l.idempotency_key = 'c2000a00-0000-0000-0000-000000000003' and nd.event_type = 'submission_completed'),
   'the sanitized error code and its timestamp are recorded'
 );
 select is(
   (select public.claim_notification_delivery_v1(gen_random_uuid(),
-     (select nd.id from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000a00-0000-0000-0000-000000000003')
+     (select nd.id from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000a00-0000-0000-0000-000000000003' and nd.event_type = 'submission_completed')
    )),
   NULL,
   'a retry_wait row whose next_attempt_at has not yet arrived is not claimable (targeted claim returns null)'
 );
 select lives_ok(
   $$ update public.notification_deliveries set next_attempt_at = now() - interval '1 second'
-     where id = (select nd.id from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000a00-0000-0000-0000-000000000003') $$,
+     where id = (select nd.id from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000a00-0000-0000-0000-000000000003' and nd.event_type = 'submission_completed') $$,
   'fast-forwarding next_attempt_at into the past succeeds'
 );
 select is(
@@ -713,7 +758,7 @@ select lives_ok(
        v_token uuid;
      begin
        select nd.id into v_delivery_id from public.notification_deliveries nd
-         join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000a00-0000-0000-0000-000000000003';
+         join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000a00-0000-0000-0000-000000000003' and nd.event_type = 'submission_completed';
        -- Currently at attempt_count = 2 (processing, held by f0000000-...0001).
        perform public.reschedule_notification_delivery_v1(v_delivery_id, 'f0000000-0000-0000-0000-000000000001'::uuid, 'TRANSIENT', 1);
        for i in 3..4 loop
@@ -732,31 +777,31 @@ select lives_ok(
   'driving the delivery through its remaining allowed attempts succeeds'
 );
 select is(
-  (select nd.status from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000a00-0000-0000-0000-000000000003'),
+  (select nd.status from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000a00-0000-0000-0000-000000000003' and nd.event_type = 'submission_completed'),
   'dead_letter',
   'reaching notification_delivery_max_attempts() (5) transitions the delivery to dead_letter'
 );
 select is(
-  (select attempt_count from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000a00-0000-0000-0000-000000000003'),
+  (select attempt_count from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000a00-0000-0000-0000-000000000003' and nd.event_type = 'submission_completed'),
   (select public.notification_delivery_max_attempts()),
   'attempt_count exactly equals the max-attempts constant when dead-lettered'
 );
 select ok(
   (select next_attempt_at is null and claim_token is null
     from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id
-    where l.idempotency_key = 'c2000a00-0000-0000-0000-000000000003'),
+    where l.idempotency_key = 'c2000a00-0000-0000-0000-000000000003' and nd.event_type = 'submission_completed'),
   'a dead_letter row carries no next_attempt_at and no active claim'
 );
 select is(
   (select public.claim_notification_delivery_v1(gen_random_uuid(),
-     (select nd.id from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000a00-0000-0000-0000-000000000003')
+     (select nd.id from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000a00-0000-0000-0000-000000000003' and nd.event_type = 'submission_completed')
    )),
   NULL,
   'a dead_letter row is never returned by a targeted claim attempt against it — terminal'
 );
 select throws_ok(
   $$ select public.reschedule_notification_delivery_v1(
-       (select nd.id from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000a00-0000-0000-0000-000000000003'),
+       (select nd.id from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000a00-0000-0000-0000-000000000003' and nd.event_type = 'submission_completed'),
        gen_random_uuid(), 'ANOTHER_CODE', 60
      ) $$,
   'P0001', 'reschedule_notification_delivery_v1: no matching active claim to reschedule',

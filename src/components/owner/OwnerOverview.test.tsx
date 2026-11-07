@@ -176,14 +176,44 @@ describe("OwnerOverview — enquiry type donut", () => {
     renderOverview(zeroData({ byIntent: { sell: 25, buy: 17 } }));
     expect(screen.getByText("Selling")).toBeInTheDocument();
     expect(screen.getByText("Buying")).toBeInTheDocument();
-    // 25/42 floors to 59%; buyPercent is the exact remainder (41%), never independently rounded, so the pair can never drift off 100.
-    expect(screen.getByText("59%")).toBeInTheDocument();
-    expect(screen.getByText("41%")).toBeInTheDocument();
+    // 25/42 rounds to 60%; buyPercent is the exact remainder (40%), never independently rounded, so the pair can never drift off 100.
+    expect(screen.getByText("60%")).toBeInTheDocument();
+    expect(screen.getByText("40%")).toBeInTheDocument();
   });
 
-  it("handles a zero total without NaN", () => {
+  it("rounds a count split the same way the approved reference does (11/16 -> 69%, 5/16 -> 31%)", () => {
+    renderOverview(zeroData({ byIntent: { sell: 11, buy: 5 } }));
+    expect(screen.getByText("16")).toBeInTheDocument();
+    expect(screen.getByText("69%")).toBeInTheDocument();
+    expect(screen.getByText("31%")).toBeInTheDocument();
+  });
+
+  it("shows a TOTAL label beneath the centred total, not the old 'Total enquiries' copy", () => {
+    renderOverview(zeroData({ byIntent: { sell: 11, buy: 5 } }));
+    const card = screen.getByText("Enquiry type").closest("div") as HTMLElement;
+    expect(within(card).getByText("Total")).toBeInTheDocument();
+    expect(within(card).queryByText("Total enquiries")).not.toBeInTheDocument();
+  });
+
+  it("renders the Selling/Buying markers as squares, not circles", () => {
+    renderOverview(zeroData({ byIntent: { sell: 11, buy: 5 } }));
+    const card = screen.getByText("Enquiry type").closest("div") as HTMLElement;
+    const markers = within(card).getAllByText("", { selector: "span[aria-hidden='true'].size-2\\.5" });
+    expect(markers.length).toBe(2);
+    for (const marker of markers) expect(marker.className).toContain("rounded-[2px]");
+  });
+
+  it("handles a zero total without NaN or a broken ring", () => {
     renderOverview(zeroData({ byIntent: { sell: 0, buy: 0 } }));
     expect(screen.queryByText(/NaN/)).not.toBeInTheDocument();
+    expect(screen.getAllByText("0%")).toHaveLength(2);
+  });
+
+  it("handles a one-sided total (all Selling, zero Buying) without NaN", () => {
+    renderOverview(zeroData({ byIntent: { sell: 5, buy: 0 } }));
+    expect(screen.queryByText(/NaN/)).not.toBeInTheDocument();
+    expect(screen.getByText("100%")).toBeInTheDocument();
+    expect(screen.getByText("0%")).toBeInTheDocument();
   });
 });
 
@@ -207,6 +237,6 @@ describe("OwnerOverview — loading/error states", () => {
     const props: OwnerOverviewProps = { state: { data: null, isLoading: true, error: null, unauthorized: false }, refresh: vi.fn() };
     render(<OwnerOverview {...props} />);
     expect(screen.getByText("Overview")).toBeInTheDocument();
-    expect(screen.queryByText("Total enquiries")).not.toBeInTheDocument();
+    expect(screen.queryByText("Enquiry type")).not.toBeInTheDocument();
   });
 });

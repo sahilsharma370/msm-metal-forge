@@ -460,6 +460,164 @@ describe("dispatchOwnerNotification — invalid claim/lead shape", () => {
 });
 
 // ---------------------------------------------------------------------------
+// customer_receipt — a second event_type sharing this same dispatcher.
+// Every test here specifically checks that the owner-recipient assumptions
+// (emailConfig.ownerNotificationEmail, countLeadFiles/file_upload_status,
+// the submission_completed/ idempotency namespace) never leak into this path.
+// ---------------------------------------------------------------------------
+
+describe("dispatchOwnerNotification — customer_receipt (seller)", () => {
+  it("sends to the lead's own seller_email, never emailConfig.ownerNotificationEmail", async () => {
+    const { rpc, calls } = createFakeRpc({
+      claim: { data: claimSuccess({ event_type: "customer_receipt" }), error: null },
+      markSent: { data: { delivery_id: DELIVERY_ID, status: "sent", sent_at: "x", provider: "resend", provider_message_id: "msg-cr-1" }, error: null },
+    });
+    const send = vi.fn(async (_input: EmailSendInput) => fakeSuccessfulSend());
+    const result = await dispatchOwnerNotification(
+      { deliveryId: DELIVERY_ID },
+      createDeps({
+        rpc,
+        loadLead: async () => leadRow({ seller_email: "ahmed.seller@example.com" }),
+        createEmailProvider: () => ({ send }),
+      }),
+    );
+    expect(result).toEqual({ kind: "sent", deliveryId: DELIVERY_ID, providerMessageId: "msg-cr-1" });
+    expect(send).toHaveBeenCalledTimes(1);
+    const input = send.mock.calls[0]?.[0] as EmailSendInput;
+    expect(input.to).toBe("ahmed.seller@example.com");
+    expect(input.to).not.toBe(testEmailConfig.ownerNotificationEmail);
+    expect(input.from).toBe(testEmailConfig.emailFrom);
+    expect(calls.markSent[0]).toMatchObject({ p_delivery_id: DELIVERY_ID });
+  });
+
+  it("uses a distinct customer_receipt/ idempotency key, never the submission_completed/ namespace", async () => {
+    const { rpc } = createFakeRpc({
+      claim: { data: claimSuccess({ event_type: "customer_receipt" }), error: null },
+      markSent: { data: { delivery_id: DELIVERY_ID, status: "sent", sent_at: "x", provider: "resend", provider_message_id: "msg-cr-2" }, error: null },
+    });
+    const send = vi.fn(async (_input: EmailSendInput) => fakeSuccessfulSend());
+    await dispatchOwnerNotification(
+      { deliveryId: DELIVERY_ID },
+      createDeps({ rpc, loadLead: async () => leadRow({ seller_email: "ahmed.seller@example.com" }), createEmailProvider: () => ({ send }) }),
+    );
+    const input = send.mock.calls[0]?.[0] as EmailSendInput;
+    expect(input.idempotencyKey).toBe(`customer_receipt/${DELIVERY_ID}`);
+  });
+
+  it("never calls countLeadFiles for a customer_receipt dispatch — this email never mentions files", async () => {
+    const { rpc } = createFakeRpc({
+      claim: { data: claimSuccess({ event_type: "customer_receipt" }), error: null },
+      markSent: { data: { delivery_id: DELIVERY_ID, status: "sent", sent_at: "x", provider: "resend", provider_message_id: "msg-cr-3" }, error: null },
+    });
+    const countLeadFiles = vi.fn(async () => 3);
+    await dispatchOwnerNotification(
+      { deliveryId: DELIVERY_ID },
+      createDeps({
+        rpc,
+        loadLead: async () => leadRow({ seller_email: "ahmed.seller@example.com" }),
+        countLeadFiles,
+        createEmailProvider: () => ({ send: async () => fakeSuccessfulSend() }),
+      }),
+    );
+    expect(countLeadFiles).not.toHaveBeenCalled();
+  });
+
+  it("dead-letters with RECIPIENT_EMAIL_MISSING and never calls the provider when seller_email is null", async () => {
+    const { rpc, calls } = createFakeRpc({
+      claim: { data: claimSuccess({ event_type: "customer_receipt" }), error: null },
+      deadLetter: { data: { delivery_id: DELIVERY_ID, status: "dead_letter", attempt_count: 1, last_error_code: "RECIPIENT_EMAIL_MISSING" }, error: null },
+    });
+    const send = vi.fn();
+    const result = await dispatchOwnerNotification(
+      { deliveryId: DELIVERY_ID },
+      createDeps({ rpc, loadLead: async () => leadRow({ seller_email: null }), createEmailProvider: () => ({ send }) }),
+    );
+    expect(result).toEqual({ kind: "dead_lettered", deliveryId: DELIVERY_ID, errorCode: "RECIPIENT_EMAIL_MISSING" });
+    expect(send).not.toHaveBeenCalled();
+    expect(calls.deadLetter[0]).toMatchObject({ p_error_code: "RECIPIENT_EMAIL_MISSING" });
+  });
+});
+
+describe("dispatchOwnerNotification — customer_receipt (buyer)", () => {
+  it("sends to the lead's own buyer_email for a buy-intent lead, never seller_email", async () => {
+    const { rpc } = createFakeRpc({
+      claim: { data: claimSuccess({ event_type: "customer_receipt" }), error: null },
+      markSent: { data: { delivery_id: DELIVERY_ID, status: "sent", sent_at: "x", provider: "resend", provider_message_id: "msg-cr-4" }, error: null },
+    });
+    const send = vi.fn(async (_input: EmailSendInput) => fakeSuccessfulSend());
+    await dispatchOwnerNotification(
+      { deliveryId: DELIVERY_ID },
+      createDeps({
+        rpc,
+        loadLead: async () =>
+          leadRow({
+            intent: "buy",
+            seller_email: null,
+            buyer_email: "fatima.buyer@example.com",
+            buyer_contact_person: "Fatima Buyer",
+            buyer_phone: "+971502345678",
+          }),
+        createEmailProvider: () => ({ send }),
+      }),
+    );
+    const input = send.mock.calls[0]?.[0] as EmailSendInput;
+    expect(input.to).toBe("fatima.buyer@example.com");
+  });
+
+  it("dead-letters with RECIPIENT_EMAIL_MISSING when buyer_email is null, even if seller_email happens to be set", async () => {
+    const { rpc, calls } = createFakeRpc({
+      claim: { data: claimSuccess({ event_type: "customer_receipt" }), error: null },
+      deadLetter: { data: { delivery_id: DELIVERY_ID, status: "dead_letter", attempt_count: 1, last_error_code: "RECIPIENT_EMAIL_MISSING" }, error: null },
+    });
+    const send = vi.fn();
+    const result = await dispatchOwnerNotification(
+      { deliveryId: DELIVERY_ID },
+      createDeps({
+        rpc,
+        loadLead: async () => leadRow({ intent: "buy", seller_email: "stray@example.com", buyer_email: null }),
+        createEmailProvider: () => ({ send }),
+      }),
+    );
+    expect(result).toEqual({ kind: "dead_lettered", deliveryId: DELIVERY_ID, errorCode: "RECIPIENT_EMAIL_MISSING" });
+    expect(send).not.toHaveBeenCalled();
+    expect(calls.deadLetter[0]).toMatchObject({ p_error_code: "RECIPIENT_EMAIL_MISSING" });
+  });
+});
+
+describe("dispatchOwnerNotification — customer_receipt retry/failure behaves exactly like the owner path", () => {
+  it("reschedules a retryable send failure without dead-lettering", async () => {
+    const { rpc, calls } = createFakeRpc({
+      claim: { data: claimSuccess({ event_type: "customer_receipt" }), error: null },
+      reschedule: {
+        data: { delivery_id: DELIVERY_ID, status: "retry_wait", attempt_count: 2, next_attempt_at: "2026-08-17T10:05:00.000Z", last_error_code: "NETWORK_ERROR" },
+        error: null,
+      },
+    });
+    const send = vi.fn(async (_input: EmailSendInput) => ({ ok: false as const, code: "NETWORK_ERROR" as const, retryable: true }));
+    const result = await dispatchOwnerNotification(
+      { deliveryId: DELIVERY_ID },
+      createDeps({ rpc, loadLead: async () => leadRow({ seller_email: "ahmed.seller@example.com" }), createEmailProvider: () => ({ send }) }),
+    );
+    expect(result).toEqual({ kind: "retry_scheduled", deliveryId: DELIVERY_ID, nextAttemptAt: "2026-08-17T10:05:00.000Z" });
+    expect(calls.reschedule[0]).toMatchObject({ p_delivery_id: DELIVERY_ID, p_error_code: "NETWORK_ERROR" });
+  });
+
+  it("dead-letters a permanent send failure", async () => {
+    const { rpc, calls } = createFakeRpc({
+      claim: { data: claimSuccess({ event_type: "customer_receipt" }), error: null },
+      deadLetter: { data: { delivery_id: DELIVERY_ID, status: "dead_letter", attempt_count: 1, last_error_code: "INVALID_RECIPIENT" }, error: null },
+    });
+    const send = vi.fn(async (_input: EmailSendInput) => ({ ok: false as const, code: "INVALID_RECIPIENT" as const, retryable: false }));
+    const result = await dispatchOwnerNotification(
+      { deliveryId: DELIVERY_ID },
+      createDeps({ rpc, loadLead: async () => leadRow({ seller_email: "ahmed.seller@example.com" }), createEmailProvider: () => ({ send }) }),
+    );
+    expect(result).toEqual({ kind: "dead_lettered", deliveryId: DELIVERY_ID, errorCode: "INVALID_RECIPIENT" });
+    expect(calls.deadLetter[0]).toMatchObject({ p_error_code: "INVALID_RECIPIENT" });
+  });
+});
+
+// ---------------------------------------------------------------------------
 // BATCH 5C — leadRowSchema against the REAL PostgREST shape. Real
 // seller_quantity_value/buyer_quantity_value are `numeric(12,3)` Postgres
 // columns, which PostgREST serializes as JSON numbers, not strings — this

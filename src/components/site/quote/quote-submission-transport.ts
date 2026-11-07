@@ -266,12 +266,28 @@ async function postJson(
   fetchImpl: typeof fetch,
   baseUrl: string,
 ): Promise<{ status: number; json: unknown } | TransportFailure> {
+  // MEASURED GAP — JSON.stringify(body) was previously evaluated inline as
+  // a call argument, so it ran BEFORE runFetch's own try/catch (which only
+  // wraps the fetchImpl(...) call itself) ever started. A throw here —
+  // JSON.stringify can throw on a BigInt or a circular reference — would
+  // have propagated uncaught, past this request never having been sent,
+  // indistinguishable upstream from a genuine network/server failure.
+  // Reusing "network_error" (never a new TransportFailureKind) keeps this
+  // module's existing contract intact: the caller already treats
+  // network_error as retryable with no assumption the request reached the
+  // server, which is also true here.
+  let serializedBody: string;
+  try {
+    serializedBody = JSON.stringify(body);
+  } catch {
+    return { ok: false, transportFailure: "network_error" };
+  }
   return runFetch(
     `${baseUrl}${path}`,
     {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
+      body: serializedBody,
     },
     signal,
     fetchImpl,

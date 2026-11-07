@@ -23,6 +23,8 @@ import {
 import type { QuoteTransport, InitiateUploadSlot } from "./quote-submission-transport";
 import type { QuoteFormValues } from "./quote-schema";
 import type { QuoteInitialContext } from "./quote-search";
+import { logUnhandledError, describeWebCryptoAvailability } from "@/lib/error-capture";
+import type { QuoteClientDiagnosticsSnapshot } from "./quote-client-diagnostics-beacon";
 
 /**
  * CHECKPOINT C2F-D — the headless orchestration engine that drives one
@@ -60,6 +62,24 @@ export type QuoteSubmissionProgressEvent =
 // expected condition (network/API/malformed-response failures are all
 // outcomes, not throws) and never raw database/server internals.
 // ---------------------------------------------------------------------------
+
+/**
+ * Every stage a client_exception's thrown cause could have last reported
+ * progress for — the same phase names submit() already reports via
+ * onProgress, plus two fallbacks: "before_computing_identity" for the
+ * (currently unreachable in practice, since onProgress's first call is
+ * synchronous and unconditional) case where no progress event fired at all
+ * before the throw inside createQuoteSubmissionEngine's own wrapper, and
+ * "unknown" for a caller's OWN last-resort catch that never had access to
+ * the engine's internal stage-tracking at all (see QuoteExperience.tsx's
+ * own call site comment). Deliberately exported so logs/tests can name it
+ * without a string literal drifting out of sync with
+ * QuoteSubmissionProgressEvent's own phases.
+ */
+export type QuoteClientExceptionStage =
+  | QuoteSubmissionProgressEvent["phase"]
+  | "before_computing_identity"
+  | "unknown";
 
 export type QuoteSubmissionOutcome =
   | {
@@ -118,6 +138,45 @@ export type QuoteSubmissionOutcome =
   | { readonly kind: "network_error"; readonly retryable: true }
   | { readonly kind: "server_error"; readonly retryable: boolean }
   | {
+      /**
+       * Never produced by submitInternal below — createQuoteSubmissionEngine's
+       * own wrapper (see its submit() implementation) synthesizes this
+       * whenever submitInternal's promise rejects, i.e. an
+       * actual thrown exception rather than one of submitInternal's own
+       * typed returns. Kept as its own kind, distinct from "server_error",
+       * purely so the Review banner can show a different fixed diagnostic
+       * code for the two — see quote-submission-copy.ts's own comment.
+       *
+       * `stage` is the last progress phase reported before the throw — a
+       * closed, PII/token-free enum (never the error's own message/stack),
+       * logged via logUnhandledError so a future occurrence can be
+       * distinguished (e.g. "failed before any request was sent" vs. "failed
+       * after initiate/upload/complete already succeeded server-side")
+       * without ever capturing what actually threw.
+       *
+       * `leadId`/`reference` are present ONLY when createQuoteSubmissionEngine's
+       * own catch recovers a persisted "initiated" attempt right after
+       * catching — i.e. ONLY when a real server response already confirmed a
+       * lead exists, never a guess from the stage alone. A "pre_initiate"
+       * attempt (we asked the server but never got a response — e.g. the
+       * throw happened inside initiate() itself) does NOT qualify: that is
+       * a genuine "we don't know" case, not a confirmed lead, so these stay
+       * absent and the banner stays the plain generic message. MEASURED
+       * GAP, fixed — before this, EVERY client_exception, including one
+       * thrown well after a real lead was already created server-side
+       * (uploading/completing), carried no leadId/reference at all, so the
+       * Review banner showed the exact same "something went wrong" wording
+       * whether nothing had happened yet or a real enquiry already existed
+       * — see quote-submission-copy.ts's own client_exception case for the
+       * banner-level fix this enables.
+       */
+      readonly kind: "client_exception";
+      readonly retryable: true;
+      readonly stage: QuoteClientExceptionStage;
+      readonly leadId?: string;
+      readonly reference?: string;
+    }
+  | {
       /** CHECKPOINT C2G — the Turnstile token was missing/invalid/expired/duplicate or failed Siteverify. A brand-new challenge token is required before retrying; the caller's answers and in-flight attempt are otherwise untouched. */
       readonly kind: "human_verification_required";
     }
@@ -153,6 +212,19 @@ export interface QuoteSubmissionEngineDeps {
   readonly onProgress?: (event: QuoteSubmissionProgressEvent) => void;
   /** Injectable clock for deterministic createdAt/updatedAt in tests. */
   readonly now?: () => number;
+  /**
+   * QT-CLI audit — the server-visible diagnostic beacon (see
+   * quote-client-diagnostics-beacon.ts). Defaults to a genuine no-op, NOT
+   * the real network-calling function: every one of this engine's own
+   * tests exercises the client_exception catch path below without
+   * supplying this, and the real sendQuoteClientDiagnosticsBeacon would
+   * otherwise fire an uncontrolled background fetch() in every one of
+   * them (no test here injects a fake fetchImpl for it, unlike `transport`
+   * itself, which every test already fakes explicitly). QuoteExperience.tsx
+   * — the one real production call site — passes the real
+   * sendQuoteClientDiagnosticsBeacon explicitly; nothing else needs to.
+   */
+  readonly sendDiagnosticsBeacon?: (snapshot: QuoteClientDiagnosticsSnapshot) => Promise<void>;
 }
 
 export interface SubmitQuoteInput {
@@ -201,12 +273,79 @@ function existingKeyPair(
 // one code path ever produces an outcome)
 // ---------------------------------------------------------------------------
 
+/**
+ * Internal-only diagnostic hooks — never exposed via QuoteSubmissionOutcome
+ * or any UI-facing type, so this stays purely an input to
+ * createQuoteSubmissionEngine's own logging decision (see its catch
+ * handler below), never a change to what the UI renders or how it
+ * navigates. Every hook is a plain boolean/value setter: no PII, no form
+ * data, no raw exception, nothing resembling a payload hash is ever
+ * passed through here.
+ */
+interface SubmitInternalDiagnostics {
+  /**
+   * Called exactly once, the moment this call's own payloadHash becomes
+   * known — i.e. right after identity computation succeeds, never before,
+   * never a guess. Lets createQuoteSubmissionEngine's outer catch below
+   * verify a recovered "initiated" attempt actually belongs to THIS
+   * submission (same payloadHash) before ever attaching its leadId/
+   * reference to a client_exception outcome — without this, a stale
+   * attempt left over from an entirely unrelated earlier/abandoned
+   * submission could be misattributed to the one that's currently
+   * failing, which would be actively MISLEADING (worse than the generic
+   * message it replaces), not merely imprecise.
+   */
+  onIdentityKnown(payloadHash: string): void;
+  /**
+   * Called immediately before transport.initiate() is actually invoked.
+   *
+   * NAMING, deliberate: this is "initiateInvoked", never "request sent" —
+   * the measurement point is the engine's own call into the
+   * quote-submission-transport.ts abstraction, not the raw fetch()
+   * boundary inside it. This module has no visibility into whether
+   * quote-submission-transport.ts's own internals (JSON.stringify, the
+   * AbortController/timeout setup in runFetch, the actual fetchImpl call)
+   * got as far as touching the network before any eventual throw — only
+   * that THIS call was made. Instrumenting the literal fetch() boundary
+   * inside quote-submission-transport.ts was considered and deliberately
+   * not done: QuoteTransport's per-call methods have a fixed signature
+   * shared by every test fake in this codebase, and threading a
+   * network-level callback through it would mean a broader interface
+   * change for a distinction the real transport's own exhaustive
+   * typed-return design (every genuine fetch/parse failure already
+   * becomes a typed, non-throwing result — see runFetch's own try/catch
+   * blocks) makes rare in practice: by the time transport.initiate()
+   * itself throws at all, it is almost always because something OUTSIDE
+   * the network call threw, not inside it.
+   */
+  onInitiateInvoked(): void;
+  /**
+   * Called the instant transport.initiate() resolves to ANY result — ok or
+   * not — never on a throw/rejection.
+   *
+   * NAMING, deliberate: this is "initiateSettled", never "HTTP response
+   * received" — same reasoning as onInitiateInvoked's own doc comment.
+   * "Settled" means transport.initiate()'s own promise resolved without
+   * throwing, which for the real transport implementation in practice
+   * only happens after a real HTTP response was received and parsed (its
+   * every other failure mode is a typed, non-throwing return) — but that
+   * is an observed property of today's transport, not a guarantee this
+   * field's name should claim. Still fires even for a typed
+   * (non-exception) failure response, since those never reach the
+   * generic catch this diagnostic feeds anyway — recording it
+   * unconditionally here is simpler and no less accurate than only
+   * recording it on the success path.
+   */
+  onInitiateSettled(): void;
+}
+
 async function submitInternal(
   input: SubmitQuoteInput,
   transport: QuoteTransport,
   store: QuoteAttemptStore,
   onProgress: (event: QuoteSubmissionProgressEvent) => void,
   now: () => number,
+  diagnostics: SubmitInternalDiagnostics,
 ): Promise<QuoteSubmissionOutcome> {
   const { signal } = input;
   if (signal?.aborted) return { kind: "aborted" };
@@ -223,6 +362,7 @@ async function submitInternal(
   }
   if (signal?.aborted) return { kind: "aborted" };
   const identity = identityResult.identity;
+  diagnostics.onIdentityKnown(identity.payloadHash);
 
   const reconciled = store.reconcileSubmissionAttempt(identity.payloadHash);
   const idempotencyKey = resolveIdempotencyKey(identity.payloadHash, existingKeyPair(reconciled));
@@ -248,10 +388,12 @@ async function submitInternal(
 
   // ---- 5. Call initiate exactly per its current contract. ----------------
   onProgress({ phase: "initiating" });
+  diagnostics.onInitiateInvoked();
   const initiateResult = await transport.initiate(
     { idempotencyKey, submission: identity.submission, files: identity.files, turnstileToken: input.turnstileToken },
     signal,
   );
+  diagnostics.onInitiateSettled();
 
   if (!initiateResult.ok) {
     if (initiateResult.transportFailure === "aborted") return { kind: "aborted" };
@@ -269,7 +411,18 @@ async function submitInternal(
       // mint a fresh key naturally (resolveIdempotencyKey always mints a
       // new one when no matching existing attempt remains) — never an
       // automatic retry with the same conflicting key from inside this call.
-      store.clearSubmissionAttempt();
+      //
+      // MEASURED GAP (QT-CLI trace) — best-effort only: this cleanup is a
+      // local-recovery-state nicety, not a precondition for reporting the
+      // outcome the server just told us about. A throw here must never
+      // convert a known, specific outcome into the generic client_exception
+      // — see the identical reasoning at the genuine-completion cleanup
+      // below, where this exact bug was found.
+      try {
+        store.clearSubmissionAttempt();
+      } catch {
+        // Swallowed deliberately — see comment above.
+      }
       return { kind: "idempotency_conflict" };
     }
     if (initiateResult.code === "VALIDATION_ERROR") {
@@ -409,8 +562,32 @@ async function submitInternal(
 
   // ---- 20. Genuine completion: clear the attempt, but the final server
   // confirmation the UI needs travels back in the returned outcome, not in
-  // storage. ---------------------------------------------------------------
-  store.clearSubmissionAttempt();
+  // storage. -----------------------------------------------------------
+  //
+  // MEASURED GAP (found during the QT-CLI trace), now fixed — this call
+  // was previously unguarded, so a throw here (e.g. the quote-storage.ts
+  // isBrowser() gap already fixed, or any other future storage failure)
+  // would reject this function's promise INSTEAD of returning the success
+  // below, converting an already-genuine, server-confirmed completion into
+  // a customer-visible client_exception/QT-CLI error. This is a PLAUSIBLE
+  // explanation consistent with the one reported "failed UI, successful
+  // enquiry" incident, not a confirmed one — no device log from that
+  // incident ever captured what actually threw, so this is a real,
+  // independently-found defect being fixed on its own merits, not a
+  // claim that it IS what happened that one time. Cleanup here is best-effort
+  // only: transport.complete has already returned ok:true, so the success
+  // below is owed regardless of whether local recovery state can be
+  // cleared. Worst case on a swallowed failure: a stale "initiated" attempt
+  // lingers in sessionStorage — harmless, since any later submit() for a
+  // materially different payload invalidates it via reconcileSubmissionAttempt's
+  // own hash check, and a retry with the SAME unchanged values safely
+  // re-confirms success via the server's own already_completed replay
+  // (verified in quote-submission-engine.test.ts).
+  try {
+    store.clearSubmissionAttempt();
+  } catch {
+    // Swallowed deliberately — see comment above.
+  }
   return {
     kind: "success",
     leadId: completeResult.data.leadId,
@@ -439,15 +616,181 @@ export function createQuoteSubmissionEngine(deps: QuoteSubmissionEngineDeps): Qu
   const store = deps.store ?? defaultAttemptStore;
   const onProgress = deps.onProgress ?? (() => undefined);
   const now = deps.now ?? (() => Date.now());
+  // Default is a genuine no-op, not the real beacon — see
+  // QuoteSubmissionEngineDeps's own doc comment on sendDiagnosticsBeacon
+  // for why.
+  const sendDiagnosticsBeacon = deps.sendDiagnosticsBeacon ?? (() => Promise.resolve());
 
   let inFlight: Promise<QuoteSubmissionOutcome> | null = null;
 
   return {
     submit(input: SubmitQuoteInput): Promise<QuoteSubmissionOutcome> {
       if (inFlight) return inFlight;
-      const run = submitInternal(input, deps.transport, store, onProgress, now).finally(() => {
-        inFlight = null;
-      });
+
+      // MEASURED GAP (QT-CLI trace) — submitInternal is designed to always
+      // resolve to a typed outcome, never throw, but every caller
+      // previously relied on that as an assumption rather than a guarantee
+      // this module itself enforces: a throw anywhere inside it (e.g. the
+      // now-fixed quote-storage.ts isBrowser() gap, or the Web Crypto calls
+      // in quote-submission-identity.ts, neither of which is DI'd here)
+      // would reject this promise uncaught, forcing every CALLER of
+      // submit() to independently remember to guard against that — which
+      // QuoteExperience.tsx's own call site comment already documented as a
+      // real, previously-unguarded risk. Catching it HERE, once, means
+      // every current and future caller gets the same safety net
+      // automatically, and the exact progress phase last reported before
+      // the throw (never the error's own message/stack) is preserved as
+      // `stage` — this is deliberately NOT a guess at which specific call
+      // threw; it only records where the pipeline had gotten to.
+      let lastPhase: QuoteSubmissionProgressEvent["phase"] | null = null;
+      const trackedOnProgress = (event: QuoteSubmissionProgressEvent) => {
+        lastPhase = event.phase;
+        onProgress(event);
+      };
+      // Set exactly once, the moment THIS call's own payloadHash becomes
+      // known (see SubmitInternalDiagnostics's onIdentityKnown doc
+      // comment) — null the whole time if the throw happened before
+      // identity computation even finished, in which case there is no
+      // hash to compare against and recovery below correctly never fires.
+      let currentPayloadHash: string | null = null;
+      // Diagnostic-only, never exposed via QuoteSubmissionOutcome or any
+      // UI-facing value — see SubmitInternalDiagnostics's own doc comment
+      // and this catch handler's own logUnhandledError call below, the
+      // only place these are ever read.
+      let initiateInvoked = false;
+      let initiateSettled = false;
+
+      const run = submitInternal(input, deps.transport, store, trackedOnProgress, now, {
+        onIdentityKnown: (hash) => {
+          currentPayloadHash = hash;
+        },
+        onInitiateInvoked: () => {
+          initiateInvoked = true;
+        },
+        onInitiateSettled: () => {
+          initiateSettled = true;
+        },
+      })
+        .catch((error: unknown): QuoteSubmissionOutcome => {
+          const stage: QuoteClientExceptionStage = lastPhase ?? "before_computing_identity";
+          // `stage` is this module's own closed QuoteClientExceptionStage
+          // enum — never anything derived from `error` — so passing it as
+          // logUnhandledError's `extra` is safe under that function's own
+          // contract (see its doc comment). The outcome's own `stage`
+          // field alone (returned to the UI, never logged) was previously
+          // the only place this existed. IMPORTANT SCOPE LIMIT:
+          // logUnhandledError's production path writes via
+          // originalConsoleError — plain console.error.bind(console),
+          // captured in error-capture.ts — which is this BROWSER's own
+          // local DevTools console only. There is no server-side log
+          // store or remote aggregation here. This makes the stage
+          // retrievable only in a LIVE session on the affected device
+          // (e.g. Safari/Chrome Remote Web Inspector connected at the
+          // time, or the user's own screen recording) — never a
+          // after-the-fact remote/historical lookup once that device is
+          // no longer connected.
+          // Future-QT-CLI-diagnostics audit, added — three more bounded
+          // booleans/enums alongside `stage`, same closed-value contract:
+          // never the raw error, never form data/name/phone/files/token,
+          // never a URL, never a payload hash. `initiateInvoked`/
+          // `initiateSettled` narrow WHERE around the initiate call a
+          // throw landed (see SubmitInternalDiagnostics's own doc comment
+          // for exactly what these do and do not claim — never "request
+          // sent"/"HTTP response received" literally, since the actual
+          // fetch() boundary inside quote-submission-transport.ts is not
+          // instrumented); the three Web Crypto flags record only WHETHER
+          // each API exists in this browser right now, never any value
+          // drawn from it. Entirely best-effort: this whole block is
+          // wrapped so that even a failure IN the diagnostics themselves
+          // (e.g. `crypto` itself throwing on property access in some
+          // exotic restricted context) can never mask or replace the real
+          // client_exception outcome below — it only means this one log
+          // call is skipped.
+          let webCrypto: Readonly<Record<string, boolean>> = {};
+          try {
+            webCrypto = describeWebCryptoAvailability();
+            logUnhandledError(error, "quote_submit_client_exception", {
+              stage,
+              initiateInvoked,
+              initiateSettled,
+              ...webCrypto,
+            });
+          } catch {
+            // Ignore — see comment above.
+          }
+          // Server-visible counterpart to the console-only log above — see
+          // src/server/quote/quote-client-diagnostics.ts and this
+          // beacon's own module doc comment for the full "why" (console
+          // logging alone is unobservable in Google's in-app browser, and
+          // was separately confirmed NOT solved by enabling Cloudflare
+          // Workers Observability on the deployed Worker, which is off).
+          // Deliberately NOT awaited — firing it synchronously here and
+          // letting it resolve on its own is what makes "never blocks
+          // submission" true in practice, not just in the beacon
+          // function's own contract. The inner `.catch()` alone only
+          // guards an asynchronous REJECTION; it does nothing for a
+          // SYNCHRONOUS throw from calling sendDiagnosticsBeacon(...)
+          // itself (a caller-injected function, not necessarily one that
+          // follows its own documented contract) — that throw would
+          // happen before `.catch` is ever reached, escaping this whole
+          // `.catch((error) => {...})` callback and rejecting the
+          // engine's own returned promise, replacing the correct
+          // client_exception outcome below with nothing at all (a rejected
+          // submit() call). MEASURED GAP, fixed — the outer try/catch
+          // makes this diagnostic send fully best-effort against BOTH
+          // failure modes, exactly like every other diagnostic step above
+          // it, so the real outcome this function is about to return can
+          // never be replaced by a misbehaving injected dependency.
+          try {
+            void sendDiagnosticsBeacon({
+              stage,
+              initiateInvoked,
+              initiateSettled,
+              subtleAvailable: webCrypto["subtleAvailable"] ?? false,
+              getRandomValuesAvailable: webCrypto["getRandomValuesAvailable"] ?? false,
+              randomUUIDAvailable: webCrypto["randomUUIDAvailable"] ?? false,
+            }).catch(() => undefined);
+          } catch {
+            // Ignore — see comment above.
+          }
+          // MEASURED GAP, fixed — recover leadId/reference from storage
+          // ONLY when a real server response already confirmed a lead
+          // ("initiated", never "pre_initiate"/"none") exists AND its own
+          // payloadHash matches THIS call's currentPayloadHash. The
+          // payloadHash check is the whole point, not a nicety: without
+          // it, a stale "initiated" attempt left over from an entirely
+          // unrelated earlier submission (confirmed by a real test — see
+          // quote-submission-engine.test.ts) could get attached to a
+          // DIFFERENT, currently-failing submission that has nothing to do
+          // with it — a wrong leadId/reference pair on this outcome,
+          // regardless of whether the copy layer currently surfaces that
+          // distinction (quote-submission-copy.ts's own comment explains
+          // why it deliberately doesn't, for this release). If
+          // currentPayloadHash is still null (the throw
+          // happened before identity computation even finished), there is
+          // nothing to compare against, so recovery correctly never fires.
+          // Best-effort either way: a throw from the store read here must
+          // never mask the original exception's own client_exception
+          // outcome — it only means these two fields stay absent, same as
+          // before this fix.
+          let recovered: { leadId: string; reference: string } | undefined;
+          try {
+            const attempt = store.loadSubmissionAttempt();
+            if (
+              attempt.kind === "initiated" &&
+              currentPayloadHash !== null &&
+              attempt.payloadHash === currentPayloadHash
+            ) {
+              recovered = { leadId: attempt.leadId, reference: attempt.reference };
+            }
+          } catch {
+            // Ignore — see comment above.
+          }
+          return { kind: "client_exception", retryable: true, stage, ...recovered };
+        })
+        .finally(() => {
+          inFlight = null;
+        });
       inFlight = run;
       return run;
     },

@@ -5,6 +5,11 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom/vitest";
 
+// TEST-HARNESS FIX (full-suite timeout flake) — every `userEvent.setup()`
+// here uses `{ delay: null }`; see OwnerLeadQuickAddForm.test.tsx's own
+// top-of-file comment for the measured root cause (a timed-out test's
+// orphaned real-timer keystroke delays keep firing into whichever test
+// runs next). No application code changed.
 const navigateMock = vi.fn();
 
 vi.mock("@tanstack/react-router", async (importOriginal) => {
@@ -41,7 +46,7 @@ afterEach(() => {
 
 describe("OwnerLeadQuickAddBody — success navigates to the new lead's detail page", () => {
   it("calls navigate to /owner/leads/$leadId with the created lead's id when Open enquiry is clicked", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     submitMock.mockResolvedValue({ ok: true, leadId: "11111111-1111-1111-1111-111111111111", reference: "MSM-260101-ABCDEF" });
 
     render(<OwnerLeadQuickAddBody onUnauthorized={vi.fn()} />);
@@ -67,14 +72,14 @@ describe("OwnerLeadQuickAddBody — success navigates to the new lead's detail p
 // same destination, different mechanism.
 describe("OwnerLeadQuickAddBody — back / cancel navigate to the owner inbox", () => {
   it("Back to enquiries navigates to /owner", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(<OwnerLeadQuickAddBody onUnauthorized={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: /back to enquiries/i }));
     expect(navigateMock).toHaveBeenCalledWith({ to: "/owner" });
   });
 
   it("Cancel navigates to /owner", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(<OwnerLeadQuickAddBody onUnauthorized={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: /^cancel$/i }));
     expect(navigateMock).toHaveBeenCalledWith({ to: "/owner" });

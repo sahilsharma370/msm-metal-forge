@@ -37,6 +37,11 @@ import {
   type QuoteTurnstileWidgetHandle,
   type QuoteTurnstileWidgetProps,
 } from "./QuoteTurnstileWidget";
+import { logUnhandledError, describeWebCryptoAvailability } from "@/lib/error-capture";
+import {
+  sendQuoteClientDiagnosticsBeacon,
+  type QuoteClientDiagnosticsSnapshot,
+} from "./quote-client-diagnostics-beacon";
 
 /** Public build-time value — safe to expose in the client bundle by design (see QuoteTurnstileWidget's own doc comment). Empty in an environment without it configured, which fails closed: the widget never renders a usable challenge and Submit stays disabled forever, rather than silently skipping verification. */
 const TURNSTILE_SITE_KEY = (import.meta.env["VITE_TURNSTILE_SITE_KEY"] as string | undefined) ?? "";
@@ -66,6 +71,16 @@ interface QuoteExperienceProps {
    * keeps tests deterministic without racing real timers.
    */
   turnstileWidget?: TurnstileWidgetComponent;
+  /**
+   * QT-CLI audit — test-only injection point mirroring `transport` above;
+   * production callers never pass this. The real server-visible beacon
+   * (sendQuoteClientDiagnosticsBeacon) is used by default — swapping it in
+   * tests avoids ever firing a real background fetch() from this
+   * component's own "unexpected thrown exception" regression test, the
+   * same reasoning createQuoteSubmissionEngine's own default no-op exists
+   * for (see its own QuoteSubmissionEngineDeps doc comment).
+   */
+  sendDiagnosticsBeacon?: (snapshot: QuoteClientDiagnosticsSnapshot) => Promise<void>;
 }
 
 function revokeAllPreviews(values: QuoteFormValues) {
@@ -103,7 +118,9 @@ export function QuoteExperience({
   onClose,
   transport: transportProp,
   turnstileWidget: TurnstileWidgetProp,
+  sendDiagnosticsBeacon: sendDiagnosticsBeaconProp,
 }: QuoteExperienceProps) {
+  const sendDiagnosticsBeacon = sendDiagnosticsBeaconProp ?? sendQuoteClientDiagnosticsBeacon;
   const draft = useMemo(() => loadQuoteDraft(), []);
   const TurnstileWidget = TurnstileWidgetProp ?? QuoteTurnstileWidget;
 
@@ -170,6 +187,7 @@ export function QuoteExperience({
     createQuoteSubmissionEngine({
       transport: transportProp ?? createFetchQuoteTransport(),
       onProgress: (event) => setSubmissionPhase(event),
+      sendDiagnosticsBeacon,
     }),
   );
 
@@ -454,20 +472,69 @@ export function QuoteExperience({
     let outcome: QuoteSubmissionOutcome;
     try {
       outcome = await promise;
-    } catch {
-      // MEASURED GAP (not the reported bug's root cause, but a real
-      // structural risk found while tracing it): engine.submit() is
-      // designed to always resolve to a typed outcome, never throw — but
-      // this call site had no catch, only finally, so any unexpected
-      // exception (not one of submitInternal's own handled cases) would
-      // propagate as an unhandled rejection: isSubmitting still resets via
-      // finally below, but no outcome is ever set, so Review shows
-      // nothing — a genuinely silent failure, indistinguishable from "the
-      // click did nothing". This mirrors the same generic, retryable
-      // "server_error" copy already shown for every other unexpected
-      // server failure (see quote-submission-copy.ts's own mapping) —
-      // no new user-facing message invented.
-      outcome = { kind: "server_error", retryable: true };
+    } catch (error) {
+      // LAST-RESORT FALLBACK ONLY — createQuoteSubmissionEngine's own
+      // submit() wrapper now catches any exception from submitInternal
+      // internally (see quote-submission-engine.ts), tags it with the last
+      // known progress stage, and resolves (never rejects) to a
+      // client_exception outcome — so `promise` above should never
+      // actually reject in practice. This catch stays as defense-in-depth
+      // for a future engine implementation that doesn't uphold that
+      // contract, rather than being deleted on the assumption it can never
+      // fire. Same fixed, privacy-safe category as the engine's own path
+      // (never error.message, stack, or form data) — stage is "unknown"
+      // here specifically because, by the time this is reached, the
+      // engine's own stage-tracking was bypassed entirely.
+      // Best-effort — this entire log call must never throw and replace
+      // the client_exception outcome below with something worse (see the
+      // engine's own identical reasoning for its matching log call).
+      let webCrypto: Readonly<Record<string, boolean>> = {};
+      try {
+        webCrypto = describeWebCryptoAvailability();
+        logUnhandledError(error, "quote_submit_client_exception", { stage: "unknown", ...webCrypto });
+      } catch {
+        // Ignore — see comment above.
+      }
+      // Server-visible counterpart, same reasoning as the engine's own
+      // matching call — never awaited, never able to delay this catch
+      // block or the outcome it's about to set below. initiateInvoked/
+      // initiateSettled stay false here: by the time this fallback fires,
+      // the engine's own tracking of those was already bypassed entirely
+      // (see the comment above), so there is nothing truthful to report
+      // for them — false is the honest "unknown", not a guess.
+      //
+      // MEASURED GAP, fixed — same outer try/catch as the engine's own
+      // matching call, and for the identical reason: the inner `.catch()`
+      // only guards an async rejection, not a SYNCHRONOUS throw from
+      // calling sendDiagnosticsBeacon(...) itself. Without this, that
+      // throw would escape this entire catch block before `outcome`
+      // below is ever assigned — worse than merely losing the diagnostic,
+      // since this function would then exit via that unrelated exception
+      // instead of ever setting a client_exception outcome at all.
+      try {
+        void sendDiagnosticsBeacon({
+          stage: "unknown",
+          initiateInvoked: false,
+          initiateSettled: false,
+          subtleAvailable: webCrypto["subtleAvailable"] ?? false,
+          getRandomValuesAvailable: webCrypto["getRandomValuesAvailable"] ?? false,
+          randomUUIDAvailable: webCrypto["randomUUIDAvailable"] ?? false,
+        }).catch(() => undefined);
+      } catch {
+        // Ignore — see comment above.
+      }
+      // Deliberately does NOT attempt the same leadId/reference recovery
+      // as the engine's own catch (see quote-submission-engine.ts): that
+      // recovery is only safe because the engine's catch can compare a
+      // recovered attempt's payloadHash against the CURRENT submission's
+      // own payloadHash (confirmed necessary by a real test — a mismatch
+      // would attach a stale, unrelated lead to this failure, which is
+      // worse than the generic message it would replace). This call site
+      // has no access to that hash at all — the engine never exposes it,
+      // by design — so there is no safe way to verify a match here. Stays
+      // the plain generic client_exception, which is always accurate
+      // (never wrong, only ever imprecise) when nothing can be confirmed.
+      outcome = { kind: "client_exception", retryable: true, stage: "unknown" };
     } finally {
       submitPromiseRef.current = null;
       abortControllerRef.current = null;
@@ -513,7 +580,8 @@ export function QuoteExperience({
       }
       default:
         // restart_required, upload_in_progress, content mismatch handled above,
-        // idempotency_conflict, not_ready, network_error, server_error, upload_failed
+        // idempotency_conflict, not_ready, network_error, server_error,
+        // client_exception, upload_failed
         setSubmissionOutcome(outcome);
     }
   }
@@ -858,16 +926,16 @@ export function QuoteExperience({
         <div
           ref={scrollRef}
           className={`quote-scroll min-h-0 min-w-0 overflow-y-auto overscroll-contain bg-[#080A1D] px-5 sm:px-8 lg:px-12 ${
-            // Final correction pass — Step 1 (Request) is the one stage whose
-            // content already fits a 390x748 phone viewport in full (heading,
-            // both choice cards, Continue), so the shared pt-8/pb-10 used by
-            // every other stage (Material/Logistics/Contact/Review, which do
-            // need that breathing room and are untouched here) left Step 1
-            // with a small residual scroll range even though nothing was cut
-            // off. `sm:`-restored back to the exact original pt-8/pb-10, so
+            // Further correction pass — the previous pt-5/pb-6 pass only
+            // fit a tall ~748px-tall phone viewport; a shorter real-world
+            // one (iPhone SE-class, or any phone with Chrome's address bar/
+            // toolbar actually visible rather than a full-height viewport —
+            // measured at 375x667) still clipped the Buy card behind the
+            // footer, needing a scroll. Trimmed further on mobile only;
+            // `sm:`-restored back to the exact original pt-8/pb-10, so
             // desktop Step 1 and every breakpoint of every other stage are
             // unchanged.
-            !confirmation && stage === 1 ? "pt-5 pb-6 sm:pt-8 sm:pb-10" : "pt-8 pb-10"
+            !confirmation && stage === 1 ? "pt-2 pb-2 sm:pt-8 sm:pb-10" : "pt-8 pb-10"
           }`}
         >
           <div

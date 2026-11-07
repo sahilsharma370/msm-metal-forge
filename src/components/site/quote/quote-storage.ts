@@ -216,6 +216,18 @@ export type QuoteSubmissionAttempt = z.infer<typeof submissionAttemptSchema>;
 
 const NONE_ATTEMPT: QuoteSubmissionAttempt = { kind: "none" };
 
+/**
+ * In-memory mirror of the attempt slice, consulted by loadSubmissionAttempt
+ * whenever a real-storage read can't be trusted — see that function's own
+ * doc comment near the bottom of this file for the full explanation of why
+ * this exists and its exact limits. Declared here (rather than next to
+ * loadSubmissionAttempt) so readEnvelope below — which must reset it
+ * whenever it confirms the real envelope is genuinely absent/discarded, not
+ * just when a read throws — can reference it without a forward-declaration
+ * gap.
+ */
+let memoryAttemptFallback: QuoteSubmissionAttempt = NONE_ATTEMPT;
+
 const draftEnvelopeSchemaV2 = z.object({
   version: z.literal(CURRENT_DRAFT_VERSION),
   step: z.number().int().min(1).max(6).catch(1),
@@ -228,8 +240,28 @@ const draftEnvelopeSchemaV2 = z.object({
 
 export type QuoteDraftEnvelope = z.infer<typeof draftEnvelopeSchemaV2>;
 
+/**
+ * MEASURED GAP (found tracing the QT-CLI client_exception path, not
+ * reproduced on any specific device): every other sessionStorage touch in
+ * this file is already try/catch-guarded (readEnvelope/writeEnvelope/
+ * clearQuoteDraft/clearSubmissionAttempt) — this check was the one
+ * exception. Merely accessing `window.sessionStorage` as a property (never
+ * mind calling a method on it) is documented WebKit/browser behavior to
+ * throw a SecurityError in some storage-restricted contexts — notably some
+ * in-app WebViews (e.g. opening a link from inside another app), which can
+ * impose stricter storage sandboxing than either a standalone browser app
+ * or Safari itself. `typeof x` does not suppress an exception thrown by
+ * evaluating `x` when `x` is a property access with a throwing getter — only
+ * bare, undeclared identifiers are exception-safe under `typeof`. Fails
+ * closed to "not usable" rather than propagating, exactly like every sibling
+ * guard in this file already does.
+ */
 function isBrowser(): boolean {
-  return typeof window !== "undefined" && typeof window.sessionStorage !== "undefined";
+  try {
+    return typeof window !== "undefined" && typeof window.sessionStorage !== "undefined";
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -241,22 +273,73 @@ function isBrowser(): boolean {
  * against every known version (including an unknown future version), or an
  * expired save all fail closed to null rather than throwing.
  */
+/**
+ * Shared by every "the stored envelope is being discarded" branch in
+ * readEnvelope below (malformed JSON, unknown/corrupt version, expired).
+ * MEASURED GAP, fixed — each of these used to removeItem the real envelope
+ * without telling memoryAttemptFallback, so a STALE in-memory attempt
+ * could outlive a confirmed-discarded real one and get incorrectly
+ * resurrected by loadSubmissionAttempt's own fallback (caught by
+ * quote-storage.test.ts's existing "clearQuoteDraft... together" test).
+ * This is a CONFIRMED discard, never an ambiguous failure, so resetting
+ * the mirror here is always correct, never a guess.
+ */
+function discardEnvelopeAndReportNone(): null {
+  memoryAttemptFallback = NONE_ATTEMPT;
+  try {
+    window.sessionStorage.removeItem(DRAFT_KEY);
+  } catch {
+    // Ignore — nothing more we can do if storage itself is unreachable.
+  }
+  return null;
+}
+
 function readEnvelope(): QuoteDraftEnvelope | null {
   if (!isBrowser()) return null;
-  const raw = window.sessionStorage.getItem(DRAFT_KEY);
-  if (!raw) return null;
+  // MEASURED GAP — a DIFFERENT failure mode from isBrowser()'s own gap
+  // (already fixed): here the `window.sessionStorage` property access
+  // itself succeeds (isBrowser() correctly reports true), but getItem
+  // ITSELF throws — e.g. a storage policy that allows accessing the
+  // object but denies actual reads/writes. This was the one storage
+  // operation in this file not already guarded; every other one (including
+  // setItem below) already fails closed to null/no-op instead of
+  // propagating. Deliberately does NOT reset memoryAttemptFallback here —
+  // a throw is an AMBIGUOUS failure (unlike the confirmed discards below),
+  // which is exactly the case the fallback exists for.
+  let raw: string | null;
+  try {
+    raw = window.sessionStorage.getItem(DRAFT_KEY);
+  } catch {
+    return null;
+  }
+  if (!raw) {
+    // MEASURED GAP, fixed — a null `raw` is NOT the confirmed-empty signal
+    // this comment used to claim. getItem returning null is observably
+    // identical whether (a) nothing was ever saved this page load — mirror
+    // is already NONE_ATTEMPT, its default, so leaving it alone changes
+    // nothing — or (b) a prior saveSubmissionAttempt DID run but its
+    // setItem silently threw (writeEnvelope's own guard swallows that),
+    // so nothing ever actually persisted even though a save was intended.
+    // Resetting the mirror here used to treat (b) as (a), erasing exactly
+    // the in-memory record this fallback exists to preserve — every
+    // subsequent loadSubmissionAttempt() call in the SAME failure mode
+    // hits this same branch again and re-erases it, so even a same-page
+    // retry immediately after a successful initiate+save would see no
+    // existing attempt and mint a brand-new idempotency key. No code path
+    // in this module ever removes the real key without also explicitly
+    // resetting the mirror itself (clearQuoteDraft, clearSubmissionAttempt,
+    // discardEnvelopeAndReportNone below all do) — so there is no genuine
+    // discard this branch alone needs to detect; leaving the mirror
+    // untouched here is always safe.
+    return null;
+  }
 
   let parsedJson: unknown;
   try {
     parsedJson = JSON.parse(raw);
   } catch {
     // Fix 12 (carried over): malformed JSON must not linger forever.
-    try {
-      window.sessionStorage.removeItem(DRAFT_KEY);
-    } catch {
-      // Ignore — nothing more we can do if storage itself is unreachable.
-    }
-    return null;
+    return discardEnvelopeAndReportNone();
   }
 
   let envelope: QuoteDraftEnvelope;
@@ -268,12 +351,7 @@ function readEnvelope(): QuoteDraftEnvelope | null {
     if (!v1.success) {
       // Neither the current version nor the one known prior version —
       // corrupt, partial, or an unknown future version. Fail closed.
-      try {
-        window.sessionStorage.removeItem(DRAFT_KEY);
-      } catch {
-        // Ignore.
-      }
-      return null;
+      return discardEnvelopeAndReportNone();
     }
     envelope = {
       version: CURRENT_DRAFT_VERSION,
@@ -287,12 +365,7 @@ function readEnvelope(): QuoteDraftEnvelope | null {
   }
 
   if (Date.now() - envelope.savedAt > DRAFT_EXPIRY_MS) {
-    try {
-      window.sessionStorage.removeItem(DRAFT_KEY);
-    } catch {
-      // Ignore.
-    }
-    return null;
+    return discardEnvelopeAndReportNone();
   }
   return envelope;
 }
@@ -332,6 +405,15 @@ export function loadQuoteDraft(): QuoteDraftEnvelope | null {
 
 /** Genuine success or Start Over: clears typed answers AND submission identity together — never one without the other. */
 export function clearQuoteDraft(): void {
+  // MEASURED GAP, fixed — this removes the ENTIRE envelope, attempt slice
+  // included, but previously only via the real sessionStorage key, never
+  // telling memoryAttemptFallback — leaving it stale and able to be
+  // incorrectly resurrected by loadSubmissionAttempt's own fallback (see
+  // discardEnvelopeAndReportNone's comment for the same class of bug).
+  // Unconditional, matching saveSubmissionAttempt's own mirroring: clearing
+  // the draft always means "no attempt exists anymore" for this page's own
+  // bookkeeping, regardless of whether the real removeItem below succeeds.
+  memoryAttemptFallback = NONE_ATTEMPT;
   if (!isBrowser()) return;
   try {
     window.sessionStorage.removeItem(DRAFT_KEY);
@@ -344,8 +426,61 @@ export function clearQuoteDraft(): void {
 // Submission-attempt recovery state (CHECKPOINT C2F-C)
 // ---------------------------------------------------------------------------
 
+/**
+ * MEASURED GAP (found auditing the storage-unavailable retry path) — two
+ * DIFFERENT failure modes both land here, and BOTH were confirmed
+ * empirically (not just reasoned about) to mint a fresh idempotency key on
+ * every retry without this fallback:
+ *
+ * 1. isBrowser() is false (the property access itself throws, already
+ *    fixed there) — every load/save becomes a silent no-op.
+ * 2. isBrowser() is TRUE (the property access succeeds) but getItem/
+ *    setItem themselves throw — e.g. a storage policy that allows
+ *    accessing the object but denies actual reads/writes. Even after
+ *    guarding getItem/setItem individually (see readEnvelope/
+ *    writeEnvelope — getItem fails closed to null, setItem's failure was
+ *    already swallowed), a save that silently fails to persist is
+ *    indistinguishable from "nothing was ever saved" on the next read,
+ *    UNLESS something else remembers it for this page's own lifetime.
+ *
+ * Either way, resolveIdempotencyKey can only reuse an existing key by
+ * finding one via loadSubmissionAttempt — if it always reports "none" (or
+ * silently loses what WAS just saved), a retry of the exact same
+ * still-open submission (same form values, same payload hash) mints a
+ * BRAND-NEW crypto.randomUUID() every single call. transport.initiate's
+ * idempotent-replay guarantee is keyed on (idempotencyKey, payloadHash)
+ * together, so a different key on retry is a genuinely new request to the
+ * server — risking a second lead for one real submission.
+ *
+ * Scope: only the ATTEMPT slice (idempotency key + server-confirmed
+ * recovery state) — never the typed-answer draft, which has no equivalent
+ * duplicate-request risk and is left to keep degrading to a plain no-op
+ * (resuming typed answers after a reload simply can't work without real
+ * storage, an acceptable, pre-existing limitation; minting a second lead
+ * is not). This mirror only survives for this page's lifetime, same as
+ * every other module-level variable here — it cannot and does not survive
+ * a RELOAD. With no durable storage available at all, a reload followed by
+ * a retry of "the same enquiry" is a real, unmitigated duplicate-lead risk
+ * this file cannot close — there is no durable medium left to remember the
+ * key across that specific disruption. This fallback only fixes retrying
+ * WITHOUT reloading, which is what the UI's own Retry button actually
+ * does — it is not, and must never be described as, a guarantee against
+ * duplicates after a reload in a storage-unavailable browser.
+ *
+ * (The variable itself — memoryAttemptFallback — is declared earlier in
+ * this file, right after NONE_ATTEMPT, so readEnvelope can also reset it
+ * whenever it confirms the real envelope is genuinely gone.)
+ */
 export function loadSubmissionAttempt(): QuoteSubmissionAttempt {
-  return readEnvelope()?.attempt ?? NONE_ATTEMPT;
+  if (!isBrowser()) return memoryAttemptFallback;
+  // readEnvelope() returning no attempt is ambiguous between "genuinely
+  // nothing saved yet this page load" and "a save silently failed to
+  // persist" (writeEnvelope's own setItem guard swallows that failure) —
+  // the in-memory mirror (kept in sync on every save, below) resolves
+  // that ambiguity in favor of whatever this page's own most recent save
+  // actually intended, never in favor of treating a failed write as if it
+  // had cleared the attempt.
+  return readEnvelope()?.attempt ?? memoryAttemptFallback;
 }
 
 /**
@@ -354,8 +489,15 @@ export function loadSubmissionAttempt(): QuoteSubmissionAttempt {
  * envelope exists yet, a fresh one is created at step 1 with empty values —
  * defensive only; the real wizard flow always saves typed answers (via
  * saveQuoteDraft) well before any submission identity is ever computed.
+ *
+ * Mirrors into memoryAttemptFallback unconditionally, even when storage
+ * appears available — cheap insurance against the exact "property access
+ * works, but the write itself silently fails" case above, which this
+ * function alone cannot detect (writeEnvelope's setItem guard already
+ * swallows that failure, by design, for the typed-answer draft's sake).
  */
 export function saveSubmissionAttempt(attempt: QuoteSubmissionAttempt): void {
+  memoryAttemptFallback = attempt;
   if (!isBrowser()) return;
   const existing = readEnvelope();
   writeEnvelope({

@@ -125,7 +125,7 @@ select lives_ok(
 );
 select throws_ok(
   $$ select public.dead_letter_notification_delivery_v1(
-       (select nd.id from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000b10-0000-0000-0000-000000000002'),
+       (select nd.id from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000b10-0000-0000-0000-000000000002' and nd.event_type = 'submission_completed'),
        gen_random_uuid(), 'WRONG_TOKEN_CODE'
      ) $$,
   'P0001', 'dead_letter_notification_delivery_v1: no matching active claim to dead-letter',
@@ -134,14 +134,14 @@ select throws_ok(
 
 select lives_ok(
   $$ select public.claim_notification_delivery_v1('d1000000-0000-0000-0000-000000000001'::uuid,
-       (select nd.id from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000b10-0000-0000-0000-000000000002'),
+       (select nd.id from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000b10-0000-0000-0000-000000000002' and nd.event_type = 'submission_completed'),
        120
      ) $$,
   'claiming the fixture delivery succeeds'
 );
 select throws_ok(
   $$ select public.dead_letter_notification_delivery_v1(
-       (select nd.id from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000b10-0000-0000-0000-000000000002'),
+       (select nd.id from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000b10-0000-0000-0000-000000000002' and nd.event_type = 'submission_completed'),
        gen_random_uuid(), 'WRONG_TOKEN_CODE'
      ) $$,
   'P0001', 'dead_letter_notification_delivery_v1: no matching active claim to dead-letter',
@@ -149,7 +149,7 @@ select throws_ok(
 );
 select is(
   (select (public.dead_letter_notification_delivery_v1(
-     (select nd.id from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000b10-0000-0000-0000-000000000002'),
+     (select nd.id from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000b10-0000-0000-0000-000000000002' and nd.event_type = 'submission_completed'),
      'd1000000-0000-0000-0000-000000000001'::uuid,
      'INVALID_RECIPIENT'
    ) ->> 'status')),
@@ -164,12 +164,12 @@ select ok(
      and nd.last_error_code = 'INVALID_RECIPIENT' and nd.last_error_at is not null
      and nd.manual_requeue_count = 0
     from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id
-    where l.idempotency_key = 'c2000b10-0000-0000-0000-000000000002'),
+    where l.idempotency_key = 'c2000b10-0000-0000-0000-000000000002' and nd.event_type = 'submission_completed'),
   'dead-lettering clears claim/lease/next_attempt, leaves sent identity absent, and stores only the sanitized error code'
 );
 select throws_ok(
   $$ select public.dead_letter_notification_delivery_v1(
-       (select nd.id from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000b10-0000-0000-0000-000000000002'),
+       (select nd.id from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000b10-0000-0000-0000-000000000002' and nd.event_type = 'submission_completed'),
        'd1000000-0000-0000-0000-000000000001'::uuid, 'ANOTHER_CODE'
      ) $$,
   'P0001', 'dead_letter_notification_delivery_v1: no matching active claim to dead-letter',
@@ -187,21 +187,21 @@ select lives_ok(
 );
 select lives_ok(
   $$ select public.claim_notification_delivery_v1('d1000000-0000-0000-0000-000000000002'::uuid,
-       (select nd.id from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000b10-0000-0000-0000-000000000003'),
+       (select nd.id from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000b10-0000-0000-0000-000000000003' and nd.event_type = 'submission_completed'),
        120
      ) $$,
   'claiming the sent-fixture delivery succeeds'
 );
 select lives_ok(
   $$ select public.mark_notification_delivery_sent_v1(
-       (select nd.id from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000b10-0000-0000-0000-000000000003'),
+       (select nd.id from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000b10-0000-0000-0000-000000000003' and nd.event_type = 'submission_completed'),
        'd1000000-0000-0000-0000-000000000002'::uuid, 'resend', 'msg-real-1'
      ) $$,
   'marking the sent-fixture delivery as sent succeeds'
 );
 select throws_ok(
   $$ select public.dead_letter_notification_delivery_v1(
-       (select nd.id from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000b10-0000-0000-0000-000000000003'),
+       (select nd.id from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000b10-0000-0000-0000-000000000003' and nd.event_type = 'submission_completed'),
        gen_random_uuid(), 'ANY_CODE'
      ) $$,
   'P0001', 'dead_letter_notification_delivery_v1: a sent delivery can never be dead-lettered',
@@ -219,7 +219,7 @@ select throws_ok(
 );
 select throws_ok(
   $$ select public.requeue_notification_delivery_v1(
-       (select nd.id from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000b10-0000-0000-0000-000000000003')
+       (select nd.id from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000b10-0000-0000-0000-000000000003' and nd.event_type = 'submission_completed')
      ) $$,
   'P0001', NULL,
   'a sent delivery can never be requeued'
@@ -229,7 +229,7 @@ select throws_ok(
 -- section D for the valid-requeue tests.
 select is(
   (select (public.requeue_notification_delivery_v1(
-     (select nd.id from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000b10-0000-0000-0000-000000000002')
+     (select nd.id from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000b10-0000-0000-0000-000000000002' and nd.event_type = 'submission_completed')
    ) ->> 'status')),
   'pending',
   'a valid manual requeue against a dead_letter row resets it to pending'
@@ -241,24 +241,24 @@ select ok(
      and nd.claim_token is null and nd.claimed_at is null and nd.lease_expires_at is null
      and nd.manual_requeue_count = 1
     from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id
-    where l.idempotency_key = 'c2000b10-0000-0000-0000-000000000002'),
+    where l.idempotency_key = 'c2000b10-0000-0000-0000-000000000002' and nd.event_type = 'submission_completed'),
   'requeue resets attempt_count to 0, leaves next_attempt_at null (the C2H-A pending invariant — immediately due), clears any claim, and increments manual_requeue_count exactly once'
 );
 select is(
   (select (public.requeue_notification_delivery_v1(
-     (select nd.id from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000b10-0000-0000-0000-000000000002')
+     (select nd.id from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000b10-0000-0000-0000-000000000002' and nd.event_type = 'submission_completed')
    ) ->> 'manual_requeue_count')::int),
   1,
   'a repeated requeue against an already-pending row is a safe idempotent no-op — manual_requeue_count does not increment again'
 );
 select is(
-  (select manual_requeue_count from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000b10-0000-0000-0000-000000000002'),
+  (select manual_requeue_count from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000b10-0000-0000-0000-000000000002' and nd.event_type = 'submission_completed'),
   1,
   'manual_requeue_count is confirmed unchanged in the actual row after the idempotent replay'
 );
 select is(
   (select (public.claim_notification_delivery_v1(gen_random_uuid(),
-     (select nd.id from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000b10-0000-0000-0000-000000000002')
+     (select nd.id from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000b10-0000-0000-0000-000000000002' and nd.event_type = 'submission_completed')
    ) ->> 'attempt_count')::int),
   1,
   'the requeued (now-pending) delivery is claimable again and starts a fresh five-attempt budget (attempt_count 1, not 6)'
@@ -267,22 +267,22 @@ select is(
 -- processing/retry_wait/sent cannot use manual requeue.
 select throws_ok(
   $$ select public.requeue_notification_delivery_v1(
-       (select nd.id from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000b10-0000-0000-0000-000000000002')
+       (select nd.id from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000b10-0000-0000-0000-000000000002' and nd.event_type = 'submission_completed')
      ) $$,
   'P0001', NULL,
   'a processing row cannot be manually requeued'
 );
 select lives_ok(
   $$ select public.reschedule_notification_delivery_v1(
-       (select nd.id from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000b10-0000-0000-0000-000000000002'),
-       (select nd.claim_token from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000b10-0000-0000-0000-000000000002'),
+       (select nd.id from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000b10-0000-0000-0000-000000000002' and nd.event_type = 'submission_completed'),
+       (select nd.claim_token from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000b10-0000-0000-0000-000000000002' and nd.event_type = 'submission_completed'),
        'TRANSIENT', 300
      ) $$,
   'rescheduling the delivery to retry_wait succeeds (fixture for the next test)'
 );
 select throws_ok(
   $$ select public.requeue_notification_delivery_v1(
-       (select nd.id from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000b10-0000-0000-0000-000000000002')
+       (select nd.id from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000b10-0000-0000-0000-000000000002' and nd.event_type = 'submission_completed')
      ) $$,
   'P0001', NULL,
   'a retry_wait row cannot be manually requeued'
@@ -304,7 +304,7 @@ select lives_ok(
   'a zero-file buyer website submission still succeeds after this migration (C2H-A regression check)'
 );
 select is(
-  (select nd.status from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000b10-0000-0000-0000-000000000004'),
+  (select nd.status from public.notification_deliveries nd join public.leads l on l.id = nd.lead_id where l.idempotency_key = 'c2000b10-0000-0000-0000-000000000004' and nd.event_type = 'submission_completed'),
   'pending',
   'its notification row still defaults to pending under the unmodified C2H-A lifecycle'
 );

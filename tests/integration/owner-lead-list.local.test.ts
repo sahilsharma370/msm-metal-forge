@@ -163,7 +163,18 @@ async function createCompletedLead(client: SupabaseClient, submission: Record<st
 }
 
 async function markDeliverySent(client: SupabaseClient, leadId: string): Promise<void> {
-  const { data: deliveryRow } = await client.from("notification_deliveries").select("id").eq("lead_id", leadId).single();
+  // event_type filter required — complete_lead_if_ready now creates TWO
+  // sibling rows per lead (submission_completed + customer_receipt); the
+  // owner lead list's own notificationStatus is derived exclusively from
+  // the submission_completed row (see owner-leads.server.ts's own
+  // `.eq("event_type", "submission_completed")` filter), so this helper
+  // must target the same row to stay meaningful.
+  const { data: deliveryRow } = await client
+    .from("notification_deliveries")
+    .select("id")
+    .eq("lead_id", leadId)
+    .eq("event_type", "submission_completed")
+    .single();
   const claimToken = crypto.randomUUID();
   const { data: claimed } = await client.rpc("claim_notification_delivery_v1", {
     p_claim_token: claimToken,
@@ -181,7 +192,13 @@ async function markDeliverySent(client: SupabaseClient, leadId: string): Promise
 }
 
 async function markDeliveryDeadLetter(client: SupabaseClient, leadId: string): Promise<void> {
-  const { data: deliveryRow } = await client.from("notification_deliveries").select("id").eq("lead_id", leadId).single();
+  // Same event_type reasoning as markDeliverySent above.
+  const { data: deliveryRow } = await client
+    .from("notification_deliveries")
+    .select("id")
+    .eq("lead_id", leadId)
+    .eq("event_type", "submission_completed")
+    .single();
   const claimToken = crypto.randomUUID();
   await client.rpc("claim_notification_delivery_v1", {
     p_claim_token: claimToken,
@@ -541,5 +558,5 @@ describe("CHECKPOINT C2J-A — real local owner lead-inbox read service", () => 
     await reprovisionDemoOwnerIfMissing(serviceClient);
     const { count: reprovisioned } = await serviceClient.from("owner_accounts").select("user_id", { count: "exact", head: true });
     expect(reprovisioned).toBe(1);
-  });
+  }, 120_000); // resetLocalDatabase() alone can take the majority of the default 60s budget.
 });

@@ -17,6 +17,7 @@ import { Route as OwnerLoginRouteImport } from './routes/owner/login'
 import { Route as OwnerOverviewRouteImport } from './routes/owner/overview'
 import { Route as ApiOwnerLeadsRouteImport } from './routes/api/owner/leads'
 import { Route as ApiOwnerSessionRouteImport } from './routes/api/owner/session'
+import { Route as ApiQuoteClientDiagnosticsRouteImport } from './routes/api/quote/client-diagnostics'
 import { Route as ApiQuoteCompleteRouteImport } from './routes/api/quote/complete'
 import { Route as ApiQuoteInitiateRouteImport } from './routes/api/quote/initiate'
 import { Route as ApiQuoteUploadRouteImport } from './routes/api/quote/upload'
@@ -75,6 +76,12 @@ const ApiOwnerSessionRoute = ApiOwnerSessionRouteImport.update({
   path: '/api/owner/session',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiQuoteClientDiagnosticsRoute =
+  ApiQuoteClientDiagnosticsRouteImport.update({
+    id: '/api/quote/client-diagnostics',
+    path: '/api/quote/client-diagnostics',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiQuoteCompleteRoute = ApiQuoteCompleteRouteImport.update({
   id: '/api/quote/complete',
   path: '/api/quote/complete',
@@ -177,6 +184,7 @@ export interface FileRoutesByFullPath {
   '/owner/': typeof OwnerIndexRoute
   '/api/owner/leads': typeof ApiOwnerLeadsRouteWithChildren
   '/api/owner/session': typeof ApiOwnerSessionRoute
+  '/api/quote/client-diagnostics': typeof ApiQuoteClientDiagnosticsRoute
   '/api/quote/complete': typeof ApiQuoteCompleteRoute
   '/api/quote/initiate': typeof ApiQuoteInitiateRoute
   '/api/quote/upload': typeof ApiQuoteUploadRoute
@@ -204,6 +212,7 @@ export interface FileRoutesByTo {
   '/owner': typeof OwnerIndexRoute
   '/api/owner/leads': typeof ApiOwnerLeadsRouteWithChildren
   '/api/owner/session': typeof ApiOwnerSessionRoute
+  '/api/quote/client-diagnostics': typeof ApiQuoteClientDiagnosticsRoute
   '/api/quote/complete': typeof ApiQuoteCompleteRoute
   '/api/quote/initiate': typeof ApiQuoteInitiateRoute
   '/api/quote/upload': typeof ApiQuoteUploadRoute
@@ -232,6 +241,7 @@ export interface FileRoutesById {
   '/owner/': typeof OwnerIndexRoute
   '/api/owner/leads': typeof ApiOwnerLeadsRouteWithChildren
   '/api/owner/session': typeof ApiOwnerSessionRoute
+  '/api/quote/client-diagnostics': typeof ApiQuoteClientDiagnosticsRoute
   '/api/quote/complete': typeof ApiQuoteCompleteRoute
   '/api/quote/initiate': typeof ApiQuoteInitiateRoute
   '/api/quote/upload': typeof ApiQuoteUploadRoute
@@ -261,6 +271,7 @@ export interface FileRouteTypes {
     | '/owner/'
     | '/api/owner/leads'
     | '/api/owner/session'
+    | '/api/quote/client-diagnostics'
     | '/api/quote/complete'
     | '/api/quote/initiate'
     | '/api/quote/upload'
@@ -288,6 +299,7 @@ export interface FileRouteTypes {
     | '/owner'
     | '/api/owner/leads'
     | '/api/owner/session'
+    | '/api/quote/client-diagnostics'
     | '/api/quote/complete'
     | '/api/quote/initiate'
     | '/api/quote/upload'
@@ -315,6 +327,7 @@ export interface FileRouteTypes {
     | '/owner/'
     | '/api/owner/leads'
     | '/api/owner/session'
+    | '/api/quote/client-diagnostics'
     | '/api/quote/complete'
     | '/api/quote/initiate'
     | '/api/quote/upload'
@@ -343,6 +356,7 @@ export interface RootRouteChildren {
   OwnerIndexRoute: typeof OwnerIndexRoute
   ApiOwnerLeadsRoute: typeof ApiOwnerLeadsRouteWithChildren
   ApiOwnerSessionRoute: typeof ApiOwnerSessionRoute
+  ApiQuoteClientDiagnosticsRoute: typeof ApiQuoteClientDiagnosticsRoute
   ApiQuoteCompleteRoute: typeof ApiQuoteCompleteRoute
   ApiQuoteInitiateRoute: typeof ApiQuoteInitiateRoute
   ApiQuoteUploadRoute: typeof ApiQuoteUploadRoute
@@ -409,6 +423,13 @@ declare module '@tanstack/react-router' {
       path: '/api/owner/session'
       fullPath: '/api/owner/session'
       preLoaderRoute: typeof ApiOwnerSessionRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/quote/client-diagnostics': {
+      id: '/api/quote/client-diagnostics'
+      path: '/api/quote/client-diagnostics'
+      fullPath: '/api/quote/client-diagnostics'
+      preLoaderRoute: typeof ApiQuoteClientDiagnosticsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/quote/complete': {
@@ -580,6 +601,7 @@ const rootRouteChildren: RootRouteChildren = {
   OwnerIndexRoute: OwnerIndexRoute,
   ApiOwnerLeadsRoute: ApiOwnerLeadsRouteWithChildren,
   ApiOwnerSessionRoute: ApiOwnerSessionRoute,
+  ApiQuoteClientDiagnosticsRoute: ApiQuoteClientDiagnosticsRoute,
   ApiQuoteCompleteRoute: ApiQuoteCompleteRoute,
   ApiQuoteInitiateRoute: ApiQuoteInitiateRoute,
   ApiQuoteUploadRoute: ApiQuoteUploadRoute,

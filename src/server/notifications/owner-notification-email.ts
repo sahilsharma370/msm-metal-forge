@@ -1,7 +1,8 @@
 /**
- * CHECKPOINT C2H-B1 — pure owner-notification email rendering. No I/O, no
- * Supabase, no provider — a plain function from validated lead data to
- * {subject, text, html}, unit-testable without any network or database.
+ * CHECKPOINT C2H-B1 (design: docs/email-design/owner-approved.png) — pure
+ * owner-notification email rendering. No I/O, no Supabase, no provider —
+ * a plain function from validated lead data to {subject, text, html},
+ * unit-testable without any network or database.
  *
  * Field source of truth: the exact structured columns of public.leads (see
  * supabase/migrations/20260811165757_create_quote_backend_foundation.sql),
@@ -20,7 +21,41 @@
  * in this checkpoint's pipeline is newline-stripped (see
  * sanitizeHeaderValue) — defense in depth even though the DB's own CHECK
  * constraints already bound most of these fields' shapes.
+ *
+ * Sender/recipient/subject/provider/dashboard-authorization/delivery/
+ * idempotency behavior is entirely owned by dispatch-notification.server.ts
+ * and is unchanged by this design update — this module only ever returns
+ * {subject, text, html}; it has no say in who the email goes to or how.
  */
+import {
+  escapeHtml,
+  escapeMultilineHtml,
+  humanizeCode,
+  unitLabel,
+  sanitizeHeaderValue,
+  emailDocumentHtml,
+  referenceBlockHtml,
+  sectionHeadingHtml,
+  tableRowHtml,
+  footerHtml,
+  logoHeaderHtml,
+  EMAIL_NAVY,
+  EMAIL_COPPER,
+  EMAIL_GRAY_FOOTER,
+} from "./email-template-shared";
+
+/** Matches the approved design's own wording ("Pickup: Required") rather than echoing the raw "yes"/"no" submission value — mirrors PICKUP_CHOICES (src/components/site/quote/quote-schema.ts: "yes" | "no" | "not_sure") without importing that client-only module here. */
+const PICKUP_LABELS: Record<string, string> = {
+  yes: "Required",
+  no: "Not required",
+  not_sure: "Not sure",
+};
+
+function pickupLabel(value: string): string {
+  return PICKUP_LABELS[value] ?? humanizeCode(value);
+}
+
+export { escapeHtml, sanitizeHeaderValue };
 
 export interface OwnerNotificationFileStats {
   /** Total declared quote_upload_slots rows for this lead — never a filename, path, or per-file detail. */
@@ -91,7 +126,7 @@ export interface OwnerNotificationLeadData {
 }
 
 export interface OwnerNotificationEmailOptions {
-  /** Only rendered as a link when the caller (the dispatcher, reading getEmailConfig()) supplies one — never guessed or constructed here. */
+  /** Only rendered as a link when the caller (the dispatcher, reading getEmailConfig()) supplies one — never guessed or constructed here. Unchanged authorization behavior from before this design update. */
   readonly dashboardUrl?: string;
 }
 
@@ -105,40 +140,9 @@ export interface RenderedOwnerEmail {
 // Small pure helpers
 // ---------------------------------------------------------------------------
 
-/** Standard HTML entity escaping — the only thing standing between a customer-controlled string and the html body. */
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
-/** Strips CR/LF so a customer-controlled value can never inject a second email header — applied to every value that ends up in subject/from/to/reply-to anywhere in this pipeline (this module only ever produces `subject`, which is why it's the only place this is called from here). */
-export function sanitizeHeaderValue(value: string): string {
-  return value.replace(/[\r\n]+/g, " ").trim();
-}
-
-/** Renders a block of free-text (notes/description) as escaped, paragraph-broken HTML — the only place this module turns customer newlines into markup, and only ever inside the body, never a header. */
-function escapeMultilineHtml(value: string): string {
-  return escapeHtml(value)
-    .split(/\r?\n/)
-    .map((line) => line || "&nbsp;")
-    .join("<br>");
-}
-
-function humanizeCode(value: string): string {
-  return value
-    .split("_")
-    .filter(Boolean)
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(" ");
-}
-
-function formatQuantity(value: string | null, unit: string | null, unitOther: string | null): string | null {
+export function formatQuantity(value: string | null, unit: string | null, unitOther: string | null): string | null {
   if (!value) return null;
-  const label = unit === "other" ? (unitOther ?? "other") : unit ? humanizeCode(unit) : "";
+  const label = unit === "other" ? (unitOther ?? "other") : unit ? unitLabel(unit) : "";
   return label ? `${value} ${label}` : value;
 }
 
@@ -158,10 +162,24 @@ const SUBMITTED_AT_UAE_FORMATTER = new Intl.DateTimeFormat("en-AE", {
   minute: "2-digit",
 });
 
+/** Compact date-only form for the header eyebrow ("ENQUIRY / 05 NOV 2026") — the approved design's own header never shows a time, only the plain-text alternative does. */
+const HEADER_DATE_UAE_FORMATTER = new Intl.DateTimeFormat("en-GB", {
+  timeZone: "Asia/Dubai",
+  day: "2-digit",
+  month: "short",
+  year: "numeric",
+});
+
 function formatSubmittedAtUae(iso: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return iso;
   return `${SUBMITTED_AT_UAE_FORMATTER.format(date)} (UAE time)`;
+}
+
+function formatHeaderDateUae(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return HEADER_DATE_UAE_FORMATTER.format(date).toUpperCase();
 }
 
 interface Row {
@@ -174,40 +192,39 @@ function rows(...entries: Row[]): Row[] {
 }
 
 // ---------------------------------------------------------------------------
-// Section builders
+// Section builders — each branch's fields split into the two approved-design
+// sections ("MATERIAL & LOGISTICS" / "CUSTOMER CONTACT"). Every field the
+// pre-redesign template rendered is still rendered here, unchanged — this
+// only reorganizes presentation, it never drops a data field.
 // ---------------------------------------------------------------------------
 
-function buildSellerRows(lead: OwnerNotificationLeadData): Row[] {
+function sellerMaterialRows(lead: OwnerNotificationLeadData): Row[] {
   return rows(
-    { label: "Material", value: materialLabel(lead) },
-    {
-      label: "Quantity",
-      value: lead.sellerQuantityUnsure
-        ? "Not sure"
-        : formatQuantity(lead.sellerQuantityValue, lead.sellerQuantityUnit, lead.sellerQuantityUnitOther),
-    },
     { label: "Condition", value: lead.sellerCondition ? humanizeCode(lead.sellerCondition) : null },
     { label: "Description", value: lead.sellerDescription },
     { label: "Emirate", value: lead.sellerEmirate ? humanizeCode(lead.sellerEmirate) : null },
     { label: "Area", value: lead.sellerArea },
     { label: "Map link", value: lead.sellerMapLink },
-    { label: "Pickup required", value: lead.sellerPickupRequired ? humanizeCode(lead.sellerPickupRequired) : null },
+    { label: "Pickup", value: lead.sellerPickupRequired ? pickupLabel(lead.sellerPickupRequired) : null },
     { label: "Preferred pickup date", value: formatDate(lead.sellerPickupDate) },
     { label: "Access notes", value: lead.sellerAccessNote },
+  );
+}
+
+function sellerContactRows(lead: OwnerNotificationLeadData): Row[] {
+  return rows(
     { label: "Name", value: lead.sellerName },
+    { label: "Preferred method", value: lead.sellerPreferredContact ? humanizeCode(lead.sellerPreferredContact) : null },
     { label: "Phone", value: lead.sellerPhone },
     { label: "Company", value: lead.sellerCompany },
     { label: "Email", value: lead.sellerEmail },
-    { label: "Preferred contact", value: lead.sellerPreferredContact ? humanizeCode(lead.sellerPreferredContact) : null },
     { label: "Notes", value: lead.sellerNotes },
   );
 }
 
-function buildBuyerRows(lead: OwnerNotificationLeadData): Row[] {
+function buyerMaterialRows(lead: OwnerNotificationLeadData): Row[] {
   return rows(
-    { label: "Material", value: materialLabel(lead) },
     { label: "Specification", value: lead.materialSpec },
-    { label: "Required quantity", value: formatQuantity(lead.buyerQuantityValue, lead.buyerQuantityUnit, lead.buyerQuantityUnitOther) },
     { label: "Trade route", value: lead.buyerTradeRequirement ? humanizeCode(lead.buyerTradeRequirement) : null },
     { label: "Needed by", value: formatDate(lead.buyerRequiredByDate) },
     { label: "Additional requirements", value: lead.buyerAdditionalSpec },
@@ -224,16 +241,21 @@ function buildBuyerRows(lead: OwnerNotificationLeadData): Row[] {
     { label: "Origin preference", value: lead.buyerOriginCountryPreference },
     { label: "Logistics requirement", value: lead.buyerLogisticsRequirement ? humanizeCode(lead.buyerLogisticsRequirement) : null },
     { label: "Logistics note", value: lead.buyerLogisticsNote },
+  );
+}
+
+function buyerContactRows(lead: OwnerNotificationLeadData): Row[] {
+  return rows(
     { label: "Contact person", value: lead.buyerContactPerson },
+    { label: "Preferred method", value: lead.buyerPreferredContact ? humanizeCode(lead.buyerPreferredContact) : null },
     { label: "Phone", value: lead.buyerPhone },
     { label: "Company", value: lead.buyerCompany },
     { label: "Email", value: lead.buyerEmail },
-    { label: "Preferred contact", value: lead.buyerPreferredContact ? humanizeCode(lead.buyerPreferredContact) : null },
     { label: "Notes", value: lead.buyerNotes },
   );
 }
 
-function materialLabel(lead: OwnerNotificationLeadData): string | null {
+export function materialLabel(lead: OwnerNotificationLeadData): string | null {
   const base = lead.material === "other" ? (lead.materialOtherText ?? "Other") : humanizeCode(lead.material);
   const subtype =
     lead.materialSubtype === "other"
@@ -242,6 +264,15 @@ function materialLabel(lead: OwnerNotificationLeadData): string | null {
         ? humanizeCode(lead.materialSubtype)
         : null;
   return subtype ? `${base} — ${subtype}` : base;
+}
+
+/** Quantity for the subheading line ("Aluminium · approx. 50 kg") and the Photos/Documents row — short form, distinct from the full-sentence fileStatusLabel used in the plain-text alternative. */
+function quantityLabel(lead: OwnerNotificationLeadData): string | null {
+  if (lead.intent === "sell") {
+    if (lead.sellerQuantityUnsure) return "Not sure";
+    return formatQuantity(lead.sellerQuantityValue, lead.sellerQuantityUnit, lead.sellerQuantityUnitOther);
+  }
+  return formatQuantity(lead.buyerQuantityValue, lead.buyerQuantityUnit, lead.buyerQuantityUnitOther);
 }
 
 function fileStatusLabel(stats: OwnerNotificationFileStats): string {
@@ -261,6 +292,39 @@ function fileStatusLabel(stats: OwnerNotificationFileStats): string {
   }
 }
 
+/** Compact row value matching the approved design's "2 attached" style — the full sentence form (fileStatusLabel) is still what the plain-text alternative uses, for completeness there. */
+function fileRowValue(stats: OwnerNotificationFileStats): string | null {
+  switch (stats.status) {
+    case "none":
+      return null;
+    case "pending":
+      return `${stats.count} declared — in progress`;
+    case "complete":
+      return `${stats.count} attached`;
+    case "partial":
+      return `${stats.count} declared — partial`;
+    case "failed":
+      return `${stats.count} declared — failed`;
+    default:
+      return `${stats.count} declared`;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Two-tone (copper + navy) rule beneath the logo header — the approved
+// design's own divider treatment, distinct from the customer design's
+// single full-width copper rule.
+// ---------------------------------------------------------------------------
+
+function twoToneRuleHtml(): string {
+  return (
+    `<tr><td><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>` +
+    `<td style="background-color:${EMAIL_COPPER};height:3px;width:100px;font-size:0;line-height:0;">&nbsp;</td>` +
+    `<td style="background-color:${EMAIL_NAVY};height:3px;font-size:0;line-height:0;">&nbsp;</td>` +
+    `</tr></table></td></tr>`
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Public entry point
 // ---------------------------------------------------------------------------
@@ -270,18 +334,34 @@ export function renderOwnerNotificationEmail(
   fileStats: OwnerNotificationFileStats,
   options: OwnerNotificationEmailOptions = {},
 ): RenderedOwnerEmail {
-  const intentLabel = lead.intent === "sell" ? "seller" : "buyer";
+  const isSell = lead.intent === "sell";
+  const intentLabel = isSell ? "seller" : "buyer";
   const subject = sanitizeHeaderValue(`New ${intentLabel} enquiry — ${lead.reference}`);
-  const sectionRows = lead.intent === "sell" ? buildSellerRows(lead) : buildBuyerRows(lead);
 
+  const materialRows = isSell ? sellerMaterialRows(lead) : buyerMaterialRows(lead);
+  const contactRows = isSell ? sellerContactRows(lead) : buyerContactRows(lead);
+  const filesLabel = isSell ? "Photos" : "Documents";
+  const fileRow = fileRowValue(fileStats);
+
+  // -------------------------------------------------------------------------
+  // Plain-text alternative — every field the html renders, in the same
+  // order, nothing added or omitted differently between the two.
+  // -------------------------------------------------------------------------
   const textLines: string[] = [
-    "New MSM Scrap enquiry",
+    "MSM Scrap",
+    "",
+    isSell ? "New seller enquiry." : "New buyer enquiry.",
+    [materialLabel(lead), quantityLabel(lead) ? `approx. ${quantityLabel(lead)}` : null].filter(Boolean).join(" · "),
+    "",
     `Reference: ${lead.reference}`,
-    `Type: ${lead.intent === "sell" ? "Sell to MSM" : "Buy from MSM"}`,
     "",
-    ...sectionRows.map((row) => `${row.label}: ${row.value}`),
+    "Material & logistics",
+    ...materialRows.map((row) => `  ${row.label}: ${row.value}`),
+    `  ${filesLabel}: ${fileStatusLabel(fileStats)}`,
     "",
-    `Files: ${fileStatusLabel(fileStats)}`,
+    "Customer contact",
+    ...contactRows.map((row) => `  ${row.label}: ${row.value}`),
+    "",
     `Submitted: ${formatSubmittedAtUae(lead.submittedAt)}`,
   ];
   if (options.dashboardUrl) {
@@ -289,26 +369,46 @@ export function renderOwnerNotificationEmail(
   }
   const text = textLines.join("\n");
 
-  const htmlRows = sectionRows
-    .map(
-      (row) =>
-        `<tr><td style="padding:4px 12px 4px 0;color:#666;white-space:nowrap;">${escapeHtml(row.label)}</td>` +
-        `<td style="padding:4px 0;">${escapeMultilineHtml(row.value ?? "")}</td></tr>`,
-    )
-    .join("");
-  const dashboardHtml = options.dashboardUrl
-    ? `<p><a href="${escapeHtml(options.dashboardUrl)}">View in dashboard</a></p>`
-    : "";
-  const html =
-    `<div>` +
-    `<h1 style="font-size:18px;">New MSM Scrap enquiry</h1>` +
-    `<p><strong>Reference:</strong> ${escapeHtml(lead.reference)}<br>` +
-    `<strong>Type:</strong> ${lead.intent === "sell" ? "Sell to MSM" : "Buy from MSM"}</p>` +
-    `<table cellspacing="0" cellpadding="0">${htmlRows}</table>` +
-    `<p><strong>Files:</strong> ${escapeHtml(fileStatusLabel(fileStats))}<br>` +
-    `<strong>Submitted:</strong> ${escapeHtml(formatSubmittedAtUae(lead.submittedAt))}</p>` +
-    dashboardHtml +
-    `</div>`;
+  // -------------------------------------------------------------------------
+  // HTML — table-safe, inline-styled, matching owner-approved.png's
+  // hierarchy: logo header, two-tone rule, heading, material/qty
+  // subheading, reference block, "MATERIAL & LOGISTICS" rows (+ a Photos/
+  // Documents row folded in, same section), "CUSTOMER CONTACT" rows,
+  // optional dashboard link, footer.
+  // -------------------------------------------------------------------------
+  const rowsToHtml = (list: Row[]) =>
+    list.map((row, i) => tableRowHtml(row.label, escapeMultilineHtml(row.value ?? ""), i === list.length - 1 && !fileRow)).join("");
+
+  const materialSectionRowsHtml =
+    rowsToHtml(materialRows) + (fileRow ? tableRowHtml(filesLabel, escapeHtml(fileRow), true) : "");
+
+  const materialLabelText = materialLabel(lead);
+  const quantityLabelText = quantityLabel(lead);
+  const subheadingParts = [
+    materialLabelText ? escapeHtml(materialLabelText) : null,
+    quantityLabelText ? `approx. ${escapeHtml(quantityLabelText)}` : null,
+  ].filter((part): part is string => part !== null);
+
+  const eyebrowHtml = `<span style="color:${EMAIL_COPPER};font-size:12px;font-weight:700;letter-spacing:0.08em;white-space:nowrap;">ENQUIRY &nbsp;/&nbsp; ${escapeHtml(formatHeaderDateUae(lead.submittedAt))}</span>`;
+
+  const bodyRows =
+    `<tr><td style="color:${EMAIL_NAVY};font-size:28px;font-weight:800;line-height:1.2;padding-top:20px;">${isSell ? "New seller enquiry." : "New buyer enquiry."}</td></tr>` +
+    (subheadingParts.length > 0
+      ? `<tr><td style="color:${EMAIL_NAVY};font-size:16px;font-weight:700;padding-top:4px;">${subheadingParts.join(" &middot; ")}</td></tr>`
+      : "") +
+    `<tr><td style="padding-top:20px;">${referenceBlockHtml(lead.reference)}</td></tr>` +
+    `<tr><td style="padding-top:24px;border-top:1px solid #E5E7EB;font-size:0;line-height:0;">&nbsp;</td></tr>` +
+    `<tr><td>${sectionHeadingHtml("Material & Logistics")}</td></tr>` +
+    `<tr><td><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">${materialSectionRowsHtml}</table></td></tr>` +
+    `<tr><td>${sectionHeadingHtml("Customer Contact")}</td></tr>` +
+    `<tr><td><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">${rowsToHtml(contactRows)}</table></td></tr>` +
+    (options.dashboardUrl
+      ? `<tr><td style="padding-top:24px;"><a href="${escapeHtml(options.dashboardUrl)}" style="color:${EMAIL_NAVY};font-size:14px;font-weight:700;text-decoration:underline;">View enquiry in dashboard &nbsp;&rarr;</a></td></tr>`
+      : "");
+
+  const footer = footerHtml(`<div style="color:${EMAIL_GRAY_FOOTER};font-size:12px;margin-top:4px;">Owner notification</div>`);
+
+  const html = emailDocumentHtml(subject, twoToneRuleHtml() + bodyRows, footer, logoHeaderHtml(eyebrowHtml));
 
   return { subject, text, html };
 }

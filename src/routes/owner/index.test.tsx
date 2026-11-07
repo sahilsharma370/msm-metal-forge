@@ -7,6 +7,11 @@ import "@testing-library/jest-dom/vitest";
 import * as transport from "@/components/owner/owner-leads-transport";
 import type { RegisterOwnerShellRefresh } from "@/components/owner/OwnerShell";
 
+// TEST-HARNESS FIX (full-suite timeout flake) — every `userEvent.setup()`
+// here uses `{ delay: null }`; see OwnerLeadQuickAddForm.test.tsx's own
+// top-of-file comment for the measured root cause (a timed-out test's
+// orphaned real-timer keystroke delays keep firing into whichever test
+// runs next). No application code changed.
 // CHECKPOINT C2J-F: OwnerLeadInbox now always renders a real <Link> (the
 // "Add enquiry" Quick Add entry point), which needs a live RouterProvider to
 // resolve — this harness renders OwnerInboxBody without one (see the header
@@ -162,7 +167,7 @@ describe("OwnerInboxBody — dependency-identity stability", () => {
   it("explicit Refresh (the registered header handler) causes exactly one additional request", async () => {
     fetchOwnerLeadListMock.mockResolvedValue({ kind: "ok", data: { leads: [], page: { nextCursor: null, hasMore: false } } });
     const { OwnerInboxBody } = await import("./index");
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(
       <ShellRefreshHarness onUnauthorized={vi.fn()} renderBody={(props) => <OwnerInboxBody {...props} />} />,
     );
@@ -181,7 +186,7 @@ describe("OwnerInboxBody — dependency-identity stability", () => {
   it("typing in the search box causes exactly one additional (debounced) request", async () => {
     fetchOwnerLeadListMock.mockResolvedValue({ kind: "ok", data: { leads: [], page: { nextCursor: null, hasMore: false } } });
     const { OwnerInboxBody } = await import("./index");
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(
       <ShellRefreshHarness onUnauthorized={vi.fn()} renderBody={(props) => <OwnerInboxBody {...props} />} />,
     );

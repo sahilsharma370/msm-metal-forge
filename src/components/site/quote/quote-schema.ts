@@ -169,11 +169,20 @@ const phoneSchema = z
   .min(1, "Enter your phone or WhatsApp number.")
   .refine((val) => isValidPhoneNumber(val), "Enter a valid phone or WhatsApp number.");
 
-const optionalEmailSchema = z
+/**
+ * Email is required for both Sell and Buy, regardless of the submitter's
+ * chosen preferred-contact method (WhatsApp/Call/Email) — it's the address
+ * the customer-receipt confirmation email is sent to, not merely the
+ * channel MSM uses to follow up. Previously conditional on
+ * `preferredContact === "email"`; always required now, matching
+ * sellerName/sellerPhone/buyerContactPerson/buyerPhone's own unconditional
+ * requiredness immediately below.
+ */
+const requiredEmailSchema = z
   .string()
   .trim()
-  .optional()
-  .refine((val) => !val || isValidEmailAddress(val), "Enter a valid email.");
+  .min(1, "Enter your email.")
+  .refine((val) => isValidEmailAddress(val), "Enter a valid email.");
 
 const requiredText = (message: string, min = 1) => z.string().trim().min(min, message);
 
@@ -509,48 +518,28 @@ export const buyerLogisticsStepSchema = z
     }
   });
 
-export const sellerContactStepSchema = z
-  .object({
-    sellerName: requiredText("Enter your name."),
-    sellerPhone: phoneSchema,
-    sellerCompany: z.string().trim().optional(),
-    sellerEmail: optionalEmailSchema,
-    sellerPreferredContact: z.enum(PREFERRED_CONTACTS, {
-      message: "Select a preferred contact method.",
-    }),
-    sellerNotes: z.string().trim().optional(),
-  })
-  .superRefine((val, ctx) => {
-    if (val.sellerPreferredContact === "email" && !isValidEmailAddress(val.sellerEmail)) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["sellerEmail"],
-        message: "Enter a valid email — it's your preferred contact method.",
-      });
-    }
-  });
+export const sellerContactStepSchema = z.object({
+  sellerName: requiredText("Enter your name."),
+  sellerPhone: phoneSchema,
+  sellerCompany: z.string().trim().optional(),
+  sellerEmail: requiredEmailSchema,
+  sellerPreferredContact: z.enum(PREFERRED_CONTACTS, {
+    message: "Select a preferred contact method.",
+  }),
+  sellerNotes: z.string().trim().optional(),
+});
 
 /** Fix 1: Company is optional/recommended on every buyer route (local, import, export) — never required. */
-export const buyerContactStepSchema = z
-  .object({
-    buyerCompany: z.string().trim().optional(),
-    buyerContactPerson: requiredText("Enter the contact person's name."),
-    buyerPhone: phoneSchema,
-    buyerEmail: optionalEmailSchema,
-    buyerPreferredContact: z.enum(PREFERRED_CONTACTS, {
-      message: "Select a preferred contact method.",
-    }),
-    buyerNotes: z.string().trim().optional(),
-  })
-  .superRefine((val, ctx) => {
-    if (val.buyerPreferredContact === "email" && !isValidEmailAddress(val.buyerEmail)) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["buyerEmail"],
-        message: "Enter a valid email — it's your preferred contact method.",
-      });
-    }
-  });
+export const buyerContactStepSchema = z.object({
+  buyerCompany: z.string().trim().optional(),
+  buyerContactPerson: requiredText("Enter the contact person's name."),
+  buyerPhone: phoneSchema,
+  buyerEmail: requiredEmailSchema,
+  buyerPreferredContact: z.enum(PREFERRED_CONTACTS, {
+    message: "Select a preferred contact method.",
+  }),
+  buyerNotes: z.string().trim().optional(),
+});
 
 export type QuoteStepSchema =
   | typeof enquiryTypeStepSchema

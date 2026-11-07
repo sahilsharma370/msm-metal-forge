@@ -53,6 +53,7 @@ const validSeller = {
   sellerPickupRequired: "no",
   sellerName: "Ahmed Seller",
   sellerPhone: "+971501234567",
+  sellerEmail: "ahmed.seller@example.com",
   sellerPreferredContact: "whatsapp",
 };
 

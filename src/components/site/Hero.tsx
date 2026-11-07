@@ -125,7 +125,46 @@ export const Hero = forwardRef<HTMLElement>(function Hero(_props, forwardedRef) 
           top. `object-bottom` anchors the image's bottom edge to the
           container's bottom edge instead, so the full, uncropped bottom
           row is always what's visible there, on every device height,
-          cropping only from the top (empty yard, not the join) instead. */}
+          cropping only from the top (empty yard, not the join) instead.
+          MEASURED ROOT CAUSE (permanent navy grid band between Hero and
+          Trust on a physical iPhone 14 Plus, iOS Safari) — confirmed via
+          direct Web Inspector measurement on the device: `.hero-grid`,
+          this section's own background-pattern sibling, carries only
+          `absolute inset-0` (no explicit width/height) and correctly spans
+          the full 744px Hero box. This `<img>` carried `h-full` (height:
+          100%, a percentage) and measured only 584px tall on the same
+          device — the exact 160px shortfall matching the reported band.
+          FIRST FIX ATTEMPT (reverted — confirmed wrong on physical re-
+          test): dropping `h-full`/`w-full` entirely, reasoning that
+          `inset-0` alone — proven sufficient for `.hero-grid` — would do
+          the same here. Visually, on the physical device, this traded the
+          band for a different regression: a hard image cut with the
+          bottom-anchored copper-wire composition (see BATCH TRACK-RECORD-
+          JOIN above) missing — reported directly from physical-device
+          visual review, not independently re-measured here. The likely
+          explanation that assumption missed: `.hero-grid` is a plain,
+          non-replaced `<div>` with no intrinsic size, where `inset-0`
+          alone is well known to stretch an `auto`-height box between
+          `top`/`bottom`; an `<img>` is a *replaced* element, and per the
+          CSS2.1 absolutely-positioned-replaced-element sizing rules, an
+          `auto` height on a replaced element is not guaranteed to stretch
+          the same way — it can instead resolve from the image's own
+          intrinsic ratio. That mechanism is offered here as the standard
+          explanation consistent with the observed symptom, not as a
+          separately re-verified measurement of this exact element's
+          resulting box. CURRENT FIX: `h-[calc(var(--app-vh,7.6px)*100)]` — the same
+          explicit, non-percentage formula `.hero-stage-height`/
+          `.hero-stage-min-height` (styles.css) and QuoteExperience.tsx's
+          own modal sizing already use for exactly this category of
+          viewport-height dependency. It's a definite computed length, not
+          a percentage, so it never depends on whether this element's
+          containing block (itself sized via `inset-0`, not a literal
+          `height` property) counts as "definite" for a descendant's
+          percentage resolution — the specific cross-browser ambiguity
+          `h-full` hit on iOS Safari. `width: 100%` (`w-full`) is kept
+          unchanged: only the height axis was ever measured wrong, and
+          width-percentage resolution against this section's own definite
+          width is not the mechanism in question here. */}
       <img
         src={heroMetalMobile}
         alt=""
@@ -133,7 +172,7 @@ export const Hero = forwardRef<HTMLElement>(function Hero(_props, forwardedRef) 
         width={853}
         height={1844}
         fetchPriority="high"
-        className="pointer-events-none absolute inset-0 h-full w-full object-cover object-bottom lg:hidden"
+        className="pointer-events-none absolute inset-0 h-[calc(var(--app-vh,7.6px)*100)] w-full object-cover object-bottom lg:hidden"
       />
 
       {/* CHECKPOINT C2L (hero final interaction lock) — smallest
@@ -185,9 +224,31 @@ export const Hero = forwardRef<HTMLElement>(function Hero(_props, forwardedRef) 
           the exact desktop arrangement, unchanged); a handful of children
           below carry their own `lg:hidden` / `hidden lg:*` pairs so each
           breakpoint shows only its own copy and CTA styling, while the
-          heading stays the one shared <h1> the whole page has. */}
+          heading stays the one shared <h1> the whole page has.
+          MEASURED ROOT CAUSE (mobile Chrome toolbar-collapse Hero shift) —
+          this margin used raw `30.5svh`, which VIEWPORT-STABILITY-2 (see
+          styles.css) already proved live-tracks the toolbar on this
+          device/browser exactly like `dvh`, not fixed at any one toolbar
+          state. The section's own background/height is sized off the
+          frozen `--app-vh` (`.hero-stage-min-height`), so as the toolbar
+          collapsed mid-scroll, this margin kept recalculating against the
+          growing live viewport while the background stayed put — the text
+          column visibly sliding down relative to it. Root cause measured
+          via a SIMULATED probe (a desktop browser resizing an iframe's own
+          viewport 660px -> 730px to stand in for a real toolbar collapse,
+          not a physical-device trace): growing the viewport by 70px moved
+          this column 21.3px relative to the unchanged 660px-tall
+          background — 30.5% of 70, i.e. exactly the `30.5svh` term.
+          Swapping to the same frozen `--app-vh` custom property every other
+          flow-affecting viewport unit in this codebase already uses removes
+          the live-tracking entirely; the margin now resolves once, at the
+          same captured value, and never moves again until a real width/
+          orientation change. The fix itself was then visually approved on
+          a real iPhone (Chrome, LAN preview) performing the actual address-
+          bar collapse/expand, separately from the simulated measurement
+          above. */}
       <div
-        className="relative mx-auto mt-[max(0px,calc(30.5svh-96px))] flex w-full max-w-4xl flex-col items-center px-6 text-center lg:mt-0 lg:items-center lg:text-center"
+        className="relative mx-auto mt-[max(0px,calc(var(--app-vh,7.6px)*30.5-96px))] flex w-full max-w-4xl flex-col items-center px-6 text-center lg:mt-0 lg:items-center lg:text-center"
       >
         <p className="label-eyebrow text-[oklch(0.72_0.13_60)]">
           {/* BATCH UI-H1-R5 — mobile now shares desktop's fuller copy; kept

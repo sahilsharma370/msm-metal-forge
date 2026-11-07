@@ -22,6 +22,8 @@ export type NotificationLogEvent =
   | "queue_dispatch_claim_lost"
   | "queue_dispatch_internal_error"
   | "queue_dispatch_unexpected_error"
+  | "queue_drain_complete"
+  | "queue_drain_max_reached"
   | "cron_sweep_complete"
   | "cron_sweep_internal_error"
   | "cron_sweep_max_reached"

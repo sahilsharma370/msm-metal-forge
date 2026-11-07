@@ -68,6 +68,15 @@ export const RATE_LIMITER_BINDING_NAMES = {
   // binding level, not per call.
   ownerLoginRequestCode: "RATE_LIMITER_OWNER_LOGIN_REQUEST_CODE",
   ownerLoginVerifyCode: "RATE_LIMITER_OWNER_LOGIN_VERIFY_CODE",
+  // QT-CLI audit — the client's own beacon is already best-effort/fire-
+  // and-forget and never blocks submission (see QuoteExperience.tsx's own
+  // call site), but the endpoint itself must still be rate-limited like
+  // every other public POST route here: it has no Turnstile/session gate
+  // of its own (adding one would defeat the "never blocks submission"
+  // requirement — a diagnostic beacon cannot itself depend on a fresh
+  // challenge token), so this binding is the ONLY abuse defense standing
+  // between it and an unauthenticated scripted flood.
+  quoteClientDiagnostics: "RATE_LIMITER_QUOTE_CLIENT_DIAGNOSTICS",
 } as const;
 
 export type RateLimitRouteClass = keyof typeof RATE_LIMITER_BINDING_NAMES;
@@ -98,6 +107,11 @@ export type RateLimitRouteClass = keyof typeof RATE_LIMITER_BINDING_NAMES;
  *   completely impractical per IP per minute, on top of Supabase Auth's
  *   own independent token_verifications limit (see supabase/config.toml)
  *   as a second, independent layer.
+ * - quoteClientDiagnostics 10/60s: at most one beacon per real failed
+ *   submit() attempt (the client never retries the beacon itself — see
+ *   QuoteExperience.tsx), so a genuine customer struggling through several
+ *   retries in a minute still fits comfortably; 10 still meaningfully
+ *   bounds a script hammering this unauthenticated endpoint directly.
  */
 export const RATE_LIMIT_RETRY_AFTER_SECONDS = 60;
 

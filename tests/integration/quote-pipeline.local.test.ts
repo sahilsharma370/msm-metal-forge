@@ -208,6 +208,7 @@ function validSellerSubmission() {
     sellerPickupRequired: "no",
     sellerName: "Integration Test Seller",
     sellerPhone: "+971501234567",
+    sellerEmail: "quote-pipeline.integration.seller@example.com",
     sellerPreferredContact: "whatsapp",
   };
 }
@@ -849,5 +850,5 @@ describe("CHECKPOINT C2C — real local Quote submission + upload pipeline", () 
 
     const postResetDownload = await serviceClient.storage.from(LEAD_FILES_BUCKET).download(objectPathOne);
     expect(postResetDownload.error).not.toBeNull();
-  });
+  }, 120_000); // resetLocalDatabase() alone can take the majority of the default 60s budget.
 });

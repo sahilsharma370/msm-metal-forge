@@ -188,6 +188,36 @@ function zodIssuesToFieldErrors(issues: readonly z.ZodIssue[]): FieldError[] {
 }
 
 // ---------------------------------------------------------------------------
+// Minimal, PII/token/secret-free structured logging — same console.log(JSON)
+// convention as complete-quote.ts's logOutcome / turnstile.server.ts's
+// reject(). Distinguishes two previously-unlogged INTERNAL_ERROR causes:
+//   - "rpc_error": the RPC call itself failed — no lead row results.
+//   - "rpc_response_invalid": the RPC succeeded but its response didn't
+//     parse — a lead row may already exist even though the client never
+//     learns its id.
+//
+// Retention: this line's own shape ({event, outcome}, both from a closed
+// set — see initiate-quote.test.ts's own PII assertions) is demonstrated
+// safe to persist. It is NOT persisted yet, though: wrangler.jsonc's
+// `observability` block is deliberately left disabled for this release —
+// not because this line is unsafe, but because enabling it would also
+// turn on Cloudflare's own automatic capture of this Worker's truly
+// uncaught exceptions (one escaping every try/catch here entirely), whose
+// real message/stack src/lib/error-capture.ts's console.error redaction
+// cannot reach or control (see that file's own comment on this exact
+// limit) — and that path has not been checked against Cloudflare's actual
+// behavior, only against its config schema. Until that's checked, this
+// line is visible only to an actively-connected `wrangler tail`/live
+// dashboard session, same as before.
+// ---------------------------------------------------------------------------
+
+type InitiateOutcome = "rpc_error" | "rpc_response_invalid";
+
+function logOutcome(outcome: InitiateOutcome): void {
+  console.log(JSON.stringify({ event: "quote.initiate", outcome }));
+}
+
+// ---------------------------------------------------------------------------
 // RPC response contract — defensively re-validated, never trusted blindly
 // even though it comes from our own database.
 // ---------------------------------------------------------------------------
@@ -322,11 +352,13 @@ export async function handleQuoteInitiateBody(
     // somehow didn't catch, a connection error, anything else — is
     // reported generically. SQL text, Supabase error internals and the
     // computed hash never reach the response body.
+    logOutcome("rpc_error");
     return internalError();
   }
 
   const parsedResult = rpcResultSchema.safeParse(data);
   if (!parsedResult.success) {
+    logOutcome("rpc_response_invalid");
     return internalError();
   }
   const result = parsedResult.data;

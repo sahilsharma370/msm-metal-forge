@@ -25,7 +25,8 @@ import { createSupabaseAdminClient } from "@/server/supabase-admin.server";
 import { getEmailConfig, type EmailConfig } from "@/server/env.server";
 import { createResendEmailProvider } from "./resend-email-provider.server";
 import { renderOwnerNotificationEmail, type OwnerNotificationLeadData } from "./owner-notification-email";
-import type { EmailProvider } from "./notification-email-types";
+import { renderCustomerReceiptEmail } from "./customer-receipt-email";
+import type { EmailProvider, EmailSendInput } from "./notification-email-types";
 
 // ---------------------------------------------------------------------------
 // Retry policy — deterministic, bounded, compatible with C2H-A's 1s–24h range
@@ -372,11 +373,14 @@ export async function dispatchOwnerNotification(
   }
   const claim = parsedClaim.data;
 
-  if (claim.event_type !== "submission_completed" || claim.channel !== "email") {
+  if (claim.channel !== "email") {
     // Structurally unreachable given this table's own CHECK constraints
     // today, but never assumed — the provider must never be called for a
     // delivery shape this dispatcher doesn't know how to handle, and the
     // claim must still be resolved rather than left stranded.
+    return finalizeDeadLetter(deps, claim.delivery_id, claim.claim_token, "UNSUPPORTED_DELIVERY");
+  }
+  if (claim.event_type !== "submission_completed" && claim.event_type !== "customer_receipt") {
     return finalizeDeadLetter(deps, claim.delivery_id, claim.claim_token, "UNSUPPORTED_DELIVERY");
   }
 
@@ -394,23 +398,53 @@ export async function dispatchOwnerNotification(
     return finalizeDeadLetter(deps, claim.delivery_id, claim.claim_token, "CONFIGURATION_ERROR");
   }
 
-  const fileCount = await deps.countLeadFiles(claim.lead_id);
-  const idempotencyKey = `submission_completed/${claim.delivery_id}`;
-  const rendered = renderOwnerNotificationEmail(
-    toOwnerNotificationLeadData(lead),
-    { count: fileCount, status: lead.file_upload_status },
-    emailConfig.ownerDashboardUrl ? { dashboardUrl: emailConfig.ownerDashboardUrl } : {},
-  );
+  let idempotencyKey: string;
+  let sendInput: EmailSendInput;
 
-  const sendResult = await emailProvider.send({
-    from: emailConfig.emailFrom,
-    to: emailConfig.ownerNotificationEmail,
-    ...(emailConfig.emailReplyTo ? { replyTo: emailConfig.emailReplyTo } : {}),
-    subject: rendered.subject,
-    text: rendered.text,
-    html: rendered.html,
-    idempotencyKey,
-  });
+  if (claim.event_type === "submission_completed") {
+    // Owner path — entirely unchanged from before customer_receipt existed.
+    const fileCount = await deps.countLeadFiles(claim.lead_id);
+    idempotencyKey = `submission_completed/${claim.delivery_id}`;
+    const rendered = renderOwnerNotificationEmail(
+      toOwnerNotificationLeadData(lead),
+      { count: fileCount, status: lead.file_upload_status },
+      emailConfig.ownerDashboardUrl ? { dashboardUrl: emailConfig.ownerDashboardUrl } : {},
+    );
+    sendInput = {
+      from: emailConfig.emailFrom,
+      to: emailConfig.ownerNotificationEmail,
+      ...(emailConfig.emailReplyTo ? { replyTo: emailConfig.emailReplyTo } : {}),
+      subject: rendered.subject,
+      text: rendered.text,
+      html: rendered.html,
+      idempotencyKey,
+    };
+  } else {
+    // Customer path — deliberately isolated from the owner path above: the
+    // recipient is this lead's OWN email (never emailConfig.ownerNotificationEmail,
+    // which has no meaning here), countLeadFiles/file_upload_status are
+    // never read (this email never mentions files), and a missing recipient
+    // email is a data/config problem resolved by dead-lettering this one
+    // delivery — never by falling back to the owner's address, and never by
+    // throwing (which would leave the claim stranded).
+    const recipient = lead.intent === "sell" ? lead.seller_email : lead.buyer_email;
+    if (!recipient) {
+      return finalizeDeadLetter(deps, claim.delivery_id, claim.claim_token, "RECIPIENT_EMAIL_MISSING");
+    }
+    idempotencyKey = `customer_receipt/${claim.delivery_id}`;
+    const rendered = renderCustomerReceiptEmail(toOwnerNotificationLeadData(lead));
+    sendInput = {
+      from: emailConfig.emailFrom,
+      to: recipient,
+      ...(emailConfig.emailReplyTo ? { replyTo: emailConfig.emailReplyTo } : {}),
+      subject: rendered.subject,
+      text: rendered.text,
+      html: rendered.html,
+      idempotencyKey,
+    };
+  }
+
+  const sendResult = await emailProvider.send(sendInput);
 
   if (sendResult.ok) {
     let markSentResponse: { data: unknown; error: { message: string } | null };

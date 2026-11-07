@@ -9,6 +9,7 @@ import {
   reconcileSubmissionAttempt,
   toPersistedUploadSlot,
   type QuoteSubmissionAttempt,
+  type QuoteDraftEnvelope,
 } from "./quote-storage";
 import type { QuoteFormValues } from "./quote-schema";
 
@@ -40,6 +41,14 @@ function stubWindowWith(storage: Storage): void {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  // quote-storage.ts's in-memory attempt fallback (used whenever a save
+  // couldn't be confirmed to have actually persisted — see its own doc
+  // comment) is a module-level variable shared across every test in this
+  // file, not reset by vi.unstubAllGlobals(). clearSubmissionAttempt()
+  // unconditionally resets it (saveSubmissionAttempt mirrors into it
+  // before checking isBrowser()), so calling the real, exported function
+  // here — not a test-only backdoor — keeps every test starting clean.
+  clearSubmissionAttempt();
 });
 
 function formValues(overrides: Partial<QuoteFormValues> = {}): QuoteFormValues {
@@ -268,6 +277,126 @@ describe("form change clears stale attempt but retains typed answers", () => {
 
     expect(loadSubmissionAttempt()).toEqual(preInitiateAttempt);
     expect(loadQuoteDraft()?.values.sellerName).toBe("Edited Name");
+  });
+});
+
+describe("in-memory attempt mirror is never resurrected once the real envelope is confirmed discarded", () => {
+  it("a stale mirror left by a prior save is not resurrected by clearQuoteDraft, even when the real storage layer is simultaneously broken", () => {
+    // MEASURED GAP, fixed — regression test for the exact bug this file's
+    // own in-memory attempt fallback introduced: saveSubmissionAttempt
+    // unconditionally mirrors into memory (for the storage-unavailable
+    // duplicate-lead fix elsewhere), but clearQuoteDraft previously only
+    // cleared the REAL key, leaving that mirror stale and able to be
+    // incorrectly resurrected on the next read.
+    stubWindowWith(createMemoryStorage());
+    saveSubmissionAttempt(initiatedAttempt);
+    expect(loadSubmissionAttempt()).toEqual(initiatedAttempt);
+
+    // Now make real storage itself broken for every operation — clearing
+    // must still work (it resets the mirror unconditionally, not via a
+    // real write) and the NEXT read must not fall back to the stale
+    // mirror just because real storage is also now unavailable.
+    stubWindowWith({
+      getItem: () => {
+        throw new DOMException("denied", "SecurityError");
+      },
+      setItem: () => {
+        throw new DOMException("denied", "SecurityError");
+      },
+      removeItem: () => {
+        throw new DOMException("denied", "SecurityError");
+      },
+      clear: () => undefined,
+      key: () => null,
+      get length() {
+        return 0;
+      },
+    } as unknown as Storage);
+
+    clearQuoteDraft();
+
+    expect(loadSubmissionAttempt()).toEqual({ kind: "none" });
+  });
+
+  it("an expired draft discarded by readEnvelope's own fail-closed path also resets the mirror, not just the real key", () => {
+    stubWindowWith(createMemoryStorage());
+    saveSubmissionAttempt(initiatedAttempt);
+
+    // Directly seed an EXPIRED envelope under the same key — simulates a
+    // stale save from much earlier this same page's lifetime being the
+    // thing readEnvelope discovers and discards on its next read.
+    const expired: QuoteDraftEnvelope = {
+      version: 2,
+      step: 1,
+      values: {},
+      hadSellerPhotos: false,
+      hadBuyerDocuments: false,
+      savedAt: Date.now() - 25 * 60 * 60 * 1000,
+      attempt: { kind: "none" },
+    };
+    (window.sessionStorage as unknown as { setItem(k: string, v: string): void }).setItem(
+      DRAFT_KEY,
+      JSON.stringify(expired),
+    );
+
+    expect(loadSubmissionAttempt()).toEqual({ kind: "none" });
+  });
+});
+
+describe("getItem succeeds and returns null, but setItem throws (writes silently never land)", () => {
+  function getsNullSetThrowsStorage(): Storage {
+    return {
+      getItem: () => null,
+      setItem: () => {
+        throw new DOMException("setItem denied", "QuotaExceededError");
+      },
+      removeItem: () => undefined,
+      clear: () => undefined,
+      key: () => null,
+      get length() {
+        return 0;
+      },
+    } as Storage;
+  }
+
+  it("a saved attempt survives a subsequent read instead of being erased by readEnvelope's own confirmed-empty branch", () => {
+    // MEASURED GAP, fixed — readEnvelope used to treat getItem returning
+    // null as proof nothing was ever saved and reset the in-memory mirror
+    // accordingly. That is false here: a save WAS made, it just never
+    // persisted (setItem throws). The old code erased the very mirror
+    // saveSubmissionAttempt had just set, on the NEXT read — not just a
+    // one-off, but every single subsequent read, since getItem keeps
+    // returning null forever in this failure mode.
+    stubWindowWith(getsNullSetThrowsStorage());
+    saveSubmissionAttempt(initiatedAttempt);
+
+    expect(loadSubmissionAttempt()).toEqual(initiatedAttempt);
+    // A second, independent read — simulating the extra loadSubmissionAttempt()
+    // call a real retry's own reconcileSubmissionAttempt makes.
+    expect(loadSubmissionAttempt()).toEqual(initiatedAttempt);
+  });
+
+  it("reconcileSubmissionAttempt still reuses (never clears) a matching-hash attempt under this exact failure mode", () => {
+    stubWindowWith(getsNullSetThrowsStorage());
+    saveSubmissionAttempt(preInitiateAttempt); // payloadHash: HASH_A
+
+    expect(reconcileSubmissionAttempt(HASH_A)).toEqual(preInitiateAttempt);
+    expect(loadSubmissionAttempt()).toEqual(preInitiateAttempt);
+  });
+
+  it("a genuinely fresh session (nothing ever saved) still reports none — not resurrected from some other test's leftover state", () => {
+    stubWindowWith(getsNullSetThrowsStorage());
+    expect(loadSubmissionAttempt()).toEqual({ kind: "none" });
+  });
+
+  it("an explicit clearSubmissionAttempt is still honored, even though every read was already reporting null beforehand", () => {
+    stubWindowWith(getsNullSetThrowsStorage());
+    saveSubmissionAttempt(initiatedAttempt);
+    expect(loadSubmissionAttempt()).toEqual(initiatedAttempt);
+
+    clearSubmissionAttempt();
+
+    expect(loadSubmissionAttempt()).toEqual({ kind: "none" });
   });
 });
 

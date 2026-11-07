@@ -423,6 +423,43 @@
   .js .trust-stage-offset {
     transform: translateY(100%);
   }
+  /* MEASURED ROOT CAUSE (reload-into-Services layout jerk) — confirmed
+     live via instrumented position/height polling across a real reload
+     scrolled into this section: before hydration ran WhatWeDo.tsx's
+     ScrollTrigger.create({ trigger: section, pin: canvas, end: () =>
+     `+=${window.innerHeight * 2.8}` }), `#services` (the trigger,
+     `.services-stage-height` below) was only as tall as its pinned
+     canvas's own `lg:min-h-screen` (~1 viewport) in normal document flow.
+     Once that pin initialized, GSAP's own pin-spacer inserted the pinned
+     canvas's full flow contribution: the ~2.8-viewport scroll distance the
+     spacer reserves WHILE pinned, plus the canvas's own ~1-viewport
+     natural height resuming normal flow once the pin releases at the end
+     of that range (total measured, settled: ~3.8 viewports) — a real
+     jump that shifted everything below (and, for a reload already
+     scrolled into this range, visibly popped the truck/lamp and jumped
+     the surrounding sections). This bakes in that same ~3.8-viewport
+     total unconditionally via CSS (same `--app-vh` custom property
+     STABLE_VH_SCRIPT already sets, same technique as `.hero-stage-height`
+     above) on the OUTER, never-pinned `<section>` — not on the canvas
+     that actually gets pinned, which MUST stay at its true natural size:
+     putting this same min-height on the canvas instead was tried and
+     measured live to backfire — GSAP's pin-spacer math compensates for a
+     pinned element taller than the viewport, so an artificially-inflated
+     canvas made it reserve roughly DOUBLE the real distance. An earlier
+     pass at exactly 2.8 (the spacer's own distance alone, omitting the
+     canvas's own post-release height) was also measured live and left a
+     smaller but still real ~1-viewport jump — 3.8 is the value actually
+     confirmed to match GSAP's own settled total, not a value derived from
+     the `end` callback's literal multiplier alone. Scoped to the
+     identical breakpoint this effect itself requires before it ever pins
+     anything, so the pin-spacer's eventual height exactly matches what
+     was already reserved — nothing left for hydration to visibly insert.
+     No-JS and reduced-motion both fall through to the canvas's own
+     ~1-viewport height, untouched — same accepted tradeoff as
+     `.hero-stage-height` above for that population. */
+  .services-stage-height {
+    min-height: calc(var(--app-vh, 7.6px) * 380);
+  }
 }
 
 /* BATCH HERO-GRID-MATCH — Hero's square background grid, geometry-matched
@@ -529,7 +566,12 @@
    at only 16px blur read as opaque dark plastic instead of glass. Alpha
    lowered to 0.30/0.36/0.44 (top/mid/bottom) and blur raised to 22px/155%
    saturation so background shapes stay visible-but-soft, the way glass-panel
-   itself reads over a flat background. */
+   itself reads over a flat background.
+   CHECKPOINT C2L (Safari opacity fix) — backdrop-filter removed. A
+   controlled A/B test confirmed it was making these four cards render
+   near-opaque navy in Safari instead of translucent glass; the gradient
+   alpha alone (unchanged below) already produces the intended see-through
+   effect without it. */
 @utility trust-card-glass {
   background:
     linear-gradient(
@@ -538,8 +580,6 @@
       oklch(0.22 0.055 265 / 0.44) 45%,
       oklch(0.14 0.05 265 / 0.52) 100%
     );
-  backdrop-filter: blur(22px) saturate(155%);
-  -webkit-backdrop-filter: blur(22px) saturate(155%);
   box-shadow:
     inset 0 1px 0 oklch(1 0 0 / 0.2),
     inset 0 -1px 0 oklch(0.583 0.135 45.5 / 0.1),

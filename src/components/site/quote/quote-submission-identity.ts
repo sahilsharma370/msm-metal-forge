@@ -127,17 +127,70 @@ export async function computeQuoteSubmissionIdentity(
 }
 
 /**
- * One crypto.randomUUID() per materially distinct normalized payload: the
- * existing idempotency key is reused for as long as the payload hash stays
- * the same (so re-renders and genuine retries never mint a second key for
- * the same request), and a fresh key is generated the moment the hash
- * changes for any reason — including a changed file declaration or a
- * changed file order, since both already feed computeQuotePayloadHash.
- * Equivalent phone formatting never changes the hash in the first place
- * (normalizeSubmission canonicalizes phone numbers before hashing — see
- * CHECKPOINT C2F-B), so it never triggers a new key here either.
+ * MEASURED-PLAUSIBLE GAP (auditing the Google in-app browser QT-CLI path,
+ * not reproduced on any specific device) — crypto.randomUUID() is a late
+ * addition to the Web Crypto API (2021); crypto.getRandomValues() has been
+ * part of the base Crypto interface for far longer, and — per spec — is
+ * NOT gated to secure contexts the way crypto.subtle is. An embedded
+ * WebView whose bundled Chromium hasn't been updated past that point
+ * could plausibly expose the latter without the former.
  *
- * Pure aside from crypto.randomUUID() itself: never reads or writes
+ * CORRECTION to an earlier draft of this audit: that draft treated
+ * crypto.subtle being unavailable as evidence crypto.getRandomValues was
+ * probably ALSO unavailable, on the (wrong) assumption that the two are
+ * gated together. They are not — crypto.subtle (SubtleCrypto, used by
+ * computeQuotePayloadHash in canonicalize.ts) is secure-context-only;
+ * crypto.getRandomValues (part of the base Crypto interface, used here)
+ * is available in every context. Each of this file's and canonicalize.ts's
+ * own fallbacks is independent of the other's availability in EITHER
+ * direction — see canonicalize.ts's own sha256Hex for its own, separate
+ * fallback (added once this correction was made), never assumed to share
+ * fate with this one.
+ *
+ * Deliberately NOT a Math.random()-based fallback, or any other
+ * non-cryptographic source: idempotency's whole guarantee (the server
+ * trusts this key as an unguessable, collision-resistant identifier for
+ * THIS one submission) depends on genuine CSPRNG entropy, not merely on
+ * the string looking UUID-shaped. getRandomValues() is the exact same
+ * CSPRNG randomUUID() itself draws from — this only assembles the same 122
+ * bits of randomness into an RFC 4122 v4 UUID by hand, it does not weaken
+ * what's actually being asked of the key.
+ */
+function randomUUIDViaGetRandomValues(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  // Fixed-size Uint8Array(16): indices 6/8 are always in bounds — the
+  // non-null assertions are only here to satisfy noUncheckedIndexedAccess,
+  // not a sign either access could genuinely be undefined.
+  bytes[6] = (bytes[6]! & 0x0f) | 0x40; // version 4
+  bytes[8] = (bytes[8]! & 0x3f) | 0x80; // variant 10
+  const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+/**
+ * One fresh, cryptographically random key per materially distinct
+ * normalized payload: the existing idempotency key is reused for as long
+ * as the payload hash stays the same (so re-renders and genuine retries
+ * never mint a second key for the same request), and a fresh key is
+ * generated the moment the hash changes for any reason — including a
+ * changed file declaration or a changed file order, since both already
+ * feed computeQuotePayloadHash. Equivalent phone formatting never changes
+ * the hash in the first place (normalizeSubmission canonicalizes phone
+ * numbers before hashing — see CHECKPOINT C2F-B), so it never triggers a
+ * new key here either.
+ *
+ * crypto.randomUUID() missing or throwing (see randomUUIDViaGetRandomValues's
+ * own doc comment) falls back to the exact same CSPRNG via
+ * crypto.getRandomValues() — never a weaker source. If THAT also throws
+ * (crypto.getRandomValues genuinely unavailable too — a much more severe,
+ * much less plausible case, since it would mean the Web Crypto API is
+ * absent entirely), this function intentionally does not catch it: that
+ * failure must propagate exactly as an unguarded crypto.randomUUID() call
+ * always did, failing closed (no request sent) via this engine's own
+ * outer safety net — never silently minting a key from a non-cryptographic
+ * source just to avoid that failure.
+ *
+ * Pure aside from the crypto calls themselves: never reads or writes
  * storage — callers (quote-storage.ts) own persisting the result.
  */
 export function resolveIdempotencyKey(
@@ -147,5 +200,9 @@ export function resolveIdempotencyKey(
   if (existing && existing.payloadHash === newPayloadHash) {
     return existing.idempotencyKey;
   }
-  return crypto.randomUUID();
+  try {
+    return crypto.randomUUID();
+  } catch {
+    return randomUUIDViaGetRandomValues();
+  }
 }

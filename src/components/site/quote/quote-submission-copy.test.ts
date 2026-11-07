@@ -95,6 +95,55 @@ describe("outcomeBanner — exhaustive per-kind mapping", () => {
     expect(banner?.showRetry).toBe(true);
   });
 
+  it("server_error carries the QT-SRV code — a genuine server-returned failure", () => {
+    const banner = outcomeBanner({ kind: "server_error", retryable: true });
+    expect(banner?.message).toContain("QT-SRV");
+    expect(banner?.message).not.toContain("QT-CLI");
+  });
+
+  it("client_exception shows the same customer-facing wording and retry affordance as server_error", () => {
+    const banner = outcomeBanner({ kind: "client_exception", retryable: true, stage: "initiating" });
+    expect(banner?.tone).toBe("retryable");
+    expect(banner?.showRetry).toBe(true);
+    expect(banner?.message).toContain("Something went wrong on our end");
+  });
+
+  it("client_exception carries the QT-CLI code, never QT-SRV — the only visible difference from server_error", () => {
+    const serverBanner = outcomeBanner({ kind: "server_error", retryable: true });
+    const clientBanner = outcomeBanner({ kind: "client_exception", retryable: true, stage: "initiating" });
+    expect(clientBanner?.message).toContain("QT-CLI");
+    expect(clientBanner?.message).not.toContain("QT-SRV");
+    expect(clientBanner?.message).not.toBe(serverBanner?.message);
+  });
+
+  it("client_exception shows the exact same generic message with or without a recovered leadId — REVIEWED, kept generic", () => {
+    // An earlier draft branched on `outcome.leadId` to show a more
+    // reassuring, non-generic message when the engine had recovered a
+    // confirmed lead. That branch was deliberately reverted: this release
+    // is scoped to zero NEW customer-facing copy relative to the live
+    // site, which shows this exact generic wording for every
+    // client_exception today, with or without a recoverable leadId. The
+    // engine's leadId recovery itself is untouched — only this banner
+    // stopped reading it. See this file's own comment for the full
+    // trade-off (retry-safety is unaffected either way; only the
+    // customer's awareness of an already-existing lead differs).
+    const withoutLead = outcomeBanner({ kind: "client_exception", retryable: true, stage: "computing_identity" });
+    const withLead = outcomeBanner({ kind: "client_exception", retryable: true, stage: "uploading", leadId, reference });
+
+    expect(withoutLead?.message).toBe("Something went wrong on our end. Please try again. (Error code: QT-CLI)");
+    expect(withLead?.message).toBe(withoutLead?.message);
+    expect(withLead?.tone).toBe("retryable");
+    expect(withLead?.showRetry).toBe(true);
+  });
+
+  it("neither banner ever contains a stack trace, error message, or technical jargon — just the fixed code", () => {
+    const serverBanner = outcomeBanner({ kind: "server_error", retryable: true });
+    const clientBanner = outcomeBanner({ kind: "client_exception", retryable: true, stage: "initiating" });
+    for (const banner of [serverBanner, clientBanner]) {
+      expect(banner?.message).not.toMatch(/at \S+:\d+|TypeError|ReferenceError|undefined is not/i);
+    }
+  });
+
   it("marks not_ready retryable", () => {
     const banner = outcomeBanner({ kind: "not_ready", leadId, reference });
     expect(banner?.tone).toBe("retryable");

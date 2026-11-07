@@ -203,12 +203,12 @@ export function WhatWeDo() {
     // reduced-motion user could otherwise be left with a permanently
     // hidden truck.
     if (reduced) {
-      if (truckWrapRef.current) truckWrapRef.current.style.visibility = "visible";
+      if (truckWrapRef.current) truckWrapRef.current.style.opacity = "1";
       // Static OFF fixture only — no ignition, no beam/pool (those all
       // stay off since `lampOn`/`lampOnRef` never flip true outside the
       // ScrollTrigger onEnter/onEnterBack below, which never run here).
       // Already centred via plain CSS (`left: 50%`).
-      if (lampSceneRef.current) lampSceneRef.current.style.visibility = "visible";
+      if (lampSceneRef.current) lampSceneRef.current.style.opacity = "1";
       return;
     }
 
@@ -321,20 +321,50 @@ export function WhatWeDo() {
       };
 
       const ctx = gsap.context(() => {
+        // Clears whatever `translateY` __root.tsx's
+        // PIN_SERVICES_CANVAS_IF_ALREADY_PAST_SCRIPT may have applied to
+        // this canvas pre-hydration (see that script's own comment) —
+        // first, synchronously, before ScrollTrigger.create below ever
+        // measures canvas's "original" state for its own pin/unpin
+        // bookkeeping. A plain mutation, not `gsap.set`: nothing here is
+        // gsap-tracked, so there's nothing for `ctx.revert()` to restore
+        // on teardown, and canvas's transform is never touched again after
+        // this point.
+        canvas.style.transform = "";
         computeTravel();
 
-        // Place the truck at its correct start position and reveal it
-        // (and the lamp scene) in this same synchronous layout-effect
-        // pass — before ScrollTrigger exists and before the browser's
-        // first paint, so there is never a frame at the default
-        // x:0/left:0. No gsap.to/duration, no requestAnimationFrame/
-        // setTimeout: instant, synchronous set.
-        gsap.set(truckWrap, {
-          x: startLeftPxRef.current,
-          visibility: "visible",
-          force3D: true,
-        });
-        if (lampSceneRef.current) lampSceneRef.current.style.visibility = "visible";
+        // Place the truck at its correct start position (and set the
+        // lamp's own size-driving custom properties, just above in
+        // computeTravel()) in this same synchronous layout-effect pass —
+        // before ScrollTrigger exists and before the browser's first
+        // paint, so there is never a frame at the default x:0/left:0 or
+        // the lamp's pre-measurement 0×0 collapse. Position/size are still
+        // set exactly this way: instant, synchronous `gsap.set`.
+        gsap.set(truckWrap, { x: startLeftPxRef.current, force3D: true });
+
+        // Only the REVEAL itself (opacity 0 -> 1) is now a short GSAP tween
+        // (same mechanism TrustBar.tsx's own Counter/FadeUpReveal already
+        // use for this exact "reveal once positioned" pattern — not a CSS
+        // transition: MEASURED live that a CSS `transition-opacity` class
+        // never actually animated here, `truckOpacity` jumped straight from
+        // "0" to "1" with no intermediate frames, so the pop was identical
+        // either way) rather than an instant visibility:hidden -> visible
+        // (or opacity 0 -> 1 via `.set`) snap — MEASURED (reload already
+        // scrolled into Services): hydration reliably takes long enough
+        // that the previous instant on/off read as a visible pop, even
+        // though the position underneath was already correct the entire
+        // time. `x` above is already final before this tween is even
+        // created, so it can never reveal a wrong position — it only
+        // softens an already-correct reveal. A real `gsap.to` (not `.set`)
+        // is also what makes `gsap.context`'s own revert correctly kill/
+        // reset it — already relied on elsewhere in this file to restore
+        // truckWrap's pre-GSAP state when this breakpoint match tears down
+        // (e.g. desktop -> mobile) — the same safety a plain DOM mutation
+        // here would NOT have had.
+        gsap.to(truckWrap, { opacity: 1, duration: 0.2, ease: "power1.out" });
+        if (lampSceneRef.current) {
+          gsap.to(lampSceneRef.current, { opacity: 1, duration: 0.2, ease: "power1.out" });
+        }
         lastX = startLeftPxRef.current;
         lastTickTime = performance.now();
 
@@ -586,7 +616,11 @@ export function WhatWeDo() {
   }, [reduced]);
 
   return (
-    <section id="services" ref={sectionRef} className="relative isolate bg-[#050617] lg:overflow-hidden">
+    <section
+      id="services"
+      ref={sectionRef}
+      className="services-stage-height relative isolate bg-[#050617] lg:overflow-hidden"
+    >
       {/* Mobile gets a fully static grid — no pointer/touch follow, no
           push, no copper-on-proximity colour shift (interactive=false
           skips the pointermove/pointerleave listeners and the push/colour
@@ -600,10 +634,23 @@ export function WhatWeDo() {
 
       {/* Desktop composition — this whole canvas is what gets pinned
           while the truck travels; `lg:min-h-screen lg:pt-16 lg:pb-16`
-          kept verbatim from the pre-pin layout. */}
+          kept verbatim from the pre-pin layout, unchanged — the fix lives
+          on the OUTER `<section>` above (`services-stage-height`), not
+          here. MEASURED (twice, live): putting the pre-sized min-height
+          directly on this pinned element instead inflated its own natural
+          size, which made GSAP's pin-spacer compensate for a pinned
+          element "taller than the viewport" and reserve roughly DOUBLE
+          the real scroll distance (2.8 viewports measured as ~4676px
+          instead of ~2338px) — confirmed by comparing the pin-spacer's
+          own rendered height before/after moving this class. Sizing the
+          outer, un-pinned `<section>` instead (mirroring Hero's own
+          wrapper/pinned-element split exactly — `heroWrapper` is sized,
+          `Hero` itself never is) lets this canvas stay at its true natural
+          size, so GSAP's own spacer math isn't skewed by an artificial
+          inflation it has no way to know is synthetic. */}
       <div
         ref={desktopCanvasRef}
-        className="hidden lg:relative lg:isolate lg:flex lg:min-h-screen lg:flex-col lg:justify-start lg:overflow-hidden lg:pt-16 lg:pb-16"
+        className="services-pin-canvas hidden lg:relative lg:isolate lg:flex lg:min-h-screen lg:flex-col lg:justify-start lg:overflow-hidden lg:pt-16 lg:pb-16"
       >
         {/* Clean supplied stage plate — the sole desktop environment now.
             It already contains the technical-grid pattern, the
@@ -667,7 +714,7 @@ export function WhatWeDo() {
           <div
             ref={truckWrapRef}
             className="absolute left-0 isolate min-w-[180px] max-w-[330px] overflow-visible will-change-transform"
-            style={{ bottom: `calc(${100 - STAGE_SURFACE_Y_PCT}% - 2px)`, visibility: "hidden" }}
+            style={{ bottom: `calc(${100 - STAGE_SURFACE_Y_PCT}% - 2px)`, opacity: 0 }}
           >
             {/* Localised surface lift, then the single overhead-light
                 ground shadow (underbody wash + two tyre contact patches,
@@ -750,7 +797,7 @@ export function WhatWeDo() {
           ref={lampSceneRef}
           aria-hidden="true"
           className={`services-lamp-scene pointer-events-none absolute top-0 hidden lg:block ${lampOn ? "is-on" : ""}`}
-          style={{ visibility: "hidden" }}
+          style={{ opacity: 0 }}
         >
           <div className="services-lamp-fixture">
             {/* Behind both PNGs in paint order (DOM-first, no z-index),

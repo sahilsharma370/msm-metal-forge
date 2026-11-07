@@ -16,6 +16,22 @@ import type {
   InitiateUploadSlot,
 } from "./quote-submission-transport";
 import type { QuoteTurnstileWidgetHandle, QuoteTurnstileWidgetProps } from "./QuoteTurnstileWidget";
+import { createQuoteSubmissionEngine } from "./quote-submission-engine";
+
+/**
+ * QT-CLI audit — wraps the REAL createQuoteSubmissionEngine in a vi.fn()
+ * that, by default, just calls through to it unchanged (every one of this
+ * file's other ~80 tests still exercises the genuine engine). Only the one
+ * test that needs engine.submit() itself to reject (to reach
+ * QuoteExperience.tsx's own "LAST-RESORT FALLBACK" catch — otherwise
+ * unreachable in practice, since the real engine's own .catch() now
+ * guards against everything, including its own diagnostics-beacon call)
+ * overrides this via mockImplementationOnce.
+ */
+vi.mock("./quote-submission-engine", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./quote-submission-engine")>();
+  return { ...actual, createQuoteSubmissionEngine: vi.fn(actual.createQuoteSubmissionEngine) };
+});
 
 /**
  * CHECKPOINT C2G — deterministic stand-in for the real, script-loading,
@@ -103,6 +119,7 @@ function validSellerValues(overrides: Partial<QuoteFormValues> = {}): QuoteFormV
     sellerPickupRequired: "no",
     sellerName: "Ahmed Seller",
     sellerPhone: "0501234567",
+    sellerEmail: "ahmed.seller@example.com",
     sellerPreferredContact: "whatsapp",
     sellerPhotos: [],
     buyerDocuments: [],
@@ -122,6 +139,7 @@ function validBuyerValues(overrides: Partial<QuoteFormValues> = {}): QuoteFormVa
     buyerFulfilment: "delivery",
     buyerContactPerson: "Fatima Buyer",
     buyerPhone: "0502345678",
+    buyerEmail: "fatima.buyer@example.com",
     buyerPreferredContact: "whatsapp",
     sellerPhotos: [],
     buyerDocuments: [],
@@ -196,6 +214,14 @@ function renderOnReview(
   values: QuoteFormValues,
   context: QuoteInitialContext,
   transport: ReturnType<typeof createFakeTransport>,
+  // QT-CLI audit — optional, defaulted no-op so all existing call sites
+  // stay unchanged. Only a test that actually drives the component to a
+  // client_exception outcome needs to override this (see the "unexpected
+  // thrown exception" test below) — without it, QuoteExperience's own
+  // default (the REAL sendQuoteClientDiagnosticsBeacon) would fire an
+  // uncontrolled background fetch() from every other test using this
+  // helper too.
+  sendDiagnosticsBeacon: (snapshot: unknown) => Promise<void> = () => Promise.resolve(),
 ) {
   saveQuoteDraft(6, values);
   const onClose = vi.fn();
@@ -206,6 +232,7 @@ function renderOnReview(
       onClose={onClose}
       transport={transport}
       turnstileWidget={FakeTurnstileWidget}
+      sendDiagnosticsBeacon={sendDiagnosticsBeacon}
     />,
   );
   return { ...utils, onClose };
@@ -923,29 +950,93 @@ describe("retryable failures preserve the attempt", () => {
       expect(screen.getByText(/something went wrong on our end/i)).toBeInTheDocument(),
     );
     expect(screen.queryByText(/your enquiry is in/i)).not.toBeInTheDocument();
+    // A genuine server-returned failure always carries QT-SRV, never QT-CLI
+    // — the only way a customer screenshot distinguishes this from the
+    // client-exception path below.
+    expect(screen.getByText(/QT-SRV/)).toBeInTheDocument();
+    expect(screen.queryByText(/QT-CLI/)).not.toBeInTheDocument();
   });
 
   it("an unexpected thrown exception (not one of the engine's own typed outcomes) still shows the retryable banner, never silent failure", async () => {
     // Regression test for the exact gap found while tracing the reported
-    // "Submit does nothing" bug: engine.submit() is designed to always
-    // resolve to a typed outcome, never throw, so handleSubmit's await
-    // previously had only a `finally`, no `catch` — an unexpected throw
-    // here (anything other than initiate/upload/complete's own already-
-    // handled failure branches) would have propagated as an unhandled
-    // rejection with no visible error at all, indistinguishable from the
-    // click doing nothing.
+    // "Submit does nothing" / QT-CLI bug. createQuoteSubmissionEngine's own
+    // submit() wrapper now catches any such throw internally (see
+    // quote-submission-engine.ts) and resolves — never rejects — to a
+    // client_exception outcome, so this call site's own try/catch is a
+    // last-resort fallback only; either way the customer must see a banner,
+    // never a silent "the click did nothing".
+    //
+    // The exact logging category/stage this produces (never the thrown
+    // error's own message/stack) is covered precisely in
+    // quote-submission-engine.test.ts, where the spy can be installed
+    // before error-capture.ts's module-level console.error override
+    // captures its own "original" reference — asserting on console output
+    // here would depend on this test file's own unrelated import order, not
+    // on this component's actual behavior.
     const transport = createFakeTransport({
       initiate: async () => {
         throw new Error("boom");
       },
     });
-    renderOnReview(validSellerValues(), sellerContext, transport);
+    // QT-CLI audit — a fake, never the real sendQuoteClientDiagnosticsBeacon:
+    // this test genuinely drives the component to a client_exception
+    // outcome (through the real engine), which would otherwise fire an
+    // uncontrolled background fetch() using the real default.
+    const sendDiagnosticsBeacon = vi.fn().mockResolvedValue(undefined);
+    renderOnReview(validSellerValues(), sellerContext, transport, sendDiagnosticsBeacon);
 
     await userEvent.click(submitButton());
     await waitFor(() =>
       expect(screen.getByText(/something went wrong on our end/i)).toBeInTheDocument(),
     );
     expect(screen.queryByText(/your enquiry is in/i)).not.toBeInTheDocument();
+    // The server-visible counterpart to the console log — confirms the
+    // beacon actually fired for this exact failure, through this
+    // component's own real engine wiring, not just in isolation.
+    expect(sendDiagnosticsBeacon).toHaveBeenCalledTimes(1);
+
+    // The banner itself carries QT-CLI, never QT-SRV, and never the thrown
+    // error's own message — a customer screenshot of this is how support
+    // tells it apart from a genuine server-returned failure.
+    expect(screen.getByText(/QT-CLI/)).toBeInTheDocument();
+    expect(screen.queryByText(/QT-SRV/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/boom/)).not.toBeInTheDocument();
+  });
+
+  it("an injected sendDiagnosticsBeacon that throws SYNCHRONOUSLY still shows the normal retryable banner — the diagnostic can never break the real outcome", async () => {
+    // MEASURED GAP, fixed — a caller-injected sendDiagnosticsBeacon is not
+    // guaranteed to follow its own documented "always resolves, never
+    // throws" contract. Before the fix, a synchronous throw here (as
+    // opposed to an async rejection, which the inner `.catch()` already
+    // handled) would escape this catch block entirely BEFORE `outcome`
+    // below was ever assigned.
+    //
+    // Reaching this call site at all requires engine.submit() itself to
+    // reject — which the real engine's own .catch() now prevents even
+    // when ITS OWN sendDiagnosticsBeacon throws synchronously (see
+    // quote-submission-engine.test.ts for that half of this same fix), so
+    // this test forces it via a different, independent path: mocking
+    // createQuoteSubmissionEngine for just this one render to return an
+    // engine whose submit() rejects outright, exactly the "a future
+    // engine implementation that doesn't uphold that contract" scenario
+    // this component's own fallback catch's doc comment already names.
+    vi.mocked(createQuoteSubmissionEngine).mockImplementationOnce(() => ({
+      submit: () => Promise.reject(new Error("engine contract violated")),
+      isSubmitting: false,
+    }));
+
+    const transport = createFakeTransport();
+    const sendDiagnosticsBeacon = vi.fn(() => {
+      throw new Error("beacon sync boom");
+    });
+    renderOnReview(validSellerValues(), sellerContext, transport, sendDiagnosticsBeacon);
+
+    await userEvent.click(submitButton());
+    await waitFor(() =>
+      expect(screen.getByText(/something went wrong on our end/i)).toBeInTheDocument(),
+    );
+    expect(screen.getByText(/QT-CLI/)).toBeInTheDocument();
+    expect(sendDiagnosticsBeacon).toHaveBeenCalledTimes(1);
   });
 
   it("a lost completion response, replayed on Retry, reaches genuine success", async () => {
@@ -1642,8 +1733,13 @@ describe("C2L-Q2 shell polish", () => {
     expect(screen.queryByText("Your Request")).not.toBeInTheDocument();
   });
 
-  it("Email is hidden by default on Contact & Evidence and reveals once Email is chosen as preferred contact", async () => {
-    const user = userEvent.setup();
+  // CHECKPOINT (customer receipt) — Email is always visible and always
+  // required for both Sell and Buy, regardless of preferred-contact choice:
+  // it's the address the customer-receipt confirmation email is sent to,
+  // not merely MSM's follow-up channel. Previously hidden until "Email" was
+  // chosen as preferred contact, with a conditional "(optional)"/"(required)"
+  // label — both the visibility gate and the conditional label are gone.
+  it("Email is always visible on Contact & Evidence, regardless of preferred contact", () => {
     saveQuoteDraft(5, validSellerValues({ sellerPreferredContact: "whatsapp" }));
     render(
       <QuoteExperience
@@ -1654,12 +1750,10 @@ describe("C2L-Q2 shell polish", () => {
         turnstileWidget={FakeTurnstileWidget}
       />,
     );
-    expect(screen.queryByLabelText(/^email/i)).not.toBeInTheDocument();
-    await user.click(screen.getByRole("radio", { name: /^email$/i }));
     expect(screen.getByLabelText(/^email/i)).toBeInTheDocument();
   });
 
-  it("a restored draft with an existing email reopens the Email field even though Email isn't the preferred contact", () => {
+  it("a restored draft's saved email is shown regardless of preferred contact", () => {
     saveQuoteDraft(
       5,
       validSellerValues({ sellerPreferredContact: "whatsapp", sellerEmail: "ahmed@example.com" }),
@@ -1676,12 +1770,7 @@ describe("C2L-Q2 shell polish", () => {
     expect(screen.getByLabelText(/^email/i)).toHaveValue("ahmed@example.com");
   });
 
-  // CHECKPOINT C2J-E — the seller Email label now matches the schema's own
-  // conditional requirement (sellerPreferredContact === "email" makes
-  // sellerEmail required, see quote-schema.ts) instead of always reading
-  // "(optional)" even when the field was actually required to submit.
-  it("labels Email 'required' once Email is chosen as preferred contact", async () => {
-    const user = userEvent.setup();
+  it("labels Email 'required' regardless of which preferred contact is chosen", () => {
     saveQuoteDraft(5, validSellerValues({ sellerPreferredContact: "whatsapp" }));
     render(
       <QuoteExperience
@@ -1692,25 +1781,7 @@ describe("C2L-Q2 shell polish", () => {
         turnstileWidget={FakeTurnstileWidget}
       />,
     );
-    await user.click(screen.getByRole("radio", { name: /^email$/i }));
     expect(screen.getByText("(required)")).toBeInTheDocument();
-  });
-
-  it("labels Email 'optional' when it's visible but not the preferred contact", () => {
-    saveQuoteDraft(
-      5,
-      validSellerValues({ sellerPreferredContact: "whatsapp", sellerEmail: "ahmed@example.com" }),
-    );
-    render(
-      <QuoteExperience
-        mode="standalone"
-        initialContext={sellerContext}
-        onClose={vi.fn()}
-        transport={createFakeTransport()}
-        turnstileWidget={FakeTurnstileWidget}
-      />,
-    );
-    expect(screen.getByText("(optional)")).toBeInTheDocument();
   });
 
   it("Company is hidden behind 'Add company details (optional)' until opened", async () => {
