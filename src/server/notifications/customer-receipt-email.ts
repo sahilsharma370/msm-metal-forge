@@ -85,7 +85,7 @@ function quantityLine(lead: CustomerReceiptLeadData): string | null {
 /** The single full-width copper rule beneath the logo header — the customer design's own divider treatment (distinct from the owner design's two-tone copper+navy rule). Thin bar with deliberate padding above and below so it never touches the eyebrow row that follows. */
 function copperRuleHtml(): string {
   return (
-    `<tr><td style="padding:14px 0;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>` +
+    `<tr><td style="padding:14px 0 8px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>` +
     `<td style="background-color:${EMAIL_COPPER};height:2px;font-size:0;line-height:0;">&nbsp;</td>` +
     `</tr></table></td></tr>`
   );
@@ -126,7 +126,7 @@ export function renderCustomerReceiptEmail(lead: CustomerReceiptLeadData): Rende
     `<tr><td style="color:${EMAIL_NAVY};font-size:24px;font-weight:700;line-height:1.3;padding-top:8px;">Your enquiry is in.</td></tr>` +
     `<tr><td style="color:#374151;font-size:14px;font-weight:400;line-height:1.5;padding-top:12px;">${escapeHtml(CUSTOMER_RECEIPT_BODY_PARAGRAPH)}</td></tr>` +
     `<tr><td style="padding-top:18px;">${referenceBlockHtml(lead.reference)}</td></tr>` +
-    `<tr><td style="padding-top:18px;border-top:1px solid ${EMAIL_GRAY_HAIRLINE};font-size:0;line-height:0;">&nbsp;</td></tr>` +
+    `<tr><td style="padding-top:10px;border-top:1px solid ${EMAIL_GRAY_HAIRLINE};font-size:0;line-height:0;">&nbsp;</td></tr>` +
     `<tr><td><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">${rowsHtml}</table></td></tr>` +
     `<tr><td style="color:#374151;font-size:14px;font-weight:400;line-height:1.5;padding-top:18px;">Please keep this reference for any follow-up.</td></tr>`;
 

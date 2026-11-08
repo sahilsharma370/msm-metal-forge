@@ -330,7 +330,7 @@ function fileRowValue(stats: OwnerNotificationFileStats): string | null {
 
 function twoToneRuleHtml(): string {
   return (
-    `<tr><td style="padding:14px 0;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>` +
+    `<tr><td style="padding:14px 0 8px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>` +
     `<td style="background-color:${EMAIL_COPPER};height:2px;width:72px;font-size:0;line-height:0;">&nbsp;</td>` +
     `<td style="background-color:${EMAIL_NAVY};height:2px;font-size:0;line-height:0;">&nbsp;</td>` +
     `</tr></table></td></tr>`
@@ -406,12 +406,12 @@ export function renderOwnerNotificationEmail(
   const eyebrowHtml = `<span style="color:${EMAIL_COPPER};font-size:11px;font-weight:700;letter-spacing:0.05em;white-space:nowrap;">ENQUIRY &nbsp;/&nbsp; ${escapeHtml(formatHeaderDateUae(lead.submittedAt))}</span>`;
 
   const bodyRows =
-    `<tr><td style="color:${EMAIL_NAVY};font-size:24px;font-weight:700;line-height:1.3;padding-top:18px;">${isSell ? "New seller enquiry." : "New buyer enquiry."}</td></tr>` +
+    `<tr><td style="color:${EMAIL_NAVY};font-size:24px;font-weight:700;line-height:1.3;padding-top:10px;">${isSell ? "New seller enquiry." : "New buyer enquiry."}</td></tr>` +
     (subheadingParts.length > 0
       ? `<tr><td style="color:${EMAIL_NAVY};font-size:14px;font-weight:600;padding-top:4px;">${subheadingParts.join(" &middot; ")}</td></tr>`
       : "") +
     `<tr><td style="padding-top:18px;">${referenceBlockHtml(lead.reference)}</td></tr>` +
-    `<tr><td style="padding-top:18px;border-top:1px solid #E5E7EB;font-size:0;line-height:0;">&nbsp;</td></tr>` +
+    `<tr><td style="padding-top:0;border-top:1px solid #E5E7EB;font-size:0;line-height:0;">&nbsp;</td></tr>` +
     `<tr><td>${sectionHeadingHtml("Material & Logistics")}</td></tr>` +
     `<tr><td><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">${materialSectionRowsHtml}</table></td></tr>` +
     `<tr><td>${sectionHeadingHtml("Customer Contact")}</td></tr>` +
