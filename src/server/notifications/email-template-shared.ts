@@ -82,15 +82,19 @@ export function unitLabel(unit: string): string {
 /**
  * The real repository logo asset (src/assets/msm-logo.svg), recolored
  * navy-on-white and rasterized to a compact transparent PNG (see
- * public/email-logo-msm.png — generated from a navy/white-swapped copy of
- * that exact SVG's own paths via sharp: every path's geometry is
- * byte-identical to the source file, only the two fill colors are
- * swapped — the same "ink" vs "background-matching cutout" structure the
- * original white-on-navy mark already uses, just inverted for a white
- * email card instead of the site's navy surfaces. Never a crop of either
- * approved mockup, never a redrawn mark.
+ * public/email-logo-msm-outline.png — generated from public/email-logo-msm.png
+ * via a true morphological dilation (radius 3 native px, ~0.7 display px at
+ * this asset's 520->120 scale) of the ink's own alpha mask, filled white and
+ * composited behind the unchanged navy ink. White-on-white is invisible
+ * against the card's light-mode background (zero visual change there) but
+ * gives the navy mark a thin visible rim once a dark-mode client darkens the
+ * surrounding card — without that, the exact navy ink color is otherwise
+ * near-invisible against a dark background. New filename (not an edit of the
+ * original) so no email client/CDN can serve a stale cached copy of the old
+ * asset under this URL. Geometry is otherwise byte-identical to the original
+ * SVG's paths — never a crop of either approved mockup, never a redrawn mark.
  */
-export const EMAIL_LOGO_URL = "https://msmscrap.com/email-logo-msm.png";
+export const EMAIL_LOGO_URL = "https://msmscrap.com/email-logo-msm-outline.png";
 /** Compact header size — proportional to the real 520x185 asset (120/43 ≈ 520/185), never cropped or redrawn. */
 export const EMAIL_LOGO_DISPLAY_WIDTH = 120;
 export const EMAIL_LOGO_DISPLAY_HEIGHT = 43;
