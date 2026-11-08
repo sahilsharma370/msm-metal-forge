@@ -81,20 +81,23 @@ export function unitLabel(unit: string): string {
 
 /**
  * The real repository logo asset (src/assets/msm-logo.svg — untouched,
- * website logo unaffected), rasterized to a fully opaque, email-only PNG
- * (see public/email-logo-msm-navy.png): the SVG's own white "MSM"/"SCRAP"
- * ink and navy cutout accents, flattened onto a solid brand-navy (#080A1D)
- * background baked directly into the pixels — no transparency, outline,
- * glow or CSS-dependent background, so contrast against the card is
- * identical in every mail client regardless of light/dark theme (an
- * earlier navy-ink-on-transparent version, and a thin-white-halo variant
- * of it, both proved illegible or visually wrong in real Gmail iPhone dark
+ * website logo unaffected), recolored and rasterized to an email-only PNG
+ * (see public/email-logo-msm-copper.png): the SVG's own "ink" paths
+ * (originally #FEFEFE) become solid muted copper (#BC6C3B); the SVG's own
+ * negative-space/cutout paths (the small badge ring, the SCRAP letters'
+ * counters — originally #080A1D/#14213D) are punched to true transparency
+ * rather than filled any color, preserving the mark's real holes instead
+ * of a background-matching solid guess. Background is otherwise fully
+ * transparent — no rectangle, halo, outline, gradient or shadow (an
+ * earlier solid-navy-card version looked disconnected from the email
+ * card; before that, a navy-ink-on-transparent version and its
+ * thin-white-halo variant were both illegible in real Gmail iPhone dark
  * mode). ~8% margin on every side (geometry otherwise byte-identical to
  * the source SVG, same proportions) so the artwork never touches the
  * canvas edge. New filename so no client/CDN serves a stale cached copy
  * under this URL.
  */
-export const EMAIL_LOGO_URL = "https://msmscrap.com/email-logo-msm-navy.png";
+export const EMAIL_LOGO_URL = "https://msmscrap.com/email-logo-msm-copper.png";
 /** Compact header size — proportional to the real 520x185 asset (120/43 ≈ 520/185), never cropped or redrawn. */
 export const EMAIL_LOGO_DISPLAY_WIDTH = 120;
 export const EMAIL_LOGO_DISPLAY_HEIGHT = 43;
