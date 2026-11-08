@@ -82,9 +82,13 @@ function quantityLine(lead: CustomerReceiptLeadData): string | null {
   return formatQuantity(lead.buyerQuantityValue, lead.buyerQuantityUnit, lead.buyerQuantityUnitOther);
 }
 
-/** The single full-width copper rule beneath the logo header — the customer design's own divider treatment (distinct from the owner design's two-tone copper+navy rule). */
+/** The single full-width copper rule beneath the logo header — the customer design's own divider treatment (distinct from the owner design's two-tone copper+navy rule). Thin bar with deliberate padding above and below so it never touches the eyebrow row that follows. */
 function copperRuleHtml(): string {
-  return `<tr><td style="background-color:${EMAIL_COPPER};height:3px;font-size:0;line-height:0;">&nbsp;</td></tr>`;
+  return (
+    `<tr><td style="padding:14px 0;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>` +
+    `<td style="background-color:${EMAIL_COPPER};height:2px;font-size:0;line-height:0;">&nbsp;</td>` +
+    `</tr></table></td></tr>`
+  );
 }
 
 export function renderCustomerReceiptEmail(lead: CustomerReceiptLeadData): RenderedCustomerReceiptEmail {
@@ -118,16 +122,16 @@ export function renderCustomerReceiptEmail(lead: CustomerReceiptLeadData): Rende
     .join("");
 
   const bodyRows =
-    `<tr><td style="color:${EMAIL_COPPER};font-size:12px;font-weight:700;letter-spacing:0.08em;">ENQUIRY &nbsp;/&nbsp; CONFIRMED</td></tr>` +
-    `<tr><td style="color:${EMAIL_NAVY};font-size:28px;font-weight:800;line-height:1.2;padding-top:8px;">Your enquiry is in.</td></tr>` +
-    `<tr><td style="color:#374151;font-size:14px;line-height:1.6;padding-top:12px;">${escapeHtml(CUSTOMER_RECEIPT_BODY_PARAGRAPH)}</td></tr>` +
-    `<tr><td style="padding-top:24px;">${referenceBlockHtml(lead.reference)}</td></tr>` +
-    `<tr><td style="padding-top:24px;border-top:1px solid ${EMAIL_GRAY_HAIRLINE};font-size:0;line-height:0;">&nbsp;</td></tr>` +
+    `<tr><td style="color:${EMAIL_COPPER};font-size:12px;font-weight:700;letter-spacing:0.05em;">ENQUIRY &nbsp;/&nbsp; CONFIRMED</td></tr>` +
+    `<tr><td style="color:${EMAIL_NAVY};font-size:24px;font-weight:700;line-height:1.3;padding-top:8px;">Your enquiry is in.</td></tr>` +
+    `<tr><td style="color:#374151;font-size:14px;font-weight:400;line-height:1.5;padding-top:12px;">${escapeHtml(CUSTOMER_RECEIPT_BODY_PARAGRAPH)}</td></tr>` +
+    `<tr><td style="padding-top:18px;">${referenceBlockHtml(lead.reference)}</td></tr>` +
+    `<tr><td style="padding-top:18px;border-top:1px solid ${EMAIL_GRAY_HAIRLINE};font-size:0;line-height:0;">&nbsp;</td></tr>` +
     `<tr><td><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">${rowsHtml}</table></td></tr>` +
-    `<tr><td style="color:#374151;font-size:13px;padding-top:20px;">Please keep this reference for any follow-up.</td></tr>`;
+    `<tr><td style="color:#374151;font-size:14px;font-weight:400;line-height:1.5;padding-top:18px;">Please keep this reference for any follow-up.</td></tr>`;
 
   const footer = footerHtmlInline(
-    `<a href="https://msmscrap.com" style="color:${EMAIL_COPPER};font-size:13px;font-weight:700;text-decoration:none;">msmscrap.com</a>`,
+    `<a href="https://msmscrap.com" style="color:${EMAIL_COPPER};font-size:12px;font-weight:400;text-decoration:none;">msmscrap.com</a>`,
   );
 
   const html = emailDocumentHtml(subject, copperRuleHtml() + bodyRows, footer);

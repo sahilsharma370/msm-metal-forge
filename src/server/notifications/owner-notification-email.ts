@@ -55,6 +55,18 @@ function pickupLabel(value: string): string {
   return PICKUP_LABELS[value] ?? humanizeCode(value);
 }
 
+/** Phone/Email contact-row values become real tel:/mailto: links styled in the brand's copper accent — every other row keeps the plain escaped-text treatment. The href itself is independently escaped/stripped (defense in depth, matching this module's own established posture), never trusting the already-validated upstream value alone. */
+function contactRowValueHtml(label: string, value: string): string {
+  if (label === "Phone") {
+    const telHref = value.replace(/[^\d+]/g, "");
+    return `<a href="tel:${escapeHtml(telHref)}" style="color:${EMAIL_COPPER};text-decoration:none;">${escapeMultilineHtml(value)}</a>`;
+  }
+  if (label === "Email") {
+    return `<a href="mailto:${escapeHtml(value)}" style="color:${EMAIL_COPPER};text-decoration:none;">${escapeMultilineHtml(value)}</a>`;
+  }
+  return escapeMultilineHtml(value);
+}
+
 export { escapeHtml, sanitizeHeaderValue };
 
 export interface OwnerNotificationFileStats {
@@ -318,9 +330,9 @@ function fileRowValue(stats: OwnerNotificationFileStats): string | null {
 
 function twoToneRuleHtml(): string {
   return (
-    `<tr><td><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>` +
-    `<td style="background-color:${EMAIL_COPPER};height:3px;width:100px;font-size:0;line-height:0;">&nbsp;</td>` +
-    `<td style="background-color:${EMAIL_NAVY};height:3px;font-size:0;line-height:0;">&nbsp;</td>` +
+    `<tr><td style="padding:14px 0;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>` +
+    `<td style="background-color:${EMAIL_COPPER};height:2px;width:72px;font-size:0;line-height:0;">&nbsp;</td>` +
+    `<td style="background-color:${EMAIL_NAVY};height:2px;font-size:0;line-height:0;">&nbsp;</td>` +
     `</tr></table></td></tr>`
   );
 }
@@ -377,7 +389,7 @@ export function renderOwnerNotificationEmail(
   // optional dashboard link, footer.
   // -------------------------------------------------------------------------
   const rowsToHtml = (list: Row[]) =>
-    list.map((row, i) => tableRowHtml(row.label, escapeMultilineHtml(row.value ?? ""), i === list.length - 1 && !fileRow)).join("");
+    list.map((row, i) => tableRowHtml(row.label, contactRowValueHtml(row.label, row.value ?? ""), i === list.length - 1 && !fileRow)).join("");
 
   const materialSectionRowsHtml =
     rowsToHtml(materialRows) + (fileRow ? tableRowHtml(filesLabel, escapeHtml(fileRow), true) : "");
@@ -389,24 +401,29 @@ export function renderOwnerNotificationEmail(
     quantityLabelText ? `approx. ${escapeHtml(quantityLabelText)}` : null,
   ].filter((part): part is string => part !== null);
 
-  const eyebrowHtml = `<span style="color:${EMAIL_COPPER};font-size:12px;font-weight:700;letter-spacing:0.08em;white-space:nowrap;">ENQUIRY &nbsp;/&nbsp; ${escapeHtml(formatHeaderDateUae(lead.submittedAt))}</span>`;
+  // Secondary, compact, restrained letter-spacing — shares the row with the
+  // now-120px-wide logo, so it must stay small to fit gracefully on mobile.
+  const eyebrowHtml = `<span style="color:${EMAIL_COPPER};font-size:11px;font-weight:700;letter-spacing:0.05em;white-space:nowrap;">ENQUIRY &nbsp;/&nbsp; ${escapeHtml(formatHeaderDateUae(lead.submittedAt))}</span>`;
 
   const bodyRows =
-    `<tr><td style="color:${EMAIL_NAVY};font-size:28px;font-weight:800;line-height:1.2;padding-top:20px;">${isSell ? "New seller enquiry." : "New buyer enquiry."}</td></tr>` +
+    `<tr><td style="color:${EMAIL_NAVY};font-size:24px;font-weight:700;line-height:1.3;padding-top:18px;">${isSell ? "New seller enquiry." : "New buyer enquiry."}</td></tr>` +
     (subheadingParts.length > 0
-      ? `<tr><td style="color:${EMAIL_NAVY};font-size:16px;font-weight:700;padding-top:4px;">${subheadingParts.join(" &middot; ")}</td></tr>`
+      ? `<tr><td style="color:${EMAIL_NAVY};font-size:14px;font-weight:600;padding-top:4px;">${subheadingParts.join(" &middot; ")}</td></tr>`
       : "") +
-    `<tr><td style="padding-top:20px;">${referenceBlockHtml(lead.reference)}</td></tr>` +
-    `<tr><td style="padding-top:24px;border-top:1px solid #E5E7EB;font-size:0;line-height:0;">&nbsp;</td></tr>` +
+    `<tr><td style="padding-top:18px;">${referenceBlockHtml(lead.reference)}</td></tr>` +
+    `<tr><td style="padding-top:18px;border-top:1px solid #E5E7EB;font-size:0;line-height:0;">&nbsp;</td></tr>` +
     `<tr><td>${sectionHeadingHtml("Material & Logistics")}</td></tr>` +
     `<tr><td><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">${materialSectionRowsHtml}</table></td></tr>` +
     `<tr><td>${sectionHeadingHtml("Customer Contact")}</td></tr>` +
     `<tr><td><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">${rowsToHtml(contactRows)}</table></td></tr>` +
     (options.dashboardUrl
-      ? `<tr><td style="padding-top:24px;"><a href="${escapeHtml(options.dashboardUrl)}" style="color:${EMAIL_NAVY};font-size:14px;font-weight:700;text-decoration:underline;">View enquiry in dashboard &nbsp;&rarr;</a></td></tr>`
+      ? `<tr><td style="padding-top:18px;"><table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>` +
+        `<td style="background-color:${EMAIL_NAVY};border-radius:6px;">` +
+        `<a href="${escapeHtml(options.dashboardUrl)}" style="display:inline-block;padding:10px 18px;color:#FFFFFF;font-size:13px;font-weight:700;text-decoration:none;border-radius:6px;">View enquiry in dashboard &nbsp;&rarr;</a>` +
+        `</td></tr></table></td></tr>`
       : "");
 
-  const footer = footerHtml(`<div style="color:${EMAIL_GRAY_FOOTER};font-size:12px;margin-top:4px;">Owner notification</div>`);
+  const footer = footerHtml(`<div style="color:${EMAIL_GRAY_FOOTER};font-size:12px;font-weight:400;margin-top:4px;">Owner notification</div>`);
 
   const html = emailDocumentHtml(subject, twoToneRuleHtml() + bodyRows, footer, logoHeaderHtml(eyebrowHtml));
 

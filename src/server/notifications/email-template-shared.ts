@@ -23,8 +23,8 @@ export const EMAIL_GRAY_FOOTER = "#9CA3AF";
 export const EMAIL_OUTER_BG = "#F0F1F3";
 export const EMAIL_CARD_BG = "#FFFFFF";
 
-/** Standard email body width — both approved designs use a single-column card at this width. */
-export const EMAIL_WIDTH_PX = 600;
+/** Standard email body width — compact card width, still comfortably readable on desktop. */
+export const EMAIL_WIDTH_PX = 560;
 
 /** Standard HTML entity escaping — the only thing standing between a customer-controlled string and the html body. Shared by both templates so there is exactly one escaping implementation, never two that could drift. */
 export function escapeHtml(value: string): string {
@@ -91,8 +91,9 @@ export function unitLabel(unit: string): string {
  * approved mockup, never a redrawn mark.
  */
 export const EMAIL_LOGO_URL = "https://msmscrap.com/email-logo-msm.png";
-export const EMAIL_LOGO_DISPLAY_WIDTH = 260;
-export const EMAIL_LOGO_DISPLAY_HEIGHT = 93;
+/** Compact header size — proportional to the real 520x185 asset (120/43 ≈ 520/185), never cropped or redrawn. */
+export const EMAIL_LOGO_DISPLAY_WIDTH = 120;
+export const EMAIL_LOGO_DISPLAY_HEIGHT = 43;
 export const EMAIL_LOGO_ALT = "MSM Scrap";
 
 /**
@@ -121,45 +122,70 @@ export function logoHeaderHtml(eyebrowHtml?: string): string {
       `<td align="right" valign="middle">${eyebrowHtml}</td>` +
       `</tr></table>`
     : logoImg;
-  return `<tr><td style="padding:32px 32px 0;" align="left">${inner}</td></tr>`;
+  return `<tr><td style="padding:20px 24px 0;" align="left">${inner}</td></tr>`;
 }
 
-/** One label/value row inside a hairline-separated table, matching the owner design's sentence-case label style. `last` omits the bottom hairline. */
+/**
+ * One label/value row inside a hairline-separated table, matching the
+ * owner design's sentence-case label style. `last` omits the bottom
+ * hairline. Label: 12px/500 muted grey. Value: 14px/600 navy — medium
+ * weight, not bold, bold is reserved for headings/reference/important
+ * values. word-break/overflow-wrap on the value cell is load-bearing, not
+ * decorative: a long unbreakable value (a long email address is the real
+ * case this guards — no spaces for the browser to wrap at otherwise) can
+ * force the shared outer body table wider than its own container, which
+ * cascades into every other row/block in the same table overflowing a
+ * narrow viewport too — not just the one long value's own cell.
+ */
 export function tableRowHtml(label: string, value: string, last = false): string {
   const borderStyle = last ? "" : `border-bottom:1px solid ${EMAIL_GRAY_HAIRLINE};`;
   return (
     `<tr>` +
-    `<td style="padding:10px 0;${borderStyle}color:${EMAIL_GRAY_LABEL};font-size:13px;vertical-align:top;width:42%;">${escapeHtml(label)}</td>` +
-    `<td style="padding:10px 0;${borderStyle}color:${EMAIL_NAVY};font-size:14px;font-weight:700;vertical-align:top;">${value}</td>` +
+    `<td style="padding:8px 0;${borderStyle}color:${EMAIL_GRAY_LABEL};font-size:12px;font-weight:500;vertical-align:top;width:42%;">${escapeHtml(label)}</td>` +
+    `<td style="padding:8px 0;${borderStyle}color:${EMAIL_NAVY};font-size:14px;font-weight:600;vertical-align:top;word-break:break-word;overflow-wrap:break-word;">${value}</td>` +
     `</tr>`
   );
 }
 
-/** Same row shape, but with the customer design's uppercase letter-spaced label style ("REQUEST", "MATERIAL") instead of the owner design's sentence case. */
+/** Same row shape, but with the customer design's uppercase letter-spaced label style ("REQUEST", "MATERIAL") instead of the owner design's sentence case — one of the deliberate uppercase-label exceptions, kept restrained (small size, modest letter-spacing, never full bold). Value shares the same 14px/600 treatment as tableRowHtml for consistency across both templates, including the same word-break/overflow-wrap safety. */
 export function tableRowHtmlUppercaseLabel(label: string, value: string, last = false): string {
   const borderStyle = last ? "" : `border-bottom:1px solid ${EMAIL_GRAY_HAIRLINE};`;
   return (
     `<tr>` +
-    `<td style="padding:12px 0;${borderStyle}color:${EMAIL_GRAY_LABEL};font-size:11px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;vertical-align:top;width:46%;">${escapeHtml(label)}</td>` +
-    `<td style="padding:12px 0;${borderStyle}color:${EMAIL_NAVY};font-size:15px;font-weight:700;vertical-align:top;">${value}</td>` +
+    `<td style="padding:8px 0;${borderStyle}color:${EMAIL_GRAY_LABEL};font-size:11px;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;vertical-align:top;width:46%;">${escapeHtml(label)}</td>` +
+    `<td style="padding:8px 0;${borderStyle}color:${EMAIL_NAVY};font-size:14px;font-weight:600;vertical-align:top;word-break:break-word;overflow-wrap:break-word;">${value}</td>` +
     `</tr>`
   );
 }
 
-/** The reference-number block: a copper left-border accent, an eyebrow label, and the bold reference value — identical treatment in both approved designs. */
+/**
+ * The reference-number block: a compact light-neutral card with a subtle
+ * copper left edge, a small muted uppercase label, and the reference
+ * itself (18px/700 — one of the few places bold is reserved for).
+ * `table-layout:fixed` is load-bearing, not decorative: without it, a long
+ * unbroken reference string can force this table wider than its own
+ * `width:100%`/parent constraint (tables grow to fit unbreakable content by
+ * default), overflowing a 320/390px viewport even with word-break set on
+ * the text itself — fixed layout forces the single column (and therefore
+ * the text inside it) to respect the table's own width, which is what lets
+ * word-break/overflow-wrap actually wrap a long reference instead of the
+ * whole card growing past the screen. Both wrap properties are set for
+ * cross-client safety (word-break is the older/more broadly supported
+ * name; overflow-wrap is the current standard name for the same behavior).
+ */
 export function referenceBlockHtml(reference: string): string {
   return (
-    `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>` +
-    `<td style="border-left:3px solid ${EMAIL_COPPER};padding:4px 0 4px 14px;">` +
-    `<div style="color:${EMAIL_GRAY_LABEL};font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;">REFERENCE</div>` +
-    `<div style="color:${EMAIL_NAVY};font-size:20px;font-weight:800;margin-top:2px;">${escapeHtml(reference)}</div>` +
+    `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="table-layout:fixed;"><tr>` +
+    `<td style="background-color:#F7F7F8;border-left:3px solid ${EMAIL_COPPER};border-radius:4px;padding:10px 14px;">` +
+    `<div style="color:${EMAIL_GRAY_LABEL};font-size:10px;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;">REFERENCE</div>` +
+    `<div style="color:${EMAIL_NAVY};font-size:18px;font-weight:700;margin-top:2px;word-break:break-word;overflow-wrap:break-word;">${escapeHtml(reference)}</div>` +
     `</td></tr></table>`
   );
 }
 
-/** A section heading ("MATERIAL & LOGISTICS" / "CUSTOMER CONTACT") — bold, uppercase, navy, matching the owner design. */
+/** A section heading ("MATERIAL & LOGISTICS" / "CUSTOMER CONTACT") — one of the deliberate uppercase-label exceptions: small, clearly separated by its own margin, restrained letter-spacing, 700 (never 800). */
 export function sectionHeadingHtml(label: string): string {
-  return `<div style="color:${EMAIL_NAVY};font-size:12px;font-weight:800;letter-spacing:0.05em;text-transform:uppercase;margin:24px 0 8px;">${escapeHtml(label)}</div>`;
+  return `<div style="color:${EMAIL_NAVY};font-size:12px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;margin:18px 0 8px;">${escapeHtml(label)}</div>`;
 }
 
 /**
@@ -173,15 +199,15 @@ export function emailDocumentHtml(title: string, bodyRowsHtml: string, footerHtm
     `<!doctype html><html lang="en"><head><meta charSet="utf-8"/>` +
     `<meta name="viewport" content="width=device-width, initial-scale=1"/>` +
     `<title>${escapeHtml(title)}</title></head>` +
-    `<body style="margin:0;padding:0;background-color:${EMAIL_OUTER_BG};font-family:Helvetica,Arial,sans-serif;">` +
+    `<body style="margin:0;padding:0;background-color:${EMAIL_OUTER_BG};font-family:Arial,Helvetica,sans-serif;">` +
     `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:${EMAIL_OUTER_BG};">` +
-    `<tr><td align="center" style="padding:32px 16px;">` +
+    `<tr><td align="center" style="padding:20px 12px;">` +
     `<table role="presentation" width="${EMAIL_WIDTH_PX}" cellpadding="0" cellspacing="0" border="0" style="max-width:${EMAIL_WIDTH_PX}px;width:100%;background-color:${EMAIL_CARD_BG};border-radius:12px;overflow:hidden;">` +
     headerHtml +
-    `<tr><td style="padding:32px;">` +
+    `<tr><td style="padding:24px;">` +
     `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">${bodyRowsHtml}</table>` +
     `</td></tr>` +
-    `<tr><td style="padding:0 32px 28px;">${footerHtml}</td></tr>` +
+    `<tr><td style="padding:0 24px 20px;">${footerHtml}</td></tr>` +
     `</table>` +
     `</td></tr>` +
     `</table>` +
@@ -189,23 +215,23 @@ export function emailDocumentHtml(title: string, bodyRowsHtml: string, footerHtm
   );
 }
 
-/** The shared footer block: a hairline rule, "MSM Scrap · Sharjah, UAE", and a secondary line stacked beneath it — the owner design's own treatment (second line e.g. "Owner notification"). */
+/** The shared footer block: a hairline rule, "MSM Scrap · Sharjah, UAE", and a secondary line stacked beneath it — the owner design's own treatment (second line e.g. "Owner notification"). Restrained: 12px/400 throughout, one subtle separator. */
 export function footerHtml(secondLineHtml: string): string {
   return (
-    `<div style="border-top:1px solid ${EMAIL_GRAY_HAIRLINE};padding-top:16px;">` +
-    `<div style="color:${EMAIL_NAVY};font-size:13px;font-weight:700;">MSM Scrap <span style="color:${EMAIL_GRAY_FOOTER};font-weight:400;">&middot; Sharjah, UAE</span></div>` +
+    `<div style="border-top:1px solid ${EMAIL_GRAY_HAIRLINE};padding-top:14px;">` +
+    `<div style="color:${EMAIL_NAVY};font-size:12px;font-weight:400;">MSM Scrap <span style="color:${EMAIL_GRAY_FOOTER};font-weight:400;">&middot; Sharjah, UAE</span></div>` +
     secondLineHtml +
     `</div>`
   );
 }
 
-/** The customer design's own footer treatment: "MSM Scrap · Sharjah, UAE" and a right-aligned second element share one line (a two-column table, not a stacked div — the only email-safe way to right-align a sibling against left-aligned text at a fixed width). */
+/** The customer design's own footer treatment: "MSM Scrap · Sharjah, UAE" and a right-aligned second element share one line (a two-column table, not a stacked div — the only email-safe way to right-align a sibling against left-aligned text at a fixed width). Restrained: 12px/400 throughout, one subtle separator. */
 export function footerHtmlInline(rightHtml: string): string {
   return (
     `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-top:1px solid ${EMAIL_GRAY_HAIRLINE};">` +
     `<tr>` +
-    `<td style="padding-top:16px;color:${EMAIL_NAVY};font-size:13px;font-weight:700;" align="left" valign="middle">MSM Scrap <span style="color:${EMAIL_GRAY_FOOTER};font-weight:400;">&middot; Sharjah, UAE</span></td>` +
-    `<td style="padding-top:16px;" align="right" valign="middle">${rightHtml}</td>` +
+    `<td style="padding-top:14px;color:${EMAIL_NAVY};font-size:12px;font-weight:400;" align="left" valign="middle">MSM Scrap <span style="color:${EMAIL_GRAY_FOOTER};font-weight:400;">&middot; Sharjah, UAE</span></td>` +
+    `<td style="padding-top:14px;" align="right" valign="middle">${rightHtml}</td>` +
     `</tr></table>`
   );
 }
