@@ -80,21 +80,21 @@ export function unitLabel(unit: string): string {
 }
 
 /**
- * The real repository logo asset (src/assets/msm-logo.svg), recolored
- * navy-on-white and rasterized to a compact transparent PNG (see
- * public/email-logo-msm-outline.png — generated from public/email-logo-msm.png
- * via a true morphological dilation (radius 3 native px, ~0.7 display px at
- * this asset's 520->120 scale) of the ink's own alpha mask, filled white and
- * composited behind the unchanged navy ink. White-on-white is invisible
- * against the card's light-mode background (zero visual change there) but
- * gives the navy mark a thin visible rim once a dark-mode client darkens the
- * surrounding card — without that, the exact navy ink color is otherwise
- * near-invisible against a dark background. New filename (not an edit of the
- * original) so no email client/CDN can serve a stale cached copy of the old
- * asset under this URL. Geometry is otherwise byte-identical to the original
- * SVG's paths — never a crop of either approved mockup, never a redrawn mark.
+ * The real repository logo asset (src/assets/msm-logo.svg — untouched,
+ * website logo unaffected), rasterized to a fully opaque, email-only PNG
+ * (see public/email-logo-msm-navy.png): the SVG's own white "MSM"/"SCRAP"
+ * ink and navy cutout accents, flattened onto a solid brand-navy (#080A1D)
+ * background baked directly into the pixels — no transparency, outline,
+ * glow or CSS-dependent background, so contrast against the card is
+ * identical in every mail client regardless of light/dark theme (an
+ * earlier navy-ink-on-transparent version, and a thin-white-halo variant
+ * of it, both proved illegible or visually wrong in real Gmail iPhone dark
+ * mode). ~8% margin on every side (geometry otherwise byte-identical to
+ * the source SVG, same proportions) so the artwork never touches the
+ * canvas edge. New filename so no client/CDN serves a stale cached copy
+ * under this URL.
  */
-export const EMAIL_LOGO_URL = "https://msmscrap.com/email-logo-msm-outline.png";
+export const EMAIL_LOGO_URL = "https://msmscrap.com/email-logo-msm-navy.png";
 /** Compact header size — proportional to the real 520x185 asset (120/43 ≈ 520/185), never cropped or redrawn. */
 export const EMAIL_LOGO_DISPLAY_WIDTH = 120;
 export const EMAIL_LOGO_DISPLAY_HEIGHT = 43;
