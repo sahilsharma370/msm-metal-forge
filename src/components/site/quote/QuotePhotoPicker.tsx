@@ -220,7 +220,6 @@ export function QuotePhotoPicker({
         type="file"
         accept={acceptedTypes.join(",")}
         multiple
-        capture="environment"
         aria-label={title}
         className="sr-only"
         onChange={(e) => handleFiles(e.target.files)}
