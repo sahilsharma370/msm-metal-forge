@@ -46,6 +46,46 @@ type GuardState =
   /** A thrown exception somewhere in the bootstrap sequence itself (e.g. signOut() failing against a flaky network) — never left as an indefinite "checking" spinner (see the required behaviour this guards against), and never silently redirected to login either, since a redirect on a transient failure would sign a genuinely valid owner out for no reason. */
   | { readonly phase: "error" };
 
+/**
+ * PERF — every owner route wraps itself in its own OwnerShell (no shared
+ * persistent layout route exists), so TanStack Router unmounts/remounts
+ * this component on every owner-to-owner navigation (Enquiries -> a lead's
+ * detail -> back, etc.), re-running the bootstrap effect below from
+ * scratch each time: a real GET /api/owner/session network round trip,
+ * with the entire shell (header/nav chrome included) replaced by the
+ * full-screen "Checking your session…" gate until it resolves — measured
+ * directly (real owner session, local Supabase + wrangler dev): ~90-450ms
+ * network cost per repeat, plus a visually confirmed full-page blank-out,
+ * on every single click between Enquiries/detail/back.
+ *
+ * This module-level cache keeps the shell visible across that in-app
+ * navigation: a still-fresh, same-access-token verification from the
+ * previous route's own OwnerShell instance is trusted immediately,
+ * skipping both the redundant network call and the full-screen gate.
+ * Never a substitute for real authorization — every actual data request
+ * the destination page makes (lead list/detail, signed-file-url, status
+ * update, …) still independently calls verifyOwnerSession server-side
+ * exactly as before; a session revoked mid-window still fails closed the
+ * moment any of those requests runs, via the existing unauthorized-redirect
+ * effect every page already has. This cache only ever short-circuits the
+ * client-side UX gate's own re-check, never a server-side authorization
+ * decision.
+ */
+const OWNER_SESSION_CACHE_TTL_MS = 30_000;
+
+interface CachedOwnerSessionCheck {
+  readonly accessToken: string;
+  readonly owner: OwnerIdentitySummary;
+  readonly checkedAtMs: number;
+}
+
+let cachedOwnerSessionCheck: CachedOwnerSessionCheck | null = null;
+
+/** Test-only — clears the module-level cache so each test starts from a clean slate. Never called from production code. */
+export function __resetOwnerShellSessionCacheForTests(): void {
+  cachedOwnerSessionCheck = null;
+}
+
 export function OwnerShell({ authClient, sessionChecker, onUnauthorized, children, hideAddEnquiryCta = false }: OwnerShellProps) {
   const [ownerAuthClient] = useState<OwnerAuthClient>(() => authClient ?? createOwnerAuthClient());
   const [ownerSessionChecker] = useState<OwnerSessionChecker>(() => sessionChecker ?? createOwnerSessionChecker());
@@ -70,6 +110,15 @@ export function OwnerShell({ authClient, sessionChecker, onUnauthorized, childre
           return;
         }
 
+        if (
+          cachedOwnerSessionCheck &&
+          cachedOwnerSessionCheck.accessToken === token &&
+          Date.now() - cachedOwnerSessionCheck.checkedAtMs < OWNER_SESSION_CACHE_TTL_MS
+        ) {
+          if (!cancelled) setState({ phase: "authorized", owner: cachedOwnerSessionCheck.owner });
+          return;
+        }
+
         const result = await ownerSessionChecker.check(token);
         if (cancelled) return;
 
@@ -77,11 +126,13 @@ export function OwnerShell({ authClient, sessionChecker, onUnauthorized, childre
           // An expired/invalid/unauthorized session — clear it locally
           // before redirecting so a stale local session can never make the
           // guard appear to pass again without a fresh sign-in.
+          cachedOwnerSessionCheck = null;
           await ownerAuthClient.signOut();
           if (!cancelled) onUnauthorized("unauthorized");
           return;
         }
 
+        cachedOwnerSessionCheck = { accessToken: token, owner: result.owner, checkedAtMs: Date.now() };
         setState({ phase: "authorized", owner: result.owner });
       } catch {
         // getAccessToken()/check() are both documented to resolve rather

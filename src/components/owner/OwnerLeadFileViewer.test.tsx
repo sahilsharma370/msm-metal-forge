@@ -154,7 +154,12 @@ describe("OwnerLeadFileViewer — double-click protection", () => {
     render(<OwnerLeadFileViewer leadId="lead-1" file={imageFile()} deps={fakeDeps} onUnauthorized={vi.fn()} />);
     const button = screen.getByRole("button", { name: /view/i });
     await user.click(button);
-    await user.click(button); // second click while the first request is still pending
+    // The dialog now opens immediately on the first click, and its modal
+    // overlay makes the underlying button genuinely unclickable in a real
+    // browser too — fireEvent bypasses testing-library's pointer-events
+    // guard so this still exercises the component's own loading-state
+    // double-click guard directly, independent of that overlay behavior.
+    fireEvent.click(button);
     resolveFirst({ kind: "ok", data: { url: "https://example.test/signed", expiresInSeconds: 60 } });
     await waitFor(() => expect(screen.getByRole("img")).toBeInTheDocument());
     expect(requestOwnerLeadFileAccessMock).toHaveBeenCalledTimes(1);
@@ -162,12 +167,12 @@ describe("OwnerLeadFileViewer — double-click protection", () => {
 });
 
 describe("OwnerLeadFileViewer — access errors displayed generically", () => {
-  it("shows a generic retryable error, never a raw provider message, on failure", async () => {
+  it("shows a generic retryable error inside the already-open dialog, never a raw provider message, on failure", async () => {
     requestOwnerLeadFileAccessMock.mockResolvedValue({ kind: "error", message: "Something went wrong. Please try again.", status: 500 });
     const user = userEvent.setup();
     render(<OwnerLeadFileViewer leadId="lead-1" file={imageFile()} deps={fakeDeps} onUnauthorized={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: /view/i }));
-    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(/couldn't open this file/i));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(/couldn't open this photo/i));
   });
 
   it("a wrong-lead/wrong-file 404 shows the identical generic error text as any other failure", async () => {
@@ -175,10 +180,18 @@ describe("OwnerLeadFileViewer — access errors displayed generically", () => {
     const user = userEvent.setup();
     render(<OwnerLeadFileViewer leadId="lead-1" file={imageFile()} deps={fakeDeps} onUnauthorized={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: /view/i }));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(/couldn't open this photo/i));
+  });
+
+  it("a non-image file's error still shows below the row (no dialog exists for it)", async () => {
+    requestOwnerLeadFileAccessMock.mockResolvedValue({ kind: "error", message: "Something went wrong.", status: 500 });
+    const user = userEvent.setup();
+    render(<OwnerLeadFileViewer leadId="lead-1" file={pdfFile()} deps={fakeDeps} onUnauthorized={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /view contract.pdf/i }));
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(/couldn't open this file/i));
   });
 
-  it("calls onUnauthorized and never opens anything on a 401", async () => {
+  it("calls onUnauthorized and never opens an image on a 401", async () => {
     requestOwnerLeadFileAccessMock.mockResolvedValue({ kind: "unauthorized" });
     const onUnauthorized = vi.fn();
     const user = userEvent.setup();
@@ -186,5 +199,108 @@ describe("OwnerLeadFileViewer — access errors displayed generically", () => {
     await user.click(screen.getByRole("button", { name: /view/i }));
     await waitFor(() => expect(onUnauthorized).toHaveBeenCalledTimes(1));
     expect(screen.queryByRole("img")).not.toBeInTheDocument();
+  });
+});
+
+describe("OwnerLeadFileViewer — PERF: viewer opens immediately, independent of the signed-url mint", () => {
+  it("opens the dialog with a loading state before the signed-url request resolves, never blocking on it first", async () => {
+    let resolveAccess!: (value: Awaited<ReturnType<typeof transport.requestOwnerLeadFileAccess>>) => void;
+    requestOwnerLeadFileAccessMock.mockImplementationOnce(() => new Promise((resolve) => (resolveAccess = resolve)));
+    const user = userEvent.setup();
+    render(<OwnerLeadFileViewer leadId="lead-1" file={imageFile()} deps={fakeDeps} onUnauthorized={vi.fn()} />);
+
+    await user.click(screen.getByRole("button", { name: /view/i }));
+
+    // The dialog is visible immediately, and shows its own loading state —
+    // while the mint is still unresolved, never waiting for it to appear.
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent(/loading photo/i);
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+
+    resolveAccess({ kind: "ok", data: { url: "https://example.test/signed", expiresInSeconds: 60 } });
+    // "Loading photo…" must stay visible through the actual image transfer/
+    // decode too, not just the signed-url mint — the <img> exists in the DOM
+    // (its real network fetch has started) but "Loading photo…" is still
+    // the only thing visible until the image itself fires onLoad.
+    await waitFor(() => expect(screen.getByRole("img")).toBeInTheDocument());
+    expect(screen.getByRole("status")).toHaveTextContent(/loading photo/i);
+
+    fireEvent.load(screen.getByRole("img"));
+    await waitFor(() => expect(screen.queryByRole("status")).not.toBeInTheDocument());
+    expect(screen.getByRole("img")).toHaveAttribute("src", "https://example.test/signed");
+  });
+
+  it("shows the inline error state if the image itself fails to load, even though the signed-url mint succeeded", async () => {
+    requestOwnerLeadFileAccessMock.mockResolvedValue({ kind: "ok", data: { url: "https://example.test/signed", expiresInSeconds: 60 } });
+    const user = userEvent.setup();
+    render(<OwnerLeadFileViewer leadId="lead-1" file={imageFile()} deps={fakeDeps} onUnauthorized={vi.fn()} />);
+
+    await user.click(screen.getByRole("button", { name: /view/i }));
+    await waitFor(() => expect(screen.getByRole("img")).toBeInTheDocument());
+
+    fireEvent.error(screen.getByRole("img"));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(/couldn't open this photo/i));
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
+  it("closing the dialog while the mint is still in flight aborts the request and resets to idle", async () => {
+    const abortSpy = vi.fn();
+    requestOwnerLeadFileAccessMock.mockImplementationOnce(
+      (_leadId, _fileId, _deps, signal) =>
+        new Promise((resolve) => {
+          // Matches owner-leads-transport.ts's own real abort handling:
+          // an aborted mint resolves with {kind:"aborted"}, never rejects.
+          signal?.addEventListener("abort", () => {
+            abortSpy();
+            resolve({ kind: "aborted" });
+          });
+        }),
+    );
+    const user = userEvent.setup();
+    render(<OwnerLeadFileViewer leadId="lead-1" file={imageFile()} deps={fakeDeps} onUnauthorized={vi.fn()} />);
+
+    await user.click(screen.getByRole("button", { name: /view/i }));
+    expect(screen.getByRole("status")).toHaveTextContent(/loading photo/i);
+
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(abortSpy).toHaveBeenCalledTimes(1));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("reopening after a close-while-loading starts fresh: loading state again, never a stale/half-loaded image", async () => {
+    // Matches owner-leads-transport.ts's own real abort handling (see the
+    // "closing the dialog while the mint is still in flight" test above):
+    // an aborted mint resolves with {kind:"aborted"}, it never resolves
+    // "ok" for a request the owner already dismissed.
+    requestOwnerLeadFileAccessMock.mockImplementationOnce(
+      (_leadId, _fileId, _deps, signal) =>
+        new Promise((resolve) => {
+          signal?.addEventListener("abort", () => resolve({ kind: "aborted" }));
+        }),
+    );
+    let resolveSecond!: (value: Awaited<ReturnType<typeof transport.requestOwnerLeadFileAccess>>) => void;
+    requestOwnerLeadFileAccessMock.mockImplementationOnce(() => new Promise((resolve) => (resolveSecond = resolve)));
+    const user = userEvent.setup();
+    render(<OwnerLeadFileViewer leadId="lead-1" file={imageFile()} deps={fakeDeps} onUnauthorized={vi.fn()} />);
+
+    // First open: close immediately, before the mint resolves.
+    await user.click(screen.getByRole("button", { name: /view/i }));
+    expect(screen.getByRole("status")).toHaveTextContent(/loading photo/i);
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+
+    // Reopen: a fresh loading state, not whatever the first (aborted)
+    // attempt left behind.
+    await user.click(screen.getByRole("button", { name: /view/i }));
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent(/loading photo/i);
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+
+    resolveSecond({ kind: "ok", data: { url: "https://example.test/signed", expiresInSeconds: 60 } });
+    await waitFor(() => expect(screen.getByRole("img")).toBeInTheDocument());
+    expect(screen.getByRole("status")).toHaveTextContent(/loading photo/i);
+    fireEvent.load(screen.getByRole("img"));
+    await waitFor(() => expect(screen.queryByRole("status")).not.toBeInTheDocument());
   });
 });

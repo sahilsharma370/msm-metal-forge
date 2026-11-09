@@ -32,6 +32,11 @@ export function OwnerLeadFileViewer({ leadId, file, deps, onUnauthorized }: Owne
   const [status, setStatus] = useState<ViewerStatus>("idle");
   const [signedUrl, setSignedUrl] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  // Separate from `status === "ready"` (which only means "the signed url
+  // was minted"): "Loading photo…" must stay visible through the actual
+  // image transfer/decode too, not just the mint, so this only flips once
+  // the real <img> fires onLoad.
+  const [imageLoaded, setImageLoaded] = useState(false);
   const expiryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const isImage = file.mimeType.startsWith(IMAGE_MIME_PREFIX);
@@ -58,6 +63,17 @@ export function OwnerLeadFileViewer({ leadId, file, deps, onUnauthorized }: Owne
   async function handleOpen() {
     if (status === "loading") return; // guards against a double-click minting two signed URLs
     setStatus("loading");
+    setImageLoaded(false);
+
+    // PERF — the viewer dialog now opens immediately, before the signed-url
+    // mint even starts (measured: minting + the actual image transfer can
+    // together take well over a second on a real network — see the dialog
+    // body's own per-image loading/error state below). Previously nothing
+    // rendered at all until the whole round trip finished, which is what
+    // made the View button look like it "waited" before doing anything.
+    // Non-image files are unaffected: there is no dialog for them, and
+    // window.open() below still only ever runs once the real URL exists.
+    if (isImage) setIsModalOpen(true);
 
     const controller = new AbortController();
     abortControllerRef.current = controller;
@@ -85,9 +101,7 @@ export function OwnerLeadFileViewer({ leadId, file, deps, onUnauthorized }: Owne
       setStatus("idle");
     }, result.data.expiresInSeconds * 1000);
 
-    if (isImage) {
-      setIsModalOpen(true);
-    } else {
+    if (!isImage) {
       // PDFs/other documents: open directly in a new tab, never inline —
       // noopener,noreferrer so the opened tab cannot reach back into this
       // window (e.g. via window.opener) or leak this page's URL/referrer.
@@ -98,8 +112,14 @@ export function OwnerLeadFileViewer({ leadId, file, deps, onUnauthorized }: Owne
   function handleModalOpenChange(open: boolean) {
     setIsModalOpen(open);
     if (!open) {
+      // The dialog can now be closed while the mint is still in flight
+      // (it opens immediately, before that request resolves) — abort it
+      // so a late response can never set state for a viewer the owner has
+      // already dismissed.
+      abortControllerRef.current?.abort();
       clearSignedUrl();
       setStatus("idle");
+      setImageLoaded(false);
     }
   }
 
@@ -132,7 +152,7 @@ export function OwnerLeadFileViewer({ leadId, file, deps, onUnauthorized }: Owne
           View
         </Button>
       </div>
-      {status === "error" ? (
+      {status === "error" && !isImage ? (
         <p role="alert" className="mt-1 flex items-center gap-1 text-xs text-destructive">
           <AlertCircle className="size-3" aria-hidden="true" />
           Couldn't open this file. Please try again.
@@ -145,10 +165,40 @@ export function OwnerLeadFileViewer({ leadId, file, deps, onUnauthorized }: Owne
             <DialogHeader>
               <DialogTitle>{file.originalFilename}</DialogTitle>
             </DialogHeader>
-            {signedUrl ? (
-              // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-              <img src={signedUrl} alt={file.originalFilename} className="max-h-[70vh] w-full rounded-md object-contain" />
-            ) : null}
+            {status === "error" ? (
+              <div role="alert" className="flex flex-col items-center gap-2 py-12 text-sm text-destructive">
+                <AlertCircle className="size-5" aria-hidden="true" />
+                Couldn't open this photo. Please close this and try again.
+              </div>
+            ) : (
+              <>
+                {!imageLoaded ? (
+                  <div role="status" className="flex flex-col items-center gap-2 py-12 text-sm text-muted-foreground">
+                    <Loader2 className="size-5 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+                    Loading photo…
+                  </div>
+                ) : null}
+                {signedUrl ? (
+                  // `sr-only` (not `hidden`/display:none) while the image
+                  // itself is still loading/decoding: the <img> must stay
+                  // in the DOM and start its real network fetch the moment
+                  // the signed url exists (never delayed until the loading
+                  // block above is removed), but nothing is painted — and
+                  // it must stay discoverable (getByRole("img")) rather
+                  // than excluded from the accessibility tree — until
+                  // onLoad actually fires. onError here (a genuinely bad/
+                  // expired/undecodable image response) is treated exactly
+                  // like a failed signed-url mint: the same error state.
+                  <img
+                    src={signedUrl}
+                    alt={file.originalFilename}
+                    onLoad={() => setImageLoaded(true)}
+                    onError={() => setStatus("error")}
+                    className={imageLoaded ? "max-h-[70vh] w-full rounded-md object-contain" : "sr-only"}
+                  />
+                ) : null}
+              </>
+            )}
             <p className="text-xs text-muted-foreground">This link is temporary and stops working shortly after opening.</p>
           </DialogContent>
         </Dialog>

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import type { ReactNode } from "react";
 import { useEffect } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom/vitest";
@@ -19,11 +19,20 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
   };
 });
 
-const { OwnerShell } = await import("./OwnerShell");
+const { OwnerShell, __resetOwnerShellSessionCacheForTests } = await import("./OwnerShell");
 import type { RegisterOwnerShellRefresh } from "./OwnerShell";
 import type { OwnerAuthClient } from "./owner-auth-client";
 import type { OwnerSessionChecker } from "./owner-session-checker";
 import { OwnerAuthTimeoutError } from "./owner-auth-timeout";
+
+// The in-app-navigation session cache (see OwnerShell.tsx's own comment) is
+// module-level by design — it must survive an OwnerShell unmount/remount in
+// production. Every test here starts from a clean cache so one test's
+// cached token (most reuse the literal "at-1") can never let a later
+// test's bootstrap skip its own sessionChecker.check() call.
+beforeEach(() => {
+  __resetOwnerShellSessionCacheForTests();
+});
 
 afterEach(() => {
   cleanup();
@@ -228,6 +237,84 @@ describe("OwnerShell — authorized", () => {
     const refreshButton = await screen.findByRole("button", { name: /refresh/i });
     await user.click(refreshButton);
     expect(onRefresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("a second OwnerShell mount with the same still-fresh access token skips the network re-check (PERF — in-app navigation keeps the shell visible)", async () => {
+    const authClient = fakeAuthClient({ getAccessToken: vi.fn().mockResolvedValue("at-1") });
+    const check = vi.fn().mockResolvedValue({ ok: true, owner: { userId: "u1", role: "owner" } });
+    const sessionChecker = fakeSessionChecker({ check });
+
+    const first = render(
+      <OwnerShell authClient={authClient} sessionChecker={sessionChecker} onUnauthorized={vi.fn()}>
+        {(owner) => <p>first mount, signed in as {owner.role}</p>}
+      </OwnerShell>,
+    );
+    await screen.findByText(/first mount, signed in as owner/i);
+    expect(check).toHaveBeenCalledTimes(1);
+    first.unmount();
+
+    // Simulates the route-level remount every owner-to-owner navigation
+    // currently causes (see OwnerShell.tsx's own PERF comment) — a brand
+    // new OwnerShell instance, same OwnerAuthClient/token.
+    render(
+      <OwnerShell authClient={authClient} sessionChecker={sessionChecker} onUnauthorized={vi.fn()}>
+        {(owner) => <p>second mount, signed in as {owner.role}</p>}
+      </OwnerShell>,
+    );
+    await screen.findByText(/second mount, signed in as owner/i);
+    expect(check).toHaveBeenCalledTimes(1);
+  });
+
+  it("a second OwnerShell mount with a different access token always re-checks (no stale cross-identity trust)", async () => {
+    const getAccessToken = vi.fn().mockResolvedValueOnce("at-1").mockResolvedValueOnce("at-2");
+    const authClient = fakeAuthClient({ getAccessToken });
+    const check = vi.fn().mockResolvedValue({ ok: true, owner: { userId: "u1", role: "owner" } });
+    const sessionChecker = fakeSessionChecker({ check });
+
+    const first = render(
+      <OwnerShell authClient={authClient} sessionChecker={sessionChecker} onUnauthorized={vi.fn()}>
+        {(owner) => <p>first mount, signed in as {owner.role}</p>}
+      </OwnerShell>,
+    );
+    await screen.findByText(/first mount, signed in as owner/i);
+    first.unmount();
+
+    render(
+      <OwnerShell authClient={authClient} sessionChecker={sessionChecker} onUnauthorized={vi.fn()}>
+        {(owner) => <p>second mount, signed in as {owner.role}</p>}
+      </OwnerShell>,
+    );
+    await screen.findByText(/second mount, signed in as owner/i);
+    expect(check).toHaveBeenCalledTimes(2);
+    expect(check).toHaveBeenNthCalledWith(2, "at-2");
+  });
+
+  it("a cached check older than the TTL is not trusted — re-checks instead of staying stale indefinitely", async () => {
+    const nowSpy = vi.spyOn(Date, "now");
+    nowSpy.mockReturnValue(1_000_000);
+
+    const authClient = fakeAuthClient({ getAccessToken: vi.fn().mockResolvedValue("at-1") });
+    const check = vi.fn().mockResolvedValue({ ok: true, owner: { userId: "u1", role: "owner" } });
+    const sessionChecker = fakeSessionChecker({ check });
+
+    const first = render(
+      <OwnerShell authClient={authClient} sessionChecker={sessionChecker} onUnauthorized={vi.fn()}>
+        {(owner) => <p>first mount, signed in as {owner.role}</p>}
+      </OwnerShell>,
+    );
+    await screen.findByText(/first mount, signed in as owner/i);
+    first.unmount();
+
+    nowSpy.mockReturnValue(1_000_000 + 31_000); // past the 30s TTL
+    render(
+      <OwnerShell authClient={authClient} sessionChecker={sessionChecker} onUnauthorized={vi.fn()}>
+        {(owner) => <p>second mount, signed in as {owner.role}</p>}
+      </OwnerShell>,
+    );
+    await screen.findByText(/second mount, signed in as owner/i);
+    expect(check).toHaveBeenCalledTimes(2);
+
+    nowSpy.mockRestore();
   });
 
   it("does not render a Refresh button when no page registers one", async () => {
