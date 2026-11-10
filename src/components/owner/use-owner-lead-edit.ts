@@ -1,6 +1,8 @@
 import { useCallback, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { updateOwnerLeadDetails as updateOwnerLeadDetailsTransport, type OwnerLeadsTransportDeps } from "./owner-leads-transport";
 import type { OwnerLeadEditRequest } from "@/lib/owner/owner-lead-detail-contract";
+import { invalidateOwnerLeadCaches } from "./owner-data-cache";
 
 /**
  * Owner "Edit enquiry" — the submission hook for the dedicated edit screen.
@@ -39,6 +41,7 @@ const ALREADY_IN_PROGRESS_MESSAGE = "This enquiry is already being saved.";
 const GENERIC_ERROR_MESSAGE = "Something went wrong. Please try again.";
 
 export function useOwnerLeadEdit(deps: OwnerLeadsTransportDeps, leadId: string, onUnauthorized: () => void): UseOwnerLeadEditResult {
+  const queryClient = useQueryClient();
   const [state, setState] = useState<OwnerLeadEditState>({ isSubmitting: false, error: null });
   const pendingRef = useRef(false);
 
@@ -66,9 +69,15 @@ export function useOwnerLeadEdit(deps: OwnerLeadsTransportDeps, leadId: string, 
       }
 
       setState((previous) => ({ ...previous, isSubmitting: false, error: null }));
+      // PERF — a successful edit changes the lead's own fields (and
+      // possibly which filtered list views it appears under), so the
+      // detail page's own refetch (the caller always re-fetches/navigates
+      // after a successful submit) must never be served a stale pre-edit
+      // cache entry.
+      invalidateOwnerLeadCaches(queryClient, leadId);
       return { ok: true, updated: result.data.updated, updatedAt: result.data.updatedAt };
     },
-    [leadId, deps, onUnauthorized],
+    [leadId, deps, onUnauthorized, queryClient],
   );
 
   const clearError = useCallback(() => setState((previous) => ({ ...previous, error: null })), []);

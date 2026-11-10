@@ -1,6 +1,8 @@
 import { useCallback, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { createOwnerQuickAddLead as createOwnerQuickAddLeadTransport, type OwnerLeadsTransportDeps } from "./owner-leads-transport";
 import type { OwnerLeadQuickAddRequest } from "@/lib/owner/owner-lead-quick-add-contract";
+import { invalidateOwnerLeadCaches } from "./owner-data-cache";
 
 /**
  * CHECKPOINT C2J-F — the owner Quick Add submission hook. Matches
@@ -41,6 +43,7 @@ const ALREADY_IN_PROGRESS_MESSAGE = "This enquiry is already being saved.";
 const GENERIC_ERROR_MESSAGE = "Something went wrong. Please try again.";
 
 export function useOwnerLeadQuickAdd(deps: OwnerLeadsTransportDeps, onUnauthorized: () => void): UseOwnerLeadQuickAddResult {
+  const queryClient = useQueryClient();
   const [state, setState] = useState<OwnerLeadQuickAddState>({ isSubmitting: false, error: null });
   const pendingRef = useRef(false);
   const lastAttemptRef = useRef<{ readonly requestId: string; readonly fingerprint: string } | null>(null);
@@ -74,9 +77,12 @@ export function useOwnerLeadQuickAdd(deps: OwnerLeadsTransportDeps, onUnauthoriz
 
       lastAttemptRef.current = null;
       setState((previous) => ({ ...previous, isSubmitting: false, error: null }));
+      // PERF — a brand-new lead only matters to the list/overview caches
+      // (it has no existing detail cache entry of its own yet).
+      invalidateOwnerLeadCaches(queryClient);
       return { ok: true, leadId: result.data.leadId, reference: result.data.reference };
     },
-    [deps, onUnauthorized],
+    [deps, onUnauthorized, queryClient],
   );
 
   const clearError = useCallback(() => setState((previous) => ({ ...previous, error: null })), []);

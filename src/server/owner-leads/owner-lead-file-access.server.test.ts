@@ -39,12 +39,42 @@ describe("getOwnerLeadFileAccess — generic not_found collapsing", () => {
     expect(result).toEqual({ ok: false, reason: "not_found" });
   });
 
-  it("an incomplete lead returns the identical not_found, and never queries the file (fail fast)", async () => {
+  it("an incomplete lead returns the identical not_found", async () => {
+    // PERF — queryLeadIsCompleted and queryLeadFile now run in parallel
+    // (both are genuinely independent reads, neither depends on the
+    // other's result), so queryLeadFile DOES still fire even when the
+    // lead turns out to be incomplete — a deliberate trade-off: a little
+    // extra (cheap, bounded) query work on this uncommon failure path in
+    // exchange for real latency savings on the common, successful one.
+    // createSignedUrl is the one step that must still never fire here —
+    // it depends on queryLeadFile's own result (storage_path) and is only
+    // reached after both parallel reads resolve and pass every check.
     const deps = fakeDeps({ queryLeadIsCompleted: vi.fn().mockResolvedValue(false) });
     const result = await getOwnerLeadFileAccess(LEAD_ID, FILE_ID, deps);
     expect(result).toEqual({ ok: false, reason: "not_found" });
-    expect(deps.queryLeadFile).not.toHaveBeenCalled();
     expect(deps.createSignedUrl).not.toHaveBeenCalled();
+  });
+
+  it("queryLeadIsCompleted and queryLeadFile run in parallel, not sequentially (PERF)", async () => {
+    const order: string[] = [];
+    const deps = fakeDeps({
+      queryLeadIsCompleted: vi.fn().mockImplementation(async () => {
+        order.push("isCompleted:start");
+        await Promise.resolve();
+        order.push("isCompleted:end");
+        return true;
+      }),
+      queryLeadFile: vi.fn().mockImplementation(async () => {
+        order.push("file:start");
+        await Promise.resolve();
+        order.push("file:end");
+        return fakeFileRow();
+      }),
+    });
+    await getOwnerLeadFileAccess(LEAD_ID, FILE_ID, deps);
+    // Both start before either finishes — proof they're concurrent, not
+    // one awaited start-to-finish before the other begins.
+    expect(order.indexOf("file:start")).toBeLessThan(order.indexOf("isCompleted:end"));
   });
 
   it("a missing file returns the identical not_found", async () => {

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@/test-utils/render-with-query-client";
 import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom/vitest";
 

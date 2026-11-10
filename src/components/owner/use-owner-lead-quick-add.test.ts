@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+import { createElement, type ReactNode } from "react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useOwnerLeadQuickAdd } from "./use-owner-lead-quick-add";
@@ -25,13 +27,21 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
+/** A fresh QueryClient per render — the hook now reads/writes a shared cache through it (see owner-data-cache.ts). Plain createElement, not JSX — this file is .ts, not .tsx. */
+function createWrapper() {
+  const queryClient = new QueryClient();
+  return function Wrapper({ children }: { children: ReactNode }) {
+    return createElement(QueryClientProvider, { client: queryClient }, children);
+  };
+}
+
 describe("useOwnerLeadQuickAdd — submit success", () => {
   it("returns ok with leadId/reference on a successful create", async () => {
     createOwnerQuickAddLeadMock.mockResolvedValue({
       kind: "ok",
       data: { leadId: "11111111-1111-1111-1111-111111111111", reference: "MSM-260101-ABCDEF", idempotentReplay: false },
     });
-    const { result } = renderHook(() => useOwnerLeadQuickAdd(fakeDeps, vi.fn()));
+    const { result } = renderHook(() => useOwnerLeadQuickAdd(fakeDeps, vi.fn()), { wrapper: createWrapper() });
     await act(async () => {
       const outcome = await result.current.submit(FIELDS);
       expect(outcome).toEqual({ ok: true, leadId: "11111111-1111-1111-1111-111111111111", reference: "MSM-260101-ABCDEF" });
@@ -42,7 +52,7 @@ describe("useOwnerLeadQuickAdd — submit success", () => {
 describe("useOwnerLeadQuickAdd — submit failure preserves nothing of its own (no input state to clear)", () => {
   it("a failed submission sets state.error and returns ok: false", async () => {
     createOwnerQuickAddLeadMock.mockResolvedValue({ kind: "error", message: "Something went wrong. Please try again.", status: 500 });
-    const { result } = renderHook(() => useOwnerLeadQuickAdd(fakeDeps, vi.fn()));
+    const { result } = renderHook(() => useOwnerLeadQuickAdd(fakeDeps, vi.fn()), { wrapper: createWrapper() });
     await act(async () => {
       await result.current.submit(FIELDS);
     });
@@ -51,7 +61,7 @@ describe("useOwnerLeadQuickAdd — submit failure preserves nothing of its own (
 
   it("clearError resets state.error", async () => {
     createOwnerQuickAddLeadMock.mockResolvedValue({ kind: "error", message: "boom", status: 500 });
-    const { result } = renderHook(() => useOwnerLeadQuickAdd(fakeDeps, vi.fn()));
+    const { result } = renderHook(() => useOwnerLeadQuickAdd(fakeDeps, vi.fn()), { wrapper: createWrapper() });
     await act(async () => {
       await result.current.submit(FIELDS);
     });
@@ -65,7 +75,7 @@ describe("useOwnerLeadQuickAdd — unauthorized", () => {
   it("calls onUnauthorized on a 401 and returns ok: false", async () => {
     createOwnerQuickAddLeadMock.mockResolvedValue({ kind: "unauthorized" });
     const onUnauthorized = vi.fn();
-    const { result } = renderHook(() => useOwnerLeadQuickAdd(fakeDeps, onUnauthorized));
+    const { result } = renderHook(() => useOwnerLeadQuickAdd(fakeDeps, onUnauthorized), { wrapper: createWrapper() });
     await act(async () => {
       const outcome = await result.current.submit(FIELDS);
       expect(outcome.ok).toBe(false);
@@ -78,7 +88,7 @@ describe("useOwnerLeadQuickAdd — double-submit lock", () => {
   it("a concurrent second submit while one is pending is rejected without a second transport call", async () => {
     let resolveFirst!: (value: Awaited<ReturnType<typeof transport.createOwnerQuickAddLead>>) => void;
     createOwnerQuickAddLeadMock.mockReturnValueOnce(new Promise((resolve) => (resolveFirst = resolve)));
-    const { result } = renderHook(() => useOwnerLeadQuickAdd(fakeDeps, vi.fn()));
+    const { result } = renderHook(() => useOwnerLeadQuickAdd(fakeDeps, vi.fn()), { wrapper: createWrapper() });
 
     let firstOutcomePromise!: ReturnType<typeof result.current.submit>;
     act(() => {
@@ -100,7 +110,7 @@ describe("useOwnerLeadQuickAdd — double-submit lock", () => {
 describe("useOwnerLeadQuickAdd — requestId stability (mirrors use-owner-lead-mutations.ts's own addNote pattern)", () => {
   it("a retry of the exact same fields after a failure reuses the identical requestId", async () => {
     createOwnerQuickAddLeadMock.mockResolvedValue({ kind: "error", message: "Something went wrong. Please try again.", status: 500 });
-    const { result } = renderHook(() => useOwnerLeadQuickAdd(fakeDeps, vi.fn()));
+    const { result } = renderHook(() => useOwnerLeadQuickAdd(fakeDeps, vi.fn()), { wrapper: createWrapper() });
 
     await act(async () => {
       await result.current.submit(FIELDS);
@@ -117,7 +127,7 @@ describe("useOwnerLeadQuickAdd — requestId stability (mirrors use-owner-lead-m
 
   it("genuinely different fields after a prior failure get a fresh requestId", async () => {
     createOwnerQuickAddLeadMock.mockResolvedValue({ kind: "error", message: "Something went wrong. Please try again.", status: 500 });
-    const { result } = renderHook(() => useOwnerLeadQuickAdd(fakeDeps, vi.fn()));
+    const { result } = renderHook(() => useOwnerLeadQuickAdd(fakeDeps, vi.fn()), { wrapper: createWrapper() });
 
     await act(async () => {
       await result.current.submit(FIELDS);
@@ -136,7 +146,7 @@ describe("useOwnerLeadQuickAdd — requestId stability (mirrors use-owner-lead-m
       kind: "ok",
       data: { leadId: "11111111-1111-1111-1111-111111111111", reference: "MSM-260101-ABCDEF", idempotentReplay: false },
     });
-    const { result } = renderHook(() => useOwnerLeadQuickAdd(fakeDeps, vi.fn()));
+    const { result } = renderHook(() => useOwnerLeadQuickAdd(fakeDeps, vi.fn()), { wrapper: createWrapper() });
 
     await act(async () => {
       await result.current.submit(FIELDS);

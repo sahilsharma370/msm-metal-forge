@@ -2,7 +2,8 @@
 import type { ReactNode } from "react";
 import { useEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@/test-utils/render-with-query-client";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom/vitest";
 
@@ -327,5 +328,66 @@ describe("OwnerShell — authorized", () => {
     );
     await screen.findByText("page content");
     expect(screen.queryByRole("button", { name: /refresh/i })).not.toBeInTheDocument();
+  });
+});
+
+describe("OwnerShell — PERF/isolation: owner data cache is cleared on logout and unauthorized, never leaked to the next sign-in", () => {
+  it("logging out clears the shared owner data cache (list/detail/overview), not just the local session", async () => {
+    const queryClient = new QueryClient();
+    // Seed a fake cached leads-list snapshot, the same shape
+    // use-owner-lead-list.ts itself writes — simulating "owner A was
+    // looking at their leads" before logging out.
+    queryClient.setQueryData(["owner", "leads", "list", "inbox", {}], { items: [{ id: "owner-a-lead" }], hasMore: false, nextCursor: null });
+
+    const authClient = fakeAuthClient({ getAccessToken: vi.fn().mockResolvedValue("at-1") });
+    const sessionChecker = fakeSessionChecker({ check: vi.fn().mockResolvedValue({ ok: true, owner: { userId: "u1", role: "owner" } }) });
+    const onUnauthorized = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <OwnerShell authClient={authClient} sessionChecker={sessionChecker} onUnauthorized={onUnauthorized}>
+        {() => <p>page content</p>}
+      </OwnerShell>,
+      { wrapper: ({ children }) => <QueryClientProvider client={queryClient}>{children}</QueryClientProvider> },
+    );
+    const logoutButton = await screen.findByRole("button", { name: /log out/i });
+    await user.click(logoutButton);
+    await waitFor(() => expect(onUnauthorized).toHaveBeenCalledWith("unauthenticated"));
+
+    expect(queryClient.getQueryData(["owner", "leads", "list", "inbox", {}])).toBeUndefined();
+  });
+
+  it("a server-side unauthorized rejection (session revoked mid-session) also clears the shared owner data cache before redirecting", async () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(["owner", "leads", "detail", "lead-1"], { lead: { id: "lead-1" } });
+
+    const authClient = fakeAuthClient({ getAccessToken: vi.fn().mockResolvedValue("at-1") });
+    const sessionChecker = fakeSessionChecker({ check: vi.fn().mockResolvedValue({ ok: false }) });
+    const onUnauthorized = vi.fn();
+    render(
+      <OwnerShell authClient={authClient} sessionChecker={sessionChecker} onUnauthorized={onUnauthorized}>
+        {() => <p>page content</p>}
+      </OwnerShell>,
+      { wrapper: ({ children }) => <QueryClientProvider client={queryClient}>{children}</QueryClientProvider> },
+    );
+    await waitFor(() => expect(onUnauthorized).toHaveBeenCalledWith("unauthorized"));
+
+    expect(queryClient.getQueryData(["owner", "leads", "detail", "lead-1"])).toBeUndefined();
+  });
+
+  it("no local session at all (unauthenticated) also clears any leftover cached data before redirecting", async () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(["owner", "leads", "overview"], { totals: { total: 1 } });
+
+    const authClient = fakeAuthClient({ getAccessToken: vi.fn().mockResolvedValue(null) });
+    const onUnauthorized = vi.fn();
+    render(
+      <OwnerShell authClient={authClient} sessionChecker={fakeSessionChecker()} onUnauthorized={onUnauthorized}>
+        {() => <p>page content</p>}
+      </OwnerShell>,
+      { wrapper: ({ children }) => <QueryClientProvider client={queryClient}>{children}</QueryClientProvider> },
+    );
+    await waitFor(() => expect(onUnauthorized).toHaveBeenCalledWith("unauthenticated"));
+
+    expect(queryClient.getQueryData(["owner", "leads", "overview"])).toBeUndefined();
   });
 });

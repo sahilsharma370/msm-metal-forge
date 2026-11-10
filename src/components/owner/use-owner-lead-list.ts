@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import type { OwnerLeadListItem, OwnerLeadStatus, OwnerLeadIntent, OwnerLeadMaterial, OwnerLeadCaptureChannel, OwnerLeadView } from "@/lib/owner/owner-leads-contract";
 import { fetchOwnerLeadList, type OwnerLeadsTransportDeps, type OwnerLeadListQuery } from "./owner-leads-transport";
+import { getCachedOwnerData, isOwnerDataFresh, ownerListQueryKey, setCachedOwnerData } from "./owner-data-cache";
 
 /**
  * CHECKPOINT C2J-D — the owner Manage inbox's data hook: draft/applied
@@ -76,7 +78,14 @@ function toQuery(view: OwnerLeadView, filters: OwnerLeadListFilters, cursor: str
  * that would fight the hook's own draft/applied filter model, which is
  * already the single owner of filter state after mount.
  */
+interface CachedListSnapshot {
+  readonly items: readonly OwnerLeadListItem[];
+  readonly hasMore: boolean;
+  readonly nextCursor: string | null;
+}
+
 export function useOwnerLeadList(deps: OwnerLeadsTransportDeps, initialFilters: OwnerLeadListFilters = EMPTY_FILTERS): UseOwnerLeadListResult {
+  const queryClient = useQueryClient();
   const [draftFilters, setDraftFiltersState] = useState<OwnerLeadListFilters>(initialFilters);
   const [state, setState] = useState<OwnerLeadListHookState>({
     items: [],
@@ -114,6 +123,17 @@ export function useOwnerLeadList(deps: OwnerLeadsTransportDeps, initialFilters: 
 
       void fetchOwnerLeadList(toQuery(view, filters, cursor), deps, controller.signal).then((result) => {
         if (requestTokenRef.current !== token) return; // superseded by a newer request — discard silently
+        // Isolation — the request-token check above only protects against
+        // a newer request from the SAME still-mounted hook instance; it
+        // does nothing for a request whose instance has since unmounted
+        // entirely (e.g. logout/account switch), since nothing ever
+        // touches that orphaned token again. `abort()` is called on
+        // unmount, but a promise that had already settled before abort()
+        // ran is not retroactively rejected by it — `result.kind ===
+        // "aborted"` alone cannot be trusted to catch that case. Checking
+        // the controller's own signal directly closes it regardless of
+        // whether the underlying fetch implementation honoured the abort.
+        if (controller.signal.aborted) return;
 
         if (result.kind === "aborted") return;
 
@@ -139,6 +159,15 @@ export function useOwnerLeadList(deps: OwnerLeadsTransportDeps, initialFilters: 
             kind === "loadMore"
               ? [...previous.items, ...result.data.leads.filter((lead) => !existingIds.has(lead.id))]
               : result.data.leads;
+          // Cache the full current snapshot (including anything already
+          // appended via loadMore) under this exact (view, filters) key —
+          // "already loaded data" for a later remount means whatever the
+          // owner actually had on screen, not just a first page.
+          setCachedOwnerData<CachedListSnapshot>(queryClient, ownerListQueryKey(view, filters), {
+            items: nextItems,
+            hasMore: result.data.page.hasMore,
+            nextCursor: result.data.page.nextCursor,
+          });
           return {
             ...previous,
             items: nextItems,
@@ -153,11 +182,60 @@ export function useOwnerLeadList(deps: OwnerLeadsTransportDeps, initialFilters: 
         });
       });
     },
-    [deps],
+    [deps, queryClient],
+  );
+
+  /**
+   * PERF — the one entry point every "start a fresh listing for this
+   * (view, filters)" call site uses (mount, applyFilters, clearFilters,
+   * setView): a still-fresh cached snapshot is served instantly with no
+   * network; a present-but-stale one is served instantly too, with a
+   * silent background refresh (kind "refresh", not "initial" — keeps the
+   * just-shown cached items visible instead of clearing to empty) kicked
+   * off right after. Only a genuine cache miss falls back to the original
+   * "clear to empty, then initial-load" behavior.
+   */
+  const loadFreshOrFromCache = useCallback(
+    (view: OwnerLeadView, filters: OwnerLeadListFilters) => {
+      // Correctness — switching to a (view, filters) combo that's already
+      // cached must still supersede whatever fetch was previously in
+      // flight for a DIFFERENT combo: without bumping the token/aborting
+      // here, a still-running fetch for filter A — now stale, irrelevant —
+      // could resolve after the cache-hit path below has already applied
+      // filter B's data, and its own stale-response check (`token !==
+      // requestTokenRef.current`) would wrongly still PASS, since nothing
+      // incremented the token for a cache-hit that skips runFetch — A's
+      // late response would silently overwrite B's correct state.
+      abortControllerRef.current?.abort();
+      requestTokenRef.current += 1;
+
+      const cacheKey = ownerListQueryKey(view, filters);
+      const cached = getCachedOwnerData<CachedListSnapshot>(queryClient, cacheKey);
+      if (cached) {
+        setState((previous) => ({
+          ...previous,
+          view,
+          appliedFilters: filters,
+          items: cached.items,
+          hasMore: cached.hasMore,
+          nextCursor: cached.nextCursor,
+          isInitialLoading: false,
+          isRefreshing: false,
+          error: null,
+          unauthorized: false,
+        }));
+        if (isOwnerDataFresh(queryClient, cacheKey)) return;
+        runFetch("refresh", view, filters, undefined);
+        return;
+      }
+      setState((previous) => ({ ...previous, items: [], hasMore: false, nextCursor: null }));
+      runFetch("initial", view, filters, undefined);
+    },
+    [queryClient, runFetch],
   );
 
   useEffect(() => {
-    runFetch("initial", DEFAULT_VIEW, initialFilters, undefined);
+    loadFreshOrFromCache(DEFAULT_VIEW, initialFilters);
     return () => {
       abortControllerRef.current?.abort();
     };
@@ -166,28 +244,25 @@ export function useOwnerLeadList(deps: OwnerLeadsTransportDeps, initialFilters: 
 
   const applyFilters = useCallback(
     (overrideFilters?: OwnerLeadListFilters) => {
-      setState((previous) => ({ ...previous, items: [], hasMore: false, nextCursor: null }));
-      runFetch("initial", state.view, overrideFilters ?? draftFilters, undefined);
+      loadFreshOrFromCache(state.view, overrideFilters ?? draftFilters);
       // eslint-disable-next-line react-hooks/exhaustive-deps
     },
-    [draftFilters, runFetch, state.view],
+    [draftFilters, loadFreshOrFromCache, state.view],
   );
 
   const clearFilters = useCallback(() => {
     setDraftFiltersState(() => EMPTY_FILTERS);
-    setState((previous) => ({ ...previous, items: [], hasMore: false, nextCursor: null }));
-    runFetch("initial", state.view, EMPTY_FILTERS, undefined);
+    loadFreshOrFromCache(state.view, EMPTY_FILTERS);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [runFetch, state.view]);
+  }, [loadFreshOrFromCache, state.view]);
 
   /** Switching Inbox/Archived/Trash always refetches from scratch — the owner's search/status/material/channel selections are preserved (not reset), matching this batch's own "preserve search and applicable filters within these views" requirement. */
   const setView = useCallback(
     (view: OwnerLeadView) => {
-      setState((previous) => ({ ...previous, items: [], hasMore: false, nextCursor: null }));
-      runFetch("initial", view, state.appliedFilters, undefined);
+      loadFreshOrFromCache(view, state.appliedFilters);
       // eslint-disable-next-line react-hooks/exhaustive-deps
     },
-    [runFetch, state.appliedFilters],
+    [loadFreshOrFromCache, state.appliedFilters],
   );
 
   const refresh = useCallback(() => {

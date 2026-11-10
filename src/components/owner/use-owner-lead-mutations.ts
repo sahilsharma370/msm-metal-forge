@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   changeOwnerLeadStatus as changeOwnerLeadStatusTransport,
   addOwnerLeadNote as addOwnerLeadNoteTransport,
@@ -7,6 +8,7 @@ import {
   type OwnerLeadStatusChangeInput,
   type OwnerLeadsTransportDeps,
 } from "./owner-leads-transport";
+import { invalidateOwnerLeadCaches } from "./owner-data-cache";
 
 /**
  * CHECKPOINT C2J-E — the owner lead-detail status-change and private-note
@@ -74,6 +76,18 @@ export function useOwnerLeadMutations(
   onMutated: () => void,
   onUnauthorized: () => void,
 ): UseOwnerLeadMutationsResult {
+  const queryClient = useQueryClient();
+  // PERF — every successful mutation (and a 409 conflict, which also
+  // changes what the server considers current) invalidates the shared
+  // list/overview/this-lead's-detail cache before calling the caller's own
+  // onMutated (which triggers the real refetch) — so that refetch's result
+  // is what repopulates the cache, never a stale pre-mutation snapshot
+  // served to a later remount.
+  const mutated = useCallback(() => {
+    invalidateOwnerLeadCaches(queryClient, leadId);
+    onMutated();
+  }, [queryClient, leadId, onMutated]);
+
   const [state, setState] = useState<OwnerLeadMutationsState>({
     isChangingStatus: false,
     statusError: null,
@@ -111,15 +125,15 @@ export function useOwnerLeadMutations(
         const message = result.kind === "error" ? result.message : "Something went wrong. Please try again.";
         const conflict = result.kind === "error" && result.status === 409;
         setState((previous) => ({ ...previous, isChangingStatus: false, statusError: message }));
-        if (conflict) onMutated();
+        if (conflict) mutated();
         return { ok: false, conflict, message };
       }
 
       setState((previous) => ({ ...previous, isChangingStatus: false, statusError: null }));
-      onMutated();
+      mutated();
       return { ok: true };
     },
-    [leadId, deps, onMutated, onUnauthorized],
+    [leadId, deps, mutated, onUnauthorized],
   );
 
   const addNote = useCallback(
@@ -150,10 +164,10 @@ export function useOwnerLeadMutations(
 
       lastNoteAttemptRef.current = null;
       setState((previous) => ({ ...previous, isAddingNote: false, noteError: null }));
-      onMutated();
+      mutated();
       return { ok: true };
     },
-    [leadId, deps, onMutated, onUnauthorized],
+    [leadId, deps, mutated, onUnauthorized],
   );
 
   /** CHECKPOINT C2M-A — Move to Trash. No confirmation logic lives here (the caller's own confirmation dialog handles that) — this is purely the mutation, matching changeStatus/addNote's own separation of concerns. */
@@ -179,9 +193,9 @@ export function useOwnerLeadMutations(
     }
 
     setState((previous) => ({ ...previous, isTrashing: false, trashError: null }));
-    onMutated();
+    mutated();
     return { ok: true };
-  }, [leadId, deps, onMutated, onUnauthorized]);
+  }, [leadId, deps, mutated, onUnauthorized]);
 
   const restoreLead = useCallback(async (): Promise<OwnerLeadMutationOutcome> => {
     if (restorePendingRef.current) {
@@ -205,9 +219,9 @@ export function useOwnerLeadMutations(
     }
 
     setState((previous) => ({ ...previous, isRestoring: false, restoreError: null }));
-    onMutated();
+    mutated();
     return { ok: true };
-  }, [leadId, deps, onMutated, onUnauthorized]);
+  }, [leadId, deps, mutated, onUnauthorized]);
 
   const clearStatusError = useCallback(() => setState((previous) => ({ ...previous, statusError: null })), []);
   const clearNoteError = useCallback(() => setState((previous) => ({ ...previous, noteError: null })), []);

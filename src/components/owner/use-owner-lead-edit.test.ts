@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+import { createElement, type ReactNode } from "react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useOwnerLeadEdit } from "./use-owner-lead-edit";
@@ -25,13 +27,21 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
+/** A fresh QueryClient per render — the hook now reads/writes a shared cache through it (see owner-data-cache.ts). Plain createElement, not JSX — this file is .ts, not .tsx. */
+function createWrapper() {
+  const queryClient = new QueryClient();
+  return function Wrapper({ children }: { children: ReactNode }) {
+    return createElement(QueryClientProvider, { client: queryClient }, children);
+  };
+}
+
 describe("useOwnerLeadEdit — submit success", () => {
   it("returns ok with updated/updatedAt on a successful save", async () => {
     updateOwnerLeadDetailsMock.mockResolvedValue({
       kind: "ok",
       data: { updated: true, updatedAt: "2026-01-01T00:10:00.000Z", changedFields: ["Material"] },
     });
-    const { result } = renderHook(() => useOwnerLeadEdit(fakeDeps, LEAD_ID, vi.fn()));
+    const { result } = renderHook(() => useOwnerLeadEdit(fakeDeps, LEAD_ID, vi.fn()), { wrapper: createWrapper() });
     await act(async () => {
       const outcome = await result.current.submit(REQUEST);
       expect(outcome).toEqual({ ok: true, updated: true, updatedAt: "2026-01-01T00:10:00.000Z" });
@@ -42,7 +52,7 @@ describe("useOwnerLeadEdit — submit success", () => {
 describe("useOwnerLeadEdit — server failure retains entered form values (this hook owns none of its own)", () => {
   it("a failed submission sets state.error and returns ok: false, conflict: false", async () => {
     updateOwnerLeadDetailsMock.mockResolvedValue({ kind: "error", message: "Something went wrong. Please try again.", status: 500 });
-    const { result } = renderHook(() => useOwnerLeadEdit(fakeDeps, LEAD_ID, vi.fn()));
+    const { result } = renderHook(() => useOwnerLeadEdit(fakeDeps, LEAD_ID, vi.fn()), { wrapper: createWrapper() });
     await act(async () => {
       const outcome = await result.current.submit(REQUEST);
       expect(outcome).toEqual({ ok: false, conflict: false, message: "Something went wrong. Please try again." });
@@ -52,7 +62,7 @@ describe("useOwnerLeadEdit — server failure retains entered form values (this 
 
   it("clearError resets state.error", async () => {
     updateOwnerLeadDetailsMock.mockResolvedValue({ kind: "error", message: "boom", status: 500 });
-    const { result } = renderHook(() => useOwnerLeadEdit(fakeDeps, LEAD_ID, vi.fn()));
+    const { result } = renderHook(() => useOwnerLeadEdit(fakeDeps, LEAD_ID, vi.fn()), { wrapper: createWrapper() });
     await act(async () => {
       await result.current.submit(REQUEST);
     });
@@ -65,7 +75,7 @@ describe("useOwnerLeadEdit — server failure retains entered form values (this 
 describe("useOwnerLeadEdit — stale-update / not-editable conflict", () => {
   it("a 409 response is reported as conflict: true", async () => {
     updateOwnerLeadDetailsMock.mockResolvedValue({ status: 409, kind: "error", message: "This enquiry was already updated. Please refresh and try again." });
-    const { result } = renderHook(() => useOwnerLeadEdit(fakeDeps, LEAD_ID, vi.fn()));
+    const { result } = renderHook(() => useOwnerLeadEdit(fakeDeps, LEAD_ID, vi.fn()), { wrapper: createWrapper() });
     await act(async () => {
       const outcome = await result.current.submit(REQUEST);
       expect(outcome).toEqual({ ok: false, conflict: true, message: "This enquiry was already updated. Please refresh and try again." });
@@ -74,7 +84,7 @@ describe("useOwnerLeadEdit — stale-update / not-editable conflict", () => {
 
   it("a non-409 error is reported as conflict: false", async () => {
     updateOwnerLeadDetailsMock.mockResolvedValue({ status: 500, kind: "error", message: "Something went wrong. Please try again." });
-    const { result } = renderHook(() => useOwnerLeadEdit(fakeDeps, LEAD_ID, vi.fn()));
+    const { result } = renderHook(() => useOwnerLeadEdit(fakeDeps, LEAD_ID, vi.fn()), { wrapper: createWrapper() });
     await act(async () => {
       const outcome = await result.current.submit(REQUEST);
       expect(outcome.ok).toBe(false);
@@ -87,7 +97,7 @@ describe("useOwnerLeadEdit — unauthorized", () => {
   it("calls onUnauthorized on a 401 and returns ok: false", async () => {
     updateOwnerLeadDetailsMock.mockResolvedValue({ kind: "unauthorized" });
     const onUnauthorized = vi.fn();
-    const { result } = renderHook(() => useOwnerLeadEdit(fakeDeps, LEAD_ID, onUnauthorized));
+    const { result } = renderHook(() => useOwnerLeadEdit(fakeDeps, LEAD_ID, onUnauthorized), { wrapper: createWrapper() });
     await act(async () => {
       const outcome = await result.current.submit(REQUEST);
       expect(outcome.ok).toBe(false);
@@ -100,7 +110,7 @@ describe("useOwnerLeadEdit — duplicate-submit prevention", () => {
   it("a concurrent second submit while one is pending is rejected without a second transport call", async () => {
     let resolveFirst!: (value: Awaited<ReturnType<typeof transport.updateOwnerLeadDetails>>) => void;
     updateOwnerLeadDetailsMock.mockReturnValueOnce(new Promise((resolve) => (resolveFirst = resolve)));
-    const { result } = renderHook(() => useOwnerLeadEdit(fakeDeps, LEAD_ID, vi.fn()));
+    const { result } = renderHook(() => useOwnerLeadEdit(fakeDeps, LEAD_ID, vi.fn()), { wrapper: createWrapper() });
 
     let firstOutcomePromise!: ReturnType<typeof result.current.submit>;
     act(() => {

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
+import { useQueryClient } from "@tanstack/react-query";
 import { Plus, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import msmLogo from "@/assets/msm-logo.svg";
@@ -87,6 +88,7 @@ export function __resetOwnerShellSessionCacheForTests(): void {
 }
 
 export function OwnerShell({ authClient, sessionChecker, onUnauthorized, children, hideAddEnquiryCta = false }: OwnerShellProps) {
+  const queryClient = useQueryClient();
   const [ownerAuthClient] = useState<OwnerAuthClient>(() => authClient ?? createOwnerAuthClient());
   const [ownerSessionChecker] = useState<OwnerSessionChecker>(() => sessionChecker ?? createOwnerSessionChecker());
   const [state, setState] = useState<GuardState>({ phase: "checking" });
@@ -106,6 +108,11 @@ export function OwnerShell({ authClient, sessionChecker, onUnauthorized, childre
       try {
         const token = await ownerAuthClient.getAccessToken();
         if (!token) {
+          // Isolation — no local session means a clean slate: nothing to
+          // trust here, including any owner lead list/detail/overview data
+          // a PREVIOUS owner's session may have cached (see the logout/
+          // unauthorized branches below for the same guarantee).
+          queryClient.clear();
           if (!cancelled) onUnauthorized("unauthenticated");
           return;
         }
@@ -125,8 +132,11 @@ export function OwnerShell({ authClient, sessionChecker, onUnauthorized, childre
         if (!result.ok || !result.owner) {
           // An expired/invalid/unauthorized session — clear it locally
           // before redirecting so a stale local session can never make the
-          // guard appear to pass again without a fresh sign-in.
+          // guard appear to pass again without a fresh sign-in. Also clear
+          // the data cache (isolation — the next sign-in, possibly as a
+          // different owner, must never see this session's cached leads).
           cachedOwnerSessionCheck = null;
+          queryClient.clear();
           await ownerAuthClient.signOut();
           if (!cancelled) onUnauthorized("unauthorized");
           return;
@@ -156,6 +166,10 @@ export function OwnerShell({ authClient, sessionChecker, onUnauthorized, childre
   }
 
   async function handleLogout() {
+    // Isolation — the next sign-in in this browser (possibly as a
+    // different owner) must never see this session's cached leads.
+    cachedOwnerSessionCheck = null;
+    queryClient.clear();
     await ownerAuthClient.signOut();
     onUnauthorized("unauthenticated");
   }

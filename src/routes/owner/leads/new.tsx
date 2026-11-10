@@ -1,11 +1,11 @@
 import { useMemo } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { OwnerShell } from "@/components/owner/OwnerShell";
 import { OwnerPageHeader } from "@/components/owner/OwnerPageHeader";
 import { OwnerLeadQuickAddForm } from "@/components/owner/OwnerLeadQuickAddForm";
 import { useOwnerLeadQuickAdd } from "@/components/owner/use-owner-lead-quick-add";
 import { createOwnerAuthClient } from "@/components/owner/owner-auth-client";
 import type { OwnerLeadsTransportDeps } from "@/components/owner/owner-leads-transport";
+import { useOwnerShellContext } from "@/components/owner/owner-shell-context";
 
 const title = "Add enquiry | MSM Owner Workspace";
 
@@ -21,17 +21,8 @@ export const Route = createFileRoute("/owner/leads/new")({
  * transport deps/hook so it stays testable with plain fake props).
  */
 function OwnerLeadQuickAddRouteComponent() {
-  const navigate = useNavigate();
-
-  function goToLogin(reason: "unauthenticated" | "unauthorized") {
-    navigate({ to: "/owner/login", search: { redirect: "/owner/leads/new", reason: reason === "unauthorized" ? "unauthorized" : undefined } });
-  }
-
-  return (
-    <OwnerShell onUnauthorized={goToLogin} hideAddEnquiryCta>
-      {() => <OwnerLeadQuickAddBody onUnauthorized={() => goToLogin("unauthorized")} />}
-    </OwnerShell>
-  );
+  const { onUnauthorized } = useOwnerShellContext();
+  return <OwnerLeadQuickAddBody onUnauthorized={onUnauthorized} />;
 }
 
 export function OwnerLeadQuickAddBody({ onUnauthorized }: { readonly onUnauthorized: () => void }) {

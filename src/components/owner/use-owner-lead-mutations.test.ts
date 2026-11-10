@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+import { createElement, type ReactNode } from "react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useOwnerLeadMutations } from "./use-owner-lead-mutations";
@@ -19,11 +21,18 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
+/** A fresh QueryClient per render by default — the hook now reads/writes a shared cache through it (see owner-data-cache.ts). A caller that needs to seed/inspect the cache passes its own client. Plain createElement, not JSX — this file is .ts, not .tsx. */
+function createWrapper(queryClient: QueryClient = new QueryClient()) {
+  return function Wrapper({ children }: { children: ReactNode }) {
+    return createElement(QueryClientProvider, { client: queryClient }, children);
+  };
+}
+
 describe("useOwnerLeadMutations — changeStatus", () => {
   it("calls onMutated after a successful status change", async () => {
     changeOwnerLeadStatusMock.mockResolvedValue({ kind: "ok", data: { changed: true, status: "contacted", lostReason: null, closedAt: null, updatedAt: "2026-01-01T00:00:00.000Z" } });
     const onMutated = vi.fn();
-    const { result } = renderHook(() => useOwnerLeadMutations("lead-1", fakeDeps, onMutated, vi.fn()));
+    const { result } = renderHook(() => useOwnerLeadMutations("lead-1", fakeDeps, onMutated, vi.fn()), { wrapper: createWrapper() });
     await act(async () => {
       const outcome = await result.current.changeStatus({ expectedStatus: "new", newStatus: "contacted" });
       expect(outcome).toEqual({ ok: true });
@@ -34,7 +43,7 @@ describe("useOwnerLeadMutations — changeStatus", () => {
   it("distinguishes a 409 conflict and still calls onMutated (to pick up the real current state)", async () => {
     changeOwnerLeadStatusMock.mockResolvedValue({ kind: "error", message: "This lead was already updated.", status: 409 });
     const onMutated = vi.fn();
-    const { result } = renderHook(() => useOwnerLeadMutations("lead-1", fakeDeps, onMutated, vi.fn()));
+    const { result } = renderHook(() => useOwnerLeadMutations("lead-1", fakeDeps, onMutated, vi.fn()), { wrapper: createWrapper() });
     await act(async () => {
       const outcome = await result.current.changeStatus({ expectedStatus: "new", newStatus: "contacted" });
       expect(outcome).toEqual({ ok: false, conflict: true, message: "This lead was already updated." });
@@ -46,7 +55,7 @@ describe("useOwnerLeadMutations — changeStatus", () => {
   it("a non-conflict error sets statusError and does not call onMutated", async () => {
     changeOwnerLeadStatusMock.mockResolvedValue({ kind: "error", message: "Something went wrong. Please try again.", status: 500 });
     const onMutated = vi.fn();
-    const { result } = renderHook(() => useOwnerLeadMutations("lead-1", fakeDeps, onMutated, vi.fn()));
+    const { result } = renderHook(() => useOwnerLeadMutations("lead-1", fakeDeps, onMutated, vi.fn()), { wrapper: createWrapper() });
     await act(async () => {
       await result.current.changeStatus({ expectedStatus: "new", newStatus: "contacted" });
     });
@@ -58,7 +67,7 @@ describe("useOwnerLeadMutations — changeStatus", () => {
     changeOwnerLeadStatusMock.mockResolvedValue({ kind: "unauthorized" });
     const onMutated = vi.fn();
     const onUnauthorized = vi.fn();
-    const { result } = renderHook(() => useOwnerLeadMutations("lead-1", fakeDeps, onMutated, onUnauthorized));
+    const { result } = renderHook(() => useOwnerLeadMutations("lead-1", fakeDeps, onMutated, onUnauthorized), { wrapper: createWrapper() });
     await act(async () => {
       await result.current.changeStatus({ expectedStatus: "new", newStatus: "contacted" });
     });
@@ -69,7 +78,7 @@ describe("useOwnerLeadMutations — changeStatus", () => {
   it("a concurrent second call while one is pending is rejected without a second transport call (double-submit guard)", async () => {
     let resolveFirst!: (value: Awaited<ReturnType<typeof transport.changeOwnerLeadStatus>>) => void;
     changeOwnerLeadStatusMock.mockReturnValueOnce(new Promise((resolve) => (resolveFirst = resolve)));
-    const { result } = renderHook(() => useOwnerLeadMutations("lead-1", fakeDeps, vi.fn(), vi.fn()));
+    const { result } = renderHook(() => useOwnerLeadMutations("lead-1", fakeDeps, vi.fn(), vi.fn()), { wrapper: createWrapper() });
 
     let firstOutcomePromise!: ReturnType<typeof result.current.changeStatus>;
     act(() => {
@@ -92,7 +101,7 @@ describe("useOwnerLeadMutations — addNote", () => {
   it("calls onMutated after a successful note add", async () => {
     addOwnerLeadNoteMock.mockResolvedValue({ kind: "ok", data: { activityId: "a1", note: "hello", createdAt: "2026-01-01T00:00:00.000Z" } });
     const onMutated = vi.fn();
-    const { result } = renderHook(() => useOwnerLeadMutations("lead-1", fakeDeps, onMutated, vi.fn()));
+    const { result } = renderHook(() => useOwnerLeadMutations("lead-1", fakeDeps, onMutated, vi.fn()), { wrapper: createWrapper() });
     await act(async () => {
       const outcome = await result.current.addNote("hello");
       expect(outcome).toEqual({ ok: true });
@@ -103,7 +112,7 @@ describe("useOwnerLeadMutations — addNote", () => {
   it("a failed note add sets noteError and never calls onMutated", async () => {
     addOwnerLeadNoteMock.mockResolvedValue({ kind: "error", message: "Something went wrong. Please try again.", status: 500 });
     const onMutated = vi.fn();
-    const { result } = renderHook(() => useOwnerLeadMutations("lead-1", fakeDeps, onMutated, vi.fn()));
+    const { result } = renderHook(() => useOwnerLeadMutations("lead-1", fakeDeps, onMutated, vi.fn()), { wrapper: createWrapper() });
     await act(async () => {
       await result.current.addNote("hello");
     });
@@ -113,7 +122,7 @@ describe("useOwnerLeadMutations — addNote", () => {
 
   it("clearNoteError/clearStatusError reset their respective error fields", async () => {
     addOwnerLeadNoteMock.mockResolvedValue({ kind: "error", message: "boom", status: 500 });
-    const { result } = renderHook(() => useOwnerLeadMutations("lead-1", fakeDeps, vi.fn(), vi.fn()));
+    const { result } = renderHook(() => useOwnerLeadMutations("lead-1", fakeDeps, vi.fn(), vi.fn()), { wrapper: createWrapper() });
     await act(async () => {
       await result.current.addNote("hello");
     });
@@ -126,7 +135,7 @@ describe("useOwnerLeadMutations — addNote", () => {
 describe("useOwnerLeadMutations — addNote request id stability (CHECKPOINT C2J-E correction pass)", () => {
   it("a retry of the same unchanged text after a failure reuses the identical requestId", async () => {
     addOwnerLeadNoteMock.mockResolvedValue({ kind: "error", message: "Something went wrong. Please try again.", status: 500 });
-    const { result } = renderHook(() => useOwnerLeadMutations("lead-1", fakeDeps, vi.fn(), vi.fn()));
+    const { result } = renderHook(() => useOwnerLeadMutations("lead-1", fakeDeps, vi.fn(), vi.fn()), { wrapper: createWrapper() });
 
     await act(async () => {
       await result.current.addNote("Call back tomorrow");
@@ -143,7 +152,7 @@ describe("useOwnerLeadMutations — addNote request id stability (CHECKPOINT C2J
 
   it("a genuinely new note (different text) after a prior failure gets a fresh requestId", async () => {
     addOwnerLeadNoteMock.mockResolvedValue({ kind: "error", message: "Something went wrong. Please try again.", status: 500 });
-    const { result } = renderHook(() => useOwnerLeadMutations("lead-1", fakeDeps, vi.fn(), vi.fn()));
+    const { result } = renderHook(() => useOwnerLeadMutations("lead-1", fakeDeps, vi.fn(), vi.fn()), { wrapper: createWrapper() });
 
     await act(async () => {
       await result.current.addNote("First note");
@@ -159,7 +168,7 @@ describe("useOwnerLeadMutations — addNote request id stability (CHECKPOINT C2J
 
   it("after a confirmed success, submitting the same text again as a new note gets a fresh requestId", async () => {
     addOwnerLeadNoteMock.mockResolvedValue({ kind: "ok", data: { activityId: "a1", note: "Thanks!", createdAt: "2026-01-01T00:00:00.000Z" } });
-    const { result } = renderHook(() => useOwnerLeadMutations("lead-1", fakeDeps, vi.fn(), vi.fn()));
+    const { result } = renderHook(() => useOwnerLeadMutations("lead-1", fakeDeps, vi.fn(), vi.fn()), { wrapper: createWrapper() });
 
     await act(async () => {
       await result.current.addNote("Thanks!");
@@ -178,7 +187,7 @@ describe("useOwnerLeadMutations — trashLead (CHECKPOINT C2M-A)", () => {
   it("calls onMutated after a successful trash", async () => {
     trashOwnerLeadMock.mockResolvedValue({ kind: "ok", data: { trashed: true, deletedAt: "2026-01-01T00:00:00.000Z", status: "new" } });
     const onMutated = vi.fn();
-    const { result } = renderHook(() => useOwnerLeadMutations("lead-1", fakeDeps, onMutated, vi.fn()));
+    const { result } = renderHook(() => useOwnerLeadMutations("lead-1", fakeDeps, onMutated, vi.fn()), { wrapper: createWrapper() });
     await act(async () => {
       const outcome = await result.current.trashLead();
       expect(outcome).toEqual({ ok: true });
@@ -189,7 +198,7 @@ describe("useOwnerLeadMutations — trashLead (CHECKPOINT C2M-A)", () => {
   it("a failed trash sets trashError and never calls onMutated", async () => {
     trashOwnerLeadMock.mockResolvedValue({ kind: "error", message: "Something went wrong. Please try again.", status: 500 });
     const onMutated = vi.fn();
-    const { result } = renderHook(() => useOwnerLeadMutations("lead-1", fakeDeps, onMutated, vi.fn()));
+    const { result } = renderHook(() => useOwnerLeadMutations("lead-1", fakeDeps, onMutated, vi.fn()), { wrapper: createWrapper() });
     await act(async () => {
       await result.current.trashLead();
     });
@@ -201,7 +210,7 @@ describe("useOwnerLeadMutations — trashLead (CHECKPOINT C2M-A)", () => {
     trashOwnerLeadMock.mockResolvedValue({ kind: "unauthorized" });
     const onMutated = vi.fn();
     const onUnauthorized = vi.fn();
-    const { result } = renderHook(() => useOwnerLeadMutations("lead-1", fakeDeps, onMutated, onUnauthorized));
+    const { result } = renderHook(() => useOwnerLeadMutations("lead-1", fakeDeps, onMutated, onUnauthorized), { wrapper: createWrapper() });
     await act(async () => {
       await result.current.trashLead();
     });
@@ -212,7 +221,7 @@ describe("useOwnerLeadMutations — trashLead (CHECKPOINT C2M-A)", () => {
   it("a concurrent second call while one is pending is rejected without a second transport call (double-submit guard)", async () => {
     let resolveFirst!: (value: Awaited<ReturnType<typeof transport.trashOwnerLead>>) => void;
     trashOwnerLeadMock.mockReturnValueOnce(new Promise((resolve) => (resolveFirst = resolve)));
-    const { result } = renderHook(() => useOwnerLeadMutations("lead-1", fakeDeps, vi.fn(), vi.fn()));
+    const { result } = renderHook(() => useOwnerLeadMutations("lead-1", fakeDeps, vi.fn(), vi.fn()), { wrapper: createWrapper() });
 
     let firstOutcomePromise!: ReturnType<typeof result.current.trashLead>;
     act(() => {
@@ -235,7 +244,7 @@ describe("useOwnerLeadMutations — restoreLead (CHECKPOINT C2M-A)", () => {
   it("calls onMutated after a successful restore", async () => {
     restoreOwnerLeadMock.mockResolvedValue({ kind: "ok", data: { restored: true, status: "new" } });
     const onMutated = vi.fn();
-    const { result } = renderHook(() => useOwnerLeadMutations("lead-1", fakeDeps, onMutated, vi.fn()));
+    const { result } = renderHook(() => useOwnerLeadMutations("lead-1", fakeDeps, onMutated, vi.fn()), { wrapper: createWrapper() });
     await act(async () => {
       const outcome = await result.current.restoreLead();
       expect(outcome).toEqual({ ok: true });
@@ -246,11 +255,60 @@ describe("useOwnerLeadMutations — restoreLead (CHECKPOINT C2M-A)", () => {
   it("a failed restore sets restoreError and never calls onMutated", async () => {
     restoreOwnerLeadMock.mockResolvedValue({ kind: "error", message: "Something went wrong. Please try again.", status: 500 });
     const onMutated = vi.fn();
-    const { result } = renderHook(() => useOwnerLeadMutations("lead-1", fakeDeps, onMutated, vi.fn()));
+    const { result } = renderHook(() => useOwnerLeadMutations("lead-1", fakeDeps, onMutated, vi.fn()), { wrapper: createWrapper() });
     await act(async () => {
       await result.current.restoreLead();
     });
     expect(onMutated).not.toHaveBeenCalled();
     expect(result.current.state.restoreError).toBe("Something went wrong. Please try again.");
+  });
+});
+
+describe("useOwnerLeadMutations — PERF: fresh data after edits (cache invalidation)", () => {
+  it("a successful status change clears this lead's detail cache and the shared list/overview caches before calling onMutated", async () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(["owner", "leads", "detail", "lead-1"], { lead: { id: "lead-1", status: "new" } });
+    queryClient.setQueryData(["owner", "leads", "list", "inbox", {}], { items: [{ id: "lead-1" }], hasMore: false, nextCursor: null });
+    queryClient.setQueryData(["owner", "leads", "overview"], { totals: { total: 1, new: 1 } });
+
+    changeOwnerLeadStatusMock.mockResolvedValue({
+      kind: "ok",
+      data: { changed: true, status: "contacted", lostReason: null, closedAt: null, updatedAt: "2026-01-01T00:00:00.000Z" },
+    });
+    const onMutated = vi.fn();
+    const { result } = renderHook(() => useOwnerLeadMutations("lead-1", fakeDeps, onMutated, vi.fn()), {
+      wrapper: createWrapper(queryClient),
+    });
+    await act(async () => {
+      await result.current.changeStatus({ expectedStatus: "new", newStatus: "contacted" });
+    });
+
+    expect(queryClient.getQueryData(["owner", "leads", "detail", "lead-1"])).toBeUndefined();
+    expect(queryClient.getQueryData(["owner", "leads", "list", "inbox", {}])).toBeUndefined();
+    expect(queryClient.getQueryData(["owner", "leads", "overview"])).toBeUndefined();
+    // Invalidation happens before the real refetch (onMutated) — otherwise
+    // a refetch-then-invalidate ordering would discard the fresh data it
+    // just fetched.
+    expect(onMutated).toHaveBeenCalledTimes(1);
+  });
+
+  it("a different lead's detail cache is left untouched by this lead's mutation", async () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(["owner", "leads", "detail", "lead-1"], { lead: { id: "lead-1" } });
+    queryClient.setQueryData(["owner", "leads", "detail", "lead-2"], { lead: { id: "lead-2" } });
+
+    changeOwnerLeadStatusMock.mockResolvedValue({
+      kind: "ok",
+      data: { changed: true, status: "contacted", lostReason: null, closedAt: null, updatedAt: "2026-01-01T00:00:00.000Z" },
+    });
+    const { result } = renderHook(() => useOwnerLeadMutations("lead-1", fakeDeps, vi.fn(), vi.fn()), {
+      wrapper: createWrapper(queryClient),
+    });
+    await act(async () => {
+      await result.current.changeStatus({ expectedStatus: "new", newStatus: "contacted" });
+    });
+
+    expect(queryClient.getQueryData(["owner", "leads", "detail", "lead-1"])).toBeUndefined();
+    expect(queryClient.getQueryData(["owner", "leads", "detail", "lead-2"])).toEqual({ lead: { id: "lead-2" } });
   });
 });

@@ -1,13 +1,14 @@
 import { useEffect, useMemo } from "react";
 import { z } from "zod";
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { OwnerShell, type RegisterOwnerShellRefresh } from "@/components/owner/OwnerShell";
+import { createFileRoute } from "@tanstack/react-router";
+import type { RegisterOwnerShellRefresh } from "@/components/owner/OwnerShell";
 import { OwnerLeadInbox } from "@/components/owner/OwnerLeadInbox";
 import { useOwnerLeadList, type OwnerLeadListFilters } from "@/components/owner/use-owner-lead-list";
 import { useOwnerLeadExport } from "@/components/owner/use-owner-lead-export";
 import { createOwnerAuthClient } from "@/components/owner/owner-auth-client";
 import type { OwnerLeadsTransportDeps } from "@/components/owner/owner-leads-transport";
 import { OWNER_LEAD_STATUS_VALUES } from "@/lib/owner/owner-leads-contract";
+import { useOwnerShellContext } from "@/components/owner/owner-shell-context";
 
 const title = "Owner workspace | MSM Scrap";
 
@@ -23,19 +24,8 @@ export const Route = createFileRoute("/owner/")({
 });
 
 function OwnerIndexRouteComponent() {
-  const navigate = useNavigate();
-
-  function goToLogin(reason: "unauthenticated" | "unauthorized") {
-    navigate({ to: "/owner/login", search: { redirect: "/owner", reason: reason === "unauthorized" ? "unauthorized" : undefined } });
-  }
-
-  return (
-    <OwnerShell onUnauthorized={goToLogin}>
-      {(_owner, registerRefresh) => (
-        <OwnerInboxBody onUnauthorized={() => goToLogin("unauthorized")} registerRefresh={registerRefresh} />
-      )}
-    </OwnerShell>
-  );
+  const { registerRefresh, onUnauthorized } = useOwnerShellContext();
+  return <OwnerInboxBody onUnauthorized={onUnauthorized} registerRefresh={registerRefresh} />;
 }
 
 export function OwnerInboxBody({

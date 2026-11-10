@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { z } from "zod";
-import { OwnerShell, type RegisterOwnerShellRefresh } from "@/components/owner/OwnerShell";
+import type { RegisterOwnerShellRefresh } from "@/components/owner/OwnerShell";
 import { OwnerLeadDetailPage } from "@/components/owner/OwnerLeadDetailPage";
 import { useOwnerLeadDetail } from "@/components/owner/use-owner-lead-detail";
 import { createOwnerAuthClient } from "@/components/owner/owner-auth-client";
 import type { OwnerLeadsTransportDeps } from "@/components/owner/owner-leads-transport";
+import { useOwnerShellContext } from "@/components/owner/owner-shell-context";
 
 const title = "Enquiry | MSM Owner Workspace";
 
@@ -34,25 +35,16 @@ function OwnerLeadDetailRouteComponent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search.saved]);
 
-  function goToLogin(reason: "unauthenticated" | "unauthorized") {
-    navigate({
-      to: "/owner/login",
-      search: { redirect: `/owner/leads/${leadId}`, reason: reason === "unauthorized" ? "unauthorized" : undefined },
-    });
-  }
+  const { registerRefresh, onUnauthorized } = useOwnerShellContext();
 
   return (
-    <OwnerShell onUnauthorized={goToLogin}>
-      {(_owner, registerRefresh) => (
-        <OwnerLeadDetailBody
-          leadId={leadId}
-          onUnauthorized={() => goToLogin("unauthorized")}
-          registerRefresh={registerRefresh}
-          showSavedBanner={showSavedBanner}
-          onDismissSavedBanner={() => setShowSavedBanner(false)}
-        />
-      )}
-    </OwnerShell>
+    <OwnerLeadDetailBody
+      leadId={leadId}
+      onUnauthorized={onUnauthorized}
+      registerRefresh={registerRefresh}
+      showSavedBanner={showSavedBanner}
+      onDismissSavedBanner={() => setShowSavedBanner(false)}
+    />
   );
 }
 

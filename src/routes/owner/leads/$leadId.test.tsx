@@ -2,7 +2,7 @@
 import type { ReactNode } from "react";
 import { useCallback, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@/test-utils/render-with-query-client";
 import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom/vitest";
 

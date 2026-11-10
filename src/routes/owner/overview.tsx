@@ -1,10 +1,11 @@
 import { useEffect, useMemo } from "react";
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { OwnerShell, type RegisterOwnerShellRefresh } from "@/components/owner/OwnerShell";
+import { createFileRoute } from "@tanstack/react-router";
+import type { RegisterOwnerShellRefresh } from "@/components/owner/OwnerShell";
 import { OwnerOverview } from "@/components/owner/OwnerOverview";
 import { useOwnerLeadOverview } from "@/components/owner/use-owner-lead-overview";
 import { createOwnerAuthClient } from "@/components/owner/owner-auth-client";
 import type { OwnerLeadsTransportDeps } from "@/components/owner/owner-leads-transport";
+import { useOwnerShellContext } from "@/components/owner/owner-shell-context";
 
 const title = "Overview | MSM Owner Workspace";
 
@@ -14,19 +15,8 @@ export const Route = createFileRoute("/owner/overview")({
 });
 
 function OwnerOverviewRouteComponent() {
-  const navigate = useNavigate();
-
-  function goToLogin(reason: "unauthenticated" | "unauthorized") {
-    navigate({ to: "/owner/login", search: { redirect: "/owner/overview", reason: reason === "unauthorized" ? "unauthorized" : undefined } });
-  }
-
-  return (
-    <OwnerShell onUnauthorized={goToLogin}>
-      {(_owner, registerRefresh) => (
-        <OwnerOverviewBody onUnauthorized={() => goToLogin("unauthorized")} registerRefresh={registerRefresh} />
-      )}
-    </OwnerShell>
-  );
+  const { registerRefresh, onUnauthorized } = useOwnerShellContext();
+  return <OwnerOverviewBody onUnauthorized={onUnauthorized} registerRefresh={registerRefresh} />;
 }
 
 export function OwnerOverviewBody({

@@ -93,12 +93,19 @@ export async function getOwnerLeadFileAccess(
   fileId: string,
   deps: OwnerLeadFileAccessServiceDeps,
 ): Promise<OwnerLeadFileAccessResult> {
-  const isCompleted = await deps.queryLeadIsCompleted(leadId);
+  // PERF — queryLeadIsCompleted(leadId) and queryLeadFile(fileId) are
+  // genuinely independent reads (neither's result depends on the other),
+  // so they run in parallel rather than sequentially. This runs AFTER the
+  // caller's own verifyOwnerSession (the route calls that first, before
+  // this function at all) — never before it: a caller's authorization is
+  // still fully established before either of these protected-data queries
+  // ever fires, unchanged. createSignedUrl still runs strictly after both,
+  // since it needs file.storage_path from the second query's result.
+  const [isCompleted, file] = await Promise.all([deps.queryLeadIsCompleted(leadId), deps.queryLeadFile(fileId)]);
+
   if (isCompleted !== true) {
     return { ok: false, reason: "not_found" };
   }
-
-  const file = await deps.queryLeadFile(fileId);
   if (!file) {
     return { ok: false, reason: "not_found" };
   }

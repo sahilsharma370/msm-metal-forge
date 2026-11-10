@@ -1,7 +1,6 @@
 import { useMemo } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { AlertCircle } from "lucide-react";
-import { OwnerShell } from "@/components/owner/OwnerShell";
 import { OwnerPageHeader, OWNER_CONTAINER_CLASS } from "@/components/owner/OwnerPageHeader";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -11,6 +10,7 @@ import { useOwnerLeadEdit } from "@/components/owner/use-owner-lead-edit";
 import { createOwnerAuthClient } from "@/components/owner/owner-auth-client";
 import type { OwnerLeadsTransportDeps } from "@/components/owner/owner-leads-transport";
 import type { OwnerLeadEditFormValues } from "@/lib/owner/owner-lead-detail-contract";
+import { useOwnerShellContext } from "@/components/owner/owner-shell-context";
 
 const title = "Edit enquiry | MSM Owner Workspace";
 
@@ -30,20 +30,8 @@ export const Route = createFileRoute("/owner/leads/$leadId_/edit")({
  */
 function OwnerLeadEditRouteComponent() {
   const { leadId } = Route.useParams();
-  const navigate = useNavigate();
-
-  function goToLogin(reason: "unauthenticated" | "unauthorized") {
-    navigate({
-      to: "/owner/login",
-      search: { redirect: `/owner/leads/${leadId}/edit`, reason: reason === "unauthorized" ? "unauthorized" : undefined },
-    });
-  }
-
-  return (
-    <OwnerShell onUnauthorized={goToLogin} hideAddEnquiryCta>
-      {() => <OwnerLeadEditBody leadId={leadId} onUnauthorized={() => goToLogin("unauthorized")} />}
-    </OwnerShell>
-  );
+  const { onUnauthorized } = useOwnerShellContext();
+  return <OwnerLeadEditBody leadId={leadId} onUnauthorized={onUnauthorized} />;
 }
 
 export function OwnerLeadEditBody({ leadId, onUnauthorized }: { readonly leadId: string; readonly onUnauthorized: () => void }) {
