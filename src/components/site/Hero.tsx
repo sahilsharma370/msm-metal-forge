@@ -76,7 +76,7 @@ export const Hero = forwardRef<HTMLElement>(function Hero(_props, forwardedRef) 
       // that breakpoint exactly as before (an inline `style` here would
       // have out-specificity'd `sm:pt-[72px]` at every width, silently
       // breaking the desktop-locked padding — deliberately not done).
-      className="hero-stage-min-height absolute inset-0 flex touch-pan-y items-start overflow-hidden bg-[#080A1D] pt-[max(6rem,calc(env(safe-area-inset-top)+3rem))] pb-16 sm:pt-[72px] sm:pb-10 lg:items-center"
+      className="hero-stage-min-height hero-stage-fixed absolute inset-0 flex touch-pan-y items-start overflow-hidden bg-[#080A1D] pt-[max(6rem,calc(env(safe-area-inset-top)+3rem))] pb-16 sm:pt-[72px] sm:pb-10 lg:items-center"
     >
       {/* BATCH HERO-GRID-MATCH — CSS square grid, geometry-matched to the
           Our Services desktop grid (baked into that section's own stage

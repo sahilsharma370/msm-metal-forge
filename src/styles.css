@@ -423,6 +423,29 @@
   .js .trust-stage-offset {
     transform: translateY(100%);
   }
+  /* MEASURED ROOT CAUSE (desktop first-load Hero flash, ~150ms): a
+     full-width band of the page's own `bg-background` (lighter than Hero's
+     `#080A1D`) flashed below Hero before snapping away. ScrollStack.tsx
+     only converts Hero to `position: fixed` (filling the real viewport)
+     via a `useLayoutEffect` — i.e. after hydration. Before that, Hero is
+     `position: absolute` inside its own wrapper (`.hero-stage-height`,
+     intentionally only 60vh here — see that file's own comment), so Hero's
+     box was confined to 60vh at first paint; the remaining 40vh of
+     viewport showed whatever sits behind the wrapper's empty remainder.
+     Same fix shape as `.js .trust-stage-offset` above: pre-apply, via CSS
+     alone, exactly the state `activateHeroFixed()` sets via GSAP (`position:
+     fixed`, `z-index: 1`) — Hero's own `absolute inset-0` already supplies
+     top/right/bottom/left: 0, which resolve against the real viewport once
+     `position` is `fixed` instead of the 60vh wrapper, with nothing left
+     for hydration to visibly correct. `__root.tsx`'s
+     `RELEASE_HERO_IF_ALREADY_PAST_SCRIPT` mirrors
+     `RELEASE_TRUST_IF_ALREADY_PAST_SCRIPT`'s own already-scrolled-past
+     case, so a reload deep in the page doesn't get Hero wrongly pinned to
+     the top for the same ~150ms. */
+  .js .hero-stage-fixed {
+    position: fixed;
+    z-index: 1;
+  }
   /* MEASURED ROOT CAUSE (reload-into-Services layout jerk) — confirmed
      live via instrumented position/height polling across a real reload
      scrolled into this section: before hydration ran WhatWeDo.tsx's

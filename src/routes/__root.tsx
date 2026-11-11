@@ -192,6 +192,30 @@ export const RELEASE_TRUST_IF_ALREADY_PAST_SCRIPT = `(function(){try{
   if (el) el.style.transform = 'none';
 } catch(e) {}})();`;
 
+// Same reload-while-already-scrolled-past case as
+// RELEASE_TRUST_IF_ALREADY_PAST_SCRIPT above, for Hero's own CSS-only
+// `.js .hero-stage-fixed` pre-apply (see that rule's own comment in
+// styles.css for the first-load flash it fixes): without this, a reload
+// deep in the page would get Hero wrongly pinned `position: fixed` to the
+// top of the viewport for the same ~150ms until ScrollStack.tsx's own
+// hydration-time `releaseHeroFixed()` corrects it back. Mirrors that
+// function's exact values (`position: absolute, top: auto, left: 0, width:
+// 100%, z-index: auto`) so there is nothing left for hydration to visibly
+// correct in this case either.
+export const RELEASE_HERO_IF_ALREADY_PAST_SCRIPT = `(function(){try{
+  var mq = window.matchMedia('(min-width: 1024px) and (prefers-reduced-motion: no-preference)');
+  if (!mq.matches) return;
+  if (window.scrollY < window.innerHeight * 0.6) return;
+  var el = document.getElementById('home');
+  if (el) {
+    el.style.position = 'absolute';
+    el.style.top = 'auto';
+    el.style.left = '0';
+    el.style.width = '100%';
+    el.style.zIndex = 'auto';
+  }
+} catch(e) {}})();`;
+
 // MEASURED ROOT CAUSE (reload-while-already-scrolled-into-Services flash) —
 // same end-of-<body> technique as RELEASE_TRUST_IF_ALREADY_PAST_SCRIPT
 // above, confirmed live via frame-by-frame polling of the pinned canvas's
@@ -262,6 +286,7 @@ function RootShell({ children }: { children: ReactNode }) {
       <body>
         {children}
         <script dangerouslySetInnerHTML={{ __html: RELEASE_TRUST_IF_ALREADY_PAST_SCRIPT }} />
+        <script dangerouslySetInnerHTML={{ __html: RELEASE_HERO_IF_ALREADY_PAST_SCRIPT }} />
         <script dangerouslySetInnerHTML={{ __html: PIN_SERVICES_CANVAS_IF_ALREADY_PAST_SCRIPT }} />
         <Scripts />
       </body>
