@@ -28,6 +28,18 @@ export function ownerDetailQueryKey(leadId: string): readonly unknown[] {
 export function ownerOverviewQueryKey(): readonly unknown[] {
   return ["owner", "leads", "overview"];
 }
+/**
+ * PERF — the owner photo viewer's reopen cache: one entry per file id,
+ * holding the already-minted preview signed URL and its own real expiry
+ * timestamp (not a fresh one — reopening within the ORIGINAL 60s signed-
+ * access lifetime must reuse it as-is, never silently extend it). Cleared
+ * by the same `queryClient.clear()` calls OwnerShell.tsx already runs on
+ * logout/unauthorized/account-switch — isolation is inherited for free by
+ * sharing this same QueryClient, not reimplemented here.
+ */
+export function ownerFilePreviewQueryKey(fileId: string): readonly unknown[] {
+  return ["owner", "leads", "file-preview", fileId];
+}
 
 export function getCachedOwnerData<T>(queryClient: QueryClient, key: readonly unknown[]): T | undefined {
   return queryClient.getQueryData<T>(key as unknown[]);

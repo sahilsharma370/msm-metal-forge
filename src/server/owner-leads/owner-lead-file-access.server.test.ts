@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { getOwnerLeadFileAccess, type LeadFileAccessRow, type OwnerLeadFileAccessServiceDeps } from "./owner-lead-file-access.server";
+import {
+  getOwnerLeadFileAccess,
+  mintSignedUrlWithTransformFallback,
+  OWNER_LEAD_FILE_PREVIEW_TRANSFORM,
+  type LeadFileAccessRow,
+  type OwnerLeadFileAccessServiceDeps,
+} from "./owner-lead-file-access.server";
 
 const LEAD_ID = "11111111-1111-1111-1111-111111111111";
 const OTHER_LEAD_ID = "99999999-9999-9999-9999-999999999999";
@@ -25,10 +31,28 @@ describe("getOwnerLeadFileAccess — happy path", () => {
     expect(result).toEqual({ ok: true, url: "https://example.test/storage/v1/object/sign/lead-files/leads/x?token=abc", expiresInSeconds: 60 });
   });
 
-  it("passes the file's own storage_path (from the DB row, never caller input) and a 60s TTL to createSignedUrl", async () => {
+  it("passes the file's own storage_path (from the DB row, never caller input), a 60s TTL, and no transform by default to createSignedUrl", async () => {
     const deps = fakeDeps();
     await getOwnerLeadFileAccess(LEAD_ID, FILE_ID, deps);
-    expect(deps.createSignedUrl).toHaveBeenCalledWith("leads/11111111-1111-1111-1111-111111111111/slot-0-abc", 60);
+    expect(deps.createSignedUrl).toHaveBeenCalledWith("leads/11111111-1111-1111-1111-111111111111/slot-0-abc", 60, undefined);
+  });
+});
+
+describe("getOwnerLeadFileAccess — PERF: the viewer modal's preview variant", () => {
+  it("requests the preview transform when options.preview is true", async () => {
+    const deps = fakeDeps();
+    await getOwnerLeadFileAccess(LEAD_ID, FILE_ID, deps, { preview: true });
+    expect(deps.createSignedUrl).toHaveBeenCalledWith(
+      "leads/11111111-1111-1111-1111-111111111111/slot-0-abc",
+      60,
+      OWNER_LEAD_FILE_PREVIEW_TRANSFORM,
+    );
+  });
+
+  it("requests no transform when options.preview is false or omitted — the 'view full resolution' path", async () => {
+    const deps = fakeDeps();
+    await getOwnerLeadFileAccess(LEAD_ID, FILE_ID, deps, { preview: false });
+    expect(deps.createSignedUrl).toHaveBeenCalledWith("leads/11111111-1111-1111-1111-111111111111/slot-0-abc", 60, undefined);
   });
 });
 
@@ -104,5 +128,51 @@ describe("getOwnerLeadFileAccess — Storage failure", () => {
     const deps = fakeDeps({ createSignedUrl: vi.fn().mockResolvedValue(null) });
     const result = await getOwnerLeadFileAccess(LEAD_ID, FILE_ID, deps);
     expect(result).toEqual({ ok: false, reason: "storage_error" });
+  });
+});
+
+/**
+ * PERF — never guesses whether a given Supabase project actually has Image
+ * Transformations enabled. `mint` here stands in for the real Storage call
+ * (admin.storage.from(...).createSignedUrl(path, ttl, { transform })) —
+ * these tests exercise the fallback decision in isolation, without a real
+ * SupabaseClient, matching this file's own established testing boundary
+ * (createProductionOwnerLeadFileAccessServiceDeps's Supabase wiring itself
+ * is not unit-tested here either).
+ */
+describe("mintSignedUrlWithTransformFallback", () => {
+  it("returns the transformed URL directly when the transformed mint succeeds", async () => {
+    const mint = vi.fn().mockResolvedValue({ data: { signedUrl: "https://example.test/transformed" }, error: null });
+    const url = await mintSignedUrlWithTransformFallback(mint, OWNER_LEAD_FILE_PREVIEW_TRANSFORM);
+    expect(url).toBe("https://example.test/transformed");
+    expect(mint).toHaveBeenCalledTimes(1);
+    expect(mint).toHaveBeenCalledWith(OWNER_LEAD_FILE_PREVIEW_TRANSFORM);
+  });
+
+  it("falls back to an untransformed mint — never a broken viewer over an unproven infra assumption — when the transformed attempt errors", async () => {
+    const mint = vi
+      .fn()
+      .mockResolvedValueOnce({ data: null, error: { message: "image transformations not enabled for this project" } })
+      .mockResolvedValueOnce({ data: { signedUrl: "https://example.test/original" }, error: null });
+    const url = await mintSignedUrlWithTransformFallback(mint, OWNER_LEAD_FILE_PREVIEW_TRANSFORM);
+    expect(url).toBe("https://example.test/original");
+    expect(mint).toHaveBeenCalledTimes(2);
+    expect(mint).toHaveBeenNthCalledWith(1, OWNER_LEAD_FILE_PREVIEW_TRANSFORM);
+    expect(mint).toHaveBeenNthCalledWith(2, undefined);
+  });
+
+  it("returns null when both the transformed attempt and its untransformed fallback fail", async () => {
+    const mint = vi.fn().mockResolvedValue({ data: null, error: { message: "storage unavailable" } });
+    const url = await mintSignedUrlWithTransformFallback(mint, OWNER_LEAD_FILE_PREVIEW_TRANSFORM);
+    expect(url).toBeNull();
+    expect(mint).toHaveBeenCalledTimes(2);
+  });
+
+  it("makes exactly one untransformed call when no transform is requested at all (the 'view full resolution' path)", async () => {
+    const mint = vi.fn().mockResolvedValue({ data: { signedUrl: "https://example.test/original" }, error: null });
+    const url = await mintSignedUrlWithTransformFallback(mint, undefined);
+    expect(url).toBe("https://example.test/original");
+    expect(mint).toHaveBeenCalledTimes(1);
+    expect(mint).toHaveBeenCalledWith(undefined);
   });
 });

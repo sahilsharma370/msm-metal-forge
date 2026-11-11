@@ -76,7 +76,12 @@ export async function handleOwnerLeadFileAccessRequest(request: Request, leadId:
 
   try {
     const deps = createProductionOwnerLeadFileAccessServiceDeps();
-    const result = await getOwnerLeadFileAccess(leadId, fileId, deps);
+    // The viewer modal's own fast-loading preview variant — a pure
+    // presentational hint, never consulted by any authorization check
+    // above (those already ran against leadId/fileId alone). "Full
+    // resolution" access (the lazy, on-demand original) omits this.
+    const preview = new URL(request.url).searchParams.get("preview") === "1";
+    const result = await getOwnerLeadFileAccess(leadId, fileId, deps, { preview });
     if (!result.ok) {
       // Both "not_found" (missing/wrong-lead/incomplete-lead/unverified-file)
       // and "storage_error" (a real Storage/provider failure) are handled

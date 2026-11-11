@@ -220,13 +220,11 @@ export async function requestOwnerLeadFileAccess(
   fileId: string,
   deps: OwnerLeadsTransportDeps,
   signal?: AbortSignal,
+  /** `preview: true` — the viewer modal's own fast-loading variant; omit (or false) for the "view full resolution" path. */
+  options?: { readonly preview?: boolean },
 ): Promise<OwnerApiResult<OwnerLeadFileAccessSuccessBody["data"]>> {
-  const result = await callOwnerApi(
-    `/api/owner/leads/${encodeURIComponent(leadId)}/files/${encodeURIComponent(fileId)}/access`,
-    ownerLeadFileAccessSuccessBodySchema,
-    deps,
-    withMethod("POST", signal),
-  );
+  const path = `/api/owner/leads/${encodeURIComponent(leadId)}/files/${encodeURIComponent(fileId)}/access${options?.preview ? "?preview=1" : ""}`;
+  const result = await callOwnerApi(path, ownerLeadFileAccessSuccessBodySchema, deps, withMethod("POST", signal));
   return mapOk(result);
 }
 

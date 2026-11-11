@@ -1,11 +1,14 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, waitFor } from "@testing-library/react";
+import { cleanup, render, renderWithQueryClient, screen } from "@/test-utils/render-with-query-client";
+import { QueryClient } from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom/vitest";
 import { OwnerLeadFileViewer } from "./OwnerLeadFileViewer";
 import * as transport from "./owner-leads-transport";
 import type { OwnerLeadDetailFile } from "@/lib/owner/owner-lead-detail-contract";
+import { getCachedOwnerData, ownerFilePreviewQueryKey } from "./owner-data-cache";
 
 vi.mock("./owner-leads-transport", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./owner-leads-transport")>();
@@ -58,7 +61,13 @@ describe("OwnerLeadFileViewer — calls the right leadId/fileId", () => {
     render(<OwnerLeadFileViewer leadId="lead-abc" file={imageFile()} deps={fakeDeps} onUnauthorized={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: /view scrap.jpg/i }));
     await waitFor(() => expect(requestOwnerLeadFileAccessMock).toHaveBeenCalled());
-    expect(requestOwnerLeadFileAccessMock).toHaveBeenCalledWith("lead-abc", "33333333-3333-3333-3333-333333333333", fakeDeps, expect.anything());
+    expect(requestOwnerLeadFileAccessMock).toHaveBeenCalledWith(
+      "lead-abc",
+      "33333333-3333-3333-3333-333333333333",
+      fakeDeps,
+      expect.anything(),
+      { preview: true },
+    );
   });
 
   it("uses sanitized file metadata (originalFilename), never a name derived from the signed URL", async () => {
@@ -302,5 +311,129 @@ describe("OwnerLeadFileViewer — PERF: viewer opens immediately, independent of
     expect(screen.getByRole("status")).toHaveTextContent(/loading photo/i);
     fireEvent.load(screen.getByRole("img"));
     await waitFor(() => expect(screen.queryByRole("status")).not.toBeInTheDocument());
+  });
+});
+
+describe("OwnerLeadFileViewer — PERF: same-photo reopen reuses the already-minted preview", () => {
+  it("a reopen within the previous mint's own signed-access lifetime never mints again, and shows the cached image immediately", async () => {
+    requestOwnerLeadFileAccessMock.mockResolvedValue({ kind: "ok", data: { url: "https://example.test/signed-preview", expiresInSeconds: 60 } });
+    const user = userEvent.setup();
+    render(<OwnerLeadFileViewer leadId="lead-1" file={imageFile()} deps={fakeDeps} onUnauthorized={vi.fn()} />);
+
+    await user.click(screen.getByRole("button", { name: /view/i }));
+    await waitFor(() => expect(screen.getByRole("img")).toBeInTheDocument());
+    fireEvent.load(screen.getByRole("img"));
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+
+    requestOwnerLeadFileAccessMock.mockClear();
+    await user.click(screen.getByRole("button", { name: /view/i }));
+
+    // The image is already in the document on the very next render — no
+    // "Loading photo…" gap — because the cached signed URL was applied
+    // synchronously, not via a network round trip.
+    expect(screen.getByRole("img")).toHaveAttribute("src", "https://example.test/signed-preview");
+    expect(requestOwnerLeadFileAccessMock).not.toHaveBeenCalled();
+  });
+
+  it("a reopen after the previous mint's signed-access lifetime has elapsed mints fresh, never reuses the expired entry", async () => {
+    vi.useFakeTimers();
+    try {
+      requestOwnerLeadFileAccessMock.mockResolvedValueOnce({ kind: "ok", data: { url: "https://example.test/first", expiresInSeconds: 60 } });
+      render(<OwnerLeadFileViewer leadId="lead-1" file={imageFile()} deps={fakeDeps} onUnauthorized={vi.fn()} />);
+
+      fireEvent.click(screen.getByRole("button", { name: /view/i }));
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      fireEvent.load(screen.getByRole("img"));
+      fireEvent.click(screen.getByRole("button", { name: /close/i }));
+
+      // Past the original mint's own 60s lifetime.
+      act(() => {
+        vi.advanceTimersByTime(61_000);
+      });
+
+      requestOwnerLeadFileAccessMock.mockResolvedValueOnce({ kind: "ok", data: { url: "https://example.test/second", expiresInSeconds: 60 } });
+      fireEvent.click(screen.getByRole("button", { name: /view/i }));
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(requestOwnerLeadFileAccessMock).toHaveBeenCalledTimes(2);
+      expect(screen.getByRole("img")).toHaveAttribute("src", "https://example.test/second");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a response that settles after the viewer unmounts (e.g. navigating away) never writes into the reopen cache", async () => {
+    let resolveAccess!: (value: Awaited<ReturnType<typeof transport.requestOwnerLeadFileAccess>>) => void;
+    requestOwnerLeadFileAccessMock.mockImplementationOnce(() => new Promise((resolve) => (resolveAccess = resolve)));
+    const queryClient = new QueryClient();
+    const user = userEvent.setup();
+    const { unmount } = renderWithQueryClient(
+      <OwnerLeadFileViewer leadId="lead-1" file={imageFile()} deps={fakeDeps} onUnauthorized={vi.fn()} />,
+      queryClient,
+    );
+
+    await user.click(screen.getByRole("button", { name: /view/i }));
+    unmount();
+
+    // The mint "arrives" only after the viewer is already gone — standing
+    // in for a real race where abort() cannot retroactively reject an
+    // already-settled promise.
+    await act(async () => {
+      resolveAccess({ kind: "ok", data: { url: "https://example.test/late-after-unmount", expiresInSeconds: 60 } });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const cached = getCachedOwnerData(queryClient, ownerFilePreviewQueryKey(imageFile().id));
+    expect(cached).toBeUndefined();
+  });
+});
+
+describe("OwnerLeadFileViewer — PERF: the modal preview is a smaller, separate variant from the full-resolution original", () => {
+  it("requests the preview variant for the inline image, and only mints the full-resolution original when explicitly asked", async () => {
+    requestOwnerLeadFileAccessMock.mockResolvedValueOnce({ kind: "ok", data: { url: "https://example.test/preview", expiresInSeconds: 60 } });
+    const user = userEvent.setup();
+    render(<OwnerLeadFileViewer leadId="lead-1" file={imageFile()} deps={fakeDeps} onUnauthorized={vi.fn()} />);
+
+    await user.click(screen.getByRole("button", { name: /view/i }));
+    await waitFor(() => expect(screen.getByRole("img")).toBeInTheDocument());
+    fireEvent.load(screen.getByRole("img"));
+    expect(requestOwnerLeadFileAccessMock).toHaveBeenNthCalledWith(1, "lead-1", imageFile().id, fakeDeps, expect.anything(), { preview: true });
+
+    // The full-resolution link only appears once the preview has actually
+    // finished loading — never requested up front.
+    const fullResButton = await screen.findByRole("button", { name: /view full resolution/i });
+    requestOwnerLeadFileAccessMock.mockResolvedValueOnce({ kind: "ok", data: { url: "https://example.test/full-res", expiresInSeconds: 60 } });
+    const openSpy = vi.fn();
+    window.open = openSpy as unknown as typeof window.open;
+
+    await user.click(fullResButton);
+    await waitFor(() => expect(openSpy).toHaveBeenCalledWith("https://example.test/full-res", "_blank", "noopener,noreferrer"));
+    // The full-resolution request carries no preview flag at all.
+    expect(requestOwnerLeadFileAccessMock).toHaveBeenNthCalledWith(2, "lead-1", imageFile().id, fakeDeps, expect.anything());
+  });
+
+  it("shows a generic retryable error for the full-resolution link without disturbing the still-visible preview", async () => {
+    requestOwnerLeadFileAccessMock.mockResolvedValueOnce({ kind: "ok", data: { url: "https://example.test/preview", expiresInSeconds: 60 } });
+    const user = userEvent.setup();
+    render(<OwnerLeadFileViewer leadId="lead-1" file={imageFile()} deps={fakeDeps} onUnauthorized={vi.fn()} />);
+
+    await user.click(screen.getByRole("button", { name: /view/i }));
+    await waitFor(() => expect(screen.getByRole("img")).toBeInTheDocument());
+    fireEvent.load(screen.getByRole("img"));
+    const fullResButton = await screen.findByRole("button", { name: /view full resolution/i });
+
+    requestOwnerLeadFileAccessMock.mockResolvedValueOnce({ kind: "error", message: "Something went wrong.", status: 500 });
+    await user.click(fullResButton);
+
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(/couldn't open the full-resolution photo/i));
+    expect(screen.getByRole("img")).toBeInTheDocument();
   });
 });

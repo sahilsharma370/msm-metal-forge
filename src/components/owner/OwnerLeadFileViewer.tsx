@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { AlertCircle, Eye, FileText, Loader2 } from "lucide-react";
+import { AlertCircle, Eye, ExternalLink, FileText, Loader2 } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import type { OwnerLeadDetailFile } from "@/lib/owner/owner-lead-detail-contract";
 import { requestOwnerLeadFileAccess, type OwnerLeadsTransportDeps } from "./owner-leads-transport";
 import { formatByteSize } from "./owner-lead-format";
+import { getCachedOwnerData, ownerFilePreviewQueryKey, setCachedOwnerData } from "./owner-data-cache";
 
 /**
  * CHECKPOINT C2J-D — mints and uses a 60-second private-file signed URL.
@@ -15,9 +17,28 @@ import { formatByteSize } from "./owner-lead-format";
  * Never logged: no console.* call anywhere in this file references the
  * URL, and it is never passed to anything other than an <img src>/
  * window.open() call.
+ *
+ * PERF — the modal preview requests a smaller, transformed signed URL
+ * (see OWNER_LEAD_FILE_PREVIEW_TRANSFORM server-side — real phone photos
+ * can legitimately be up to the 8 MiB upload ceiling, with no client-side
+ * resize before upload). A reopen of the SAME file, within the PREVIOUS
+ * mint's own still-unexpired 60-second lifetime, reuses that exact
+ * already-minted URL from a shared cache instead of minting and
+ * downloading again — same browser, same `<img>` src, so the already-
+ * fetched bytes are also instantly available from the browser's own HTTP
+ * cache. "View full resolution" is a separate, lazily-minted, full-size
+ * signed URL — never requested until explicitly asked for, keeping the
+ * default open path to exactly one (small) Storage round trip.
  */
 
 type ViewerStatus = "idle" | "loading" | "ready" | "error";
+type FullResStatus = "idle" | "loading" | "error";
+
+interface CachedPreview {
+  readonly url: string;
+  /** Wall-clock time the ORIGINAL mint's own signed access expires — never extended on reopen. */
+  readonly expiresAtMs: number;
+}
 
 export interface OwnerLeadFileViewerProps {
   readonly leadId: string;
@@ -29,6 +50,7 @@ export interface OwnerLeadFileViewerProps {
 const IMAGE_MIME_PREFIX = "image/";
 
 export function OwnerLeadFileViewer({ leadId, file, deps, onUnauthorized }: OwnerLeadFileViewerProps) {
+  const queryClient = useQueryClient();
   const [status, setStatus] = useState<ViewerStatus>("idle");
   const [signedUrl, setSignedUrl] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -37,6 +59,7 @@ export function OwnerLeadFileViewer({ leadId, file, deps, onUnauthorized }: Owne
   // image transfer/decode too, not just the mint, so this only flips once
   // the real <img> fires onLoad.
   const [imageLoaded, setImageLoaded] = useState(false);
+  const [fullResStatus, setFullResStatus] = useState<FullResStatus>("idle");
   const expiryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const isImage = file.mimeType.startsWith(IMAGE_MIME_PREFIX);
@@ -60,11 +83,44 @@ export function OwnerLeadFileViewer({ leadId, file, deps, onUnauthorized }: Owne
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leadId, file.id]);
 
+  /** Starts (or restarts, on a cache-hit reopen) the dialog's own auto-close timer for exactly `remainingMs` — never a fresh 60s on reopen; always the ORIGINAL mint's own remaining lifetime. */
+  function armExpiryTimer(remainingMs: number) {
+    if (expiryTimerRef.current) clearTimeout(expiryTimerRef.current);
+    expiryTimerRef.current = setTimeout(() => {
+      clearSignedUrl();
+      setIsModalOpen(false);
+      setStatus("idle");
+    }, remainingMs);
+  }
+
   async function handleOpen() {
     if (status === "loading") return; // guards against a double-click minting two signed URLs
-    setStatus("loading");
     setImageLoaded(false);
+    setFullResStatus("idle");
 
+    // PERF — a reopen of the same file, still within its previous mint's
+    // own real signed-access lifetime, reuses that exact URL: no network
+    // mint, and the browser's own HTTP cache already has the bytes for
+    // this exact URL, so the <img> below decodes near-instantly. A newer
+    // image response can never "refill" this read (there's no async gap
+    // here at all — getCachedOwnerData is synchronous), and the entry is
+    // the same shared QueryClient OwnerShell.tsx already clears on
+    // logout/unauthorized/account-switch, so isolation is inherited, not
+    // reimplemented here.
+    if (isImage) {
+      const cached = getCachedOwnerData<CachedPreview>(queryClient, ownerFilePreviewQueryKey(file.id));
+      const remainingMs = cached ? cached.expiresAtMs - Date.now() : 0;
+      if (cached && remainingMs > 0) {
+        setStatus("ready");
+        setSignedUrl(cached.url);
+        setIsModalOpen(true);
+        armExpiryTimer(remainingMs);
+        return;
+      }
+    }
+
+    setStatus("loading");
+    if (isImage) setIsModalOpen(true);
     // PERF — the viewer dialog now opens immediately, before the signed-url
     // mint even starts (measured: minting + the actual image transfer can
     // together take well over a second on a real network — see the dialog
@@ -73,11 +129,18 @@ export function OwnerLeadFileViewer({ leadId, file, deps, onUnauthorized }: Owne
     // made the View button look like it "waited" before doing anything.
     // Non-image files are unaffected: there is no dialog for them, and
     // window.open() below still only ever runs once the real URL exists.
-    if (isImage) setIsModalOpen(true);
 
+    abortControllerRef.current?.abort();
     const controller = new AbortController();
     abortControllerRef.current = controller;
-    const result = await requestOwnerLeadFileAccess(leadId, file.id, deps, controller.signal);
+    const result = await requestOwnerLeadFileAccess(leadId, file.id, deps, controller.signal, { preview: isImage });
+
+    // Isolation — a request whose controller was aborted (dialog closed,
+    // file/lead changed, unmount) must never apply its result, even if the
+    // underlying promise had already settled before abort() ran (abort()
+    // cannot retroactively reject an already-settled promise) — see
+    // use-owner-lead-list.ts's identical guard for the full reasoning.
+    if (controller.signal.aborted) return;
 
     if (result.kind === "unauthorized") {
       setStatus("idle");
@@ -95,11 +158,13 @@ export function OwnerLeadFileViewer({ leadId, file, deps, onUnauthorized }: Owne
 
     setSignedUrl(result.data.url);
     setStatus("ready");
-    expiryTimerRef.current = setTimeout(() => {
-      clearSignedUrl();
-      setIsModalOpen(false);
-      setStatus("idle");
-    }, result.data.expiresInSeconds * 1000);
+    armExpiryTimer(result.data.expiresInSeconds * 1000);
+    if (isImage) {
+      setCachedOwnerData<CachedPreview>(queryClient, ownerFilePreviewQueryKey(file.id), {
+        url: result.data.url,
+        expiresAtMs: Date.now() + result.data.expiresInSeconds * 1000,
+      });
+    }
 
     if (!isImage) {
       // PDFs/other documents: open directly in a new tab, never inline —
@@ -107,6 +172,36 @@ export function OwnerLeadFileViewer({ leadId, file, deps, onUnauthorized }: Owne
       // window (e.g. via window.opener) or leak this page's URL/referrer.
       window.open(result.data.url, "_blank", "noopener,noreferrer");
     }
+  }
+
+  /** "View full resolution" — a separate, lazily-minted, untransformed signed URL; never requested until explicitly asked for, so the default open path stays to exactly one (small) Storage round trip. */
+  async function handleOpenFullResolution() {
+    if (fullResStatus === "loading") return;
+    setFullResStatus("loading");
+
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+    const result = await requestOwnerLeadFileAccess(leadId, file.id, deps, controller.signal);
+
+    if (controller.signal.aborted) return;
+
+    if (result.kind === "unauthorized") {
+      setFullResStatus("idle");
+      onUnauthorized();
+      return;
+    }
+    if (result.kind === "aborted") {
+      setFullResStatus("idle");
+      return;
+    }
+    if (result.kind === "error") {
+      setFullResStatus("error");
+      return;
+    }
+
+    setFullResStatus("idle");
+    window.open(result.data.url, "_blank", "noopener,noreferrer");
   }
 
   function handleModalOpenChange(open: boolean) {
@@ -120,6 +215,7 @@ export function OwnerLeadFileViewer({ leadId, file, deps, onUnauthorized }: Owne
       clearSignedUrl();
       setStatus("idle");
       setImageLoaded(false);
+      setFullResStatus("idle");
     }
   }
 
@@ -199,7 +295,32 @@ export function OwnerLeadFileViewer({ leadId, file, deps, onUnauthorized }: Owne
                 ) : null}
               </>
             )}
-            <p className="text-xs text-muted-foreground">This link is temporary and stops working shortly after opening.</p>
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-xs text-muted-foreground">This link is temporary and stops working shortly after opening.</p>
+              {status === "ready" && imageLoaded ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => void handleOpenFullResolution()}
+                  disabled={fullResStatus === "loading"}
+                  className="shrink-0 gap-1.5 text-xs text-foreground/70 hover:text-foreground"
+                >
+                  {fullResStatus === "loading" ? (
+                    <Loader2 className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+                  ) : (
+                    <ExternalLink className="size-3.5" aria-hidden="true" />
+                  )}
+                  View full resolution
+                </Button>
+              ) : null}
+            </div>
+            {fullResStatus === "error" ? (
+              <p role="alert" className="flex items-center gap-1 text-xs text-destructive">
+                <AlertCircle className="size-3" aria-hidden="true" />
+                Couldn't open the full-resolution photo. Please try again.
+              </p>
+            ) : null}
           </DialogContent>
         </Dialog>
       ) : null}

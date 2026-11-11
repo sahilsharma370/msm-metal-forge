@@ -23,4 +23,12 @@ export function render(ui: ReactElement, options?: RenderOptions): RenderResult 
   });
 }
 
+/** For the rarer test that needs to inspect/seed the QueryClient a rendered component reads/writes (e.g. the owner photo viewer's reopen cache) — `render` above stays a same-signature drop-in for every other call site, so this is a separate named export rather than a third parameter on it. */
+export function renderWithQueryClient(ui: ReactElement, queryClient: QueryClient, options?: RenderOptions): RenderResult {
+  return testingLibraryRender(ui, {
+    wrapper: ({ children }) => <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>,
+    ...options,
+  });
+}
+
 export * from "@testing-library/react";

@@ -159,6 +159,18 @@ describe("owner-leads-transport — request parameters", () => {
     const [, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
     expect(init.method).toBe("POST");
   });
+
+  it("appends ?preview=1 only when the viewer's own preview variant is requested", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(200, { ok: true, data: { url: "https://example.test/x", expiresInSeconds: 60 } }));
+    await requestOwnerLeadFileAccess("lead-1", "file-1", { authClient: fakeAuthClient(), fetchImpl }, undefined, { preview: true });
+    const [previewUrl] = fetchImpl.mock.calls[0] as [string];
+    expect(previewUrl).toBe("/api/owner/leads/lead-1/files/file-1/access?preview=1");
+
+    fetchImpl.mockClear();
+    await requestOwnerLeadFileAccess("lead-1", "file-1", { authClient: fakeAuthClient(), fetchImpl });
+    const [fullResUrl] = fetchImpl.mock.calls[0] as [string];
+    expect(fullResUrl).toBe("/api/owner/leads/lead-1/files/file-1/access");
+  });
 });
 
 describe("owner-leads-transport — changeOwnerLeadStatus (CHECKPOINT C2J-E)", () => {

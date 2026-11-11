@@ -24,7 +24,8 @@ vi.mock("@/server/owner-leads/owner-lead-file-access.server", async (importOrigi
   return {
     ...actual,
     createProductionOwnerLeadFileAccessServiceDeps: () => createProductionOwnerLeadFileAccessServiceDepsMock(),
-    getOwnerLeadFileAccess: (leadId: string, fileId: string, deps: unknown) => getOwnerLeadFileAccessMock(leadId, fileId, deps),
+    getOwnerLeadFileAccess: (leadId: string, fileId: string, deps: unknown, options: unknown) =>
+      getOwnerLeadFileAccessMock(leadId, fileId, deps, options),
   };
 });
 
@@ -128,6 +129,37 @@ describe("handleOwnerLeadFileAccessRequest — happy path", () => {
     getOwnerLeadFileAccessMock.mockResolvedValue({ ok: true, url: "https://example.test/signed?token=abc", expiresInSeconds: 60 });
     const response = await handleOwnerLeadFileAccessRequest(authorizedRequest(`/api/owner/leads/${VALID_LEAD_ID}/files/${VALID_FILE_ID}/access`), VALID_LEAD_ID, VALID_FILE_ID);
     expect(response.headers.get("cache-control")).toBe("private, no-store");
+  });
+});
+
+describe("handleOwnerLeadFileAccessRequest — PERF: the viewer modal's preview variant", () => {
+  it("passes preview: true when the request's own ?preview=1 is present", async () => {
+    verifyOwnerSessionMock.mockResolvedValue(AUTHORIZED_SESSION);
+    getOwnerLeadFileAccessMock.mockResolvedValue({ ok: true, url: "https://example.test/signed?token=abc", expiresInSeconds: 60 });
+    await handleOwnerLeadFileAccessRequest(
+      authorizedRequest(`/api/owner/leads/${VALID_LEAD_ID}/files/${VALID_FILE_ID}/access?preview=1`),
+      VALID_LEAD_ID,
+      VALID_FILE_ID,
+    );
+    expect(getOwnerLeadFileAccessMock).toHaveBeenCalledWith(VALID_LEAD_ID, VALID_FILE_ID, expect.anything(), { preview: true });
+  });
+
+  it("passes preview: false — the 'view full resolution' path — when no ?preview is present", async () => {
+    verifyOwnerSessionMock.mockResolvedValue(AUTHORIZED_SESSION);
+    getOwnerLeadFileAccessMock.mockResolvedValue({ ok: true, url: "https://example.test/signed?token=abc", expiresInSeconds: 60 });
+    await handleOwnerLeadFileAccessRequest(authorizedRequest(`/api/owner/leads/${VALID_LEAD_ID}/files/${VALID_FILE_ID}/access`), VALID_LEAD_ID, VALID_FILE_ID);
+    expect(getOwnerLeadFileAccessMock).toHaveBeenCalledWith(VALID_LEAD_ID, VALID_FILE_ID, expect.anything(), { preview: false });
+  });
+
+  it("an arbitrary ?preview value other than exactly '1' is treated as not requesting a preview", async () => {
+    verifyOwnerSessionMock.mockResolvedValue(AUTHORIZED_SESSION);
+    getOwnerLeadFileAccessMock.mockResolvedValue({ ok: true, url: "https://example.test/signed?token=abc", expiresInSeconds: 60 });
+    await handleOwnerLeadFileAccessRequest(
+      authorizedRequest(`/api/owner/leads/${VALID_LEAD_ID}/files/${VALID_FILE_ID}/access?preview=true`),
+      VALID_LEAD_ID,
+      VALID_FILE_ID,
+    );
+    expect(getOwnerLeadFileAccessMock).toHaveBeenCalledWith(VALID_LEAD_ID, VALID_FILE_ID, expect.anything(), { preview: false });
   });
 });
 

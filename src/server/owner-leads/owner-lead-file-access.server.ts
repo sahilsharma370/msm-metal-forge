@@ -35,13 +35,71 @@ export class OwnerLeadFileAccessQueryError extends Error {
   }
 }
 
+/**
+ * PERF — the owner photo viewer's modal preview. A number from 20 to 100
+ * (Storage's own documented range); 75 keeps visible artefacting low while
+ * still meaningfully smaller than the default 80 + the original's own
+ * encoding. Width only (no height): Storage preserves aspect ratio on a
+ * single-dimension constraint regardless of `resize` mode, so there is
+ * nothing to get wrong by omitting it. 1600px remains sharp inside this
+ * modal's own `max-h-[70vh] max-w-3xl` bounds on any display this product
+ * targets, while capping the owner-upload ceiling (8 MiB, see
+ * upload-quote.ts's MAX_BYTES — no client-side resize happens before
+ * upload, so a real phone photo can legitimately be that large) down to a
+ * small fraction of that for the common "glance at it, triage the lead"
+ * case. Omitting `format` lets Storage pick a modern, smaller format
+ * (WebP) for whatever the requesting browser accepts, rather than forcing
+ * the original's own encoding.
+ */
+export const OWNER_LEAD_FILE_PREVIEW_TRANSFORM = { width: 1600, quality: 75 } as const;
+export type OwnerLeadFilePreviewTransform = typeof OWNER_LEAD_FILE_PREVIEW_TRANSFORM;
+
 export interface OwnerLeadFileAccessServiceDeps {
   /** True if the lead exists and has submission_completed_at set; false if it exists but isn't completed; null if no such lead exists at all. */
   queryLeadIsCompleted(leadId: string): Promise<boolean | null>;
   /** Null when no such file row exists. */
   queryLeadFile(fileId: string): Promise<LeadFileAccessRow | null>;
-  /** Null signedUrl signals a Storage/provider failure — never thrown across this boundary so the route can map it to one sanitized 500 without echoing provider error text. */
-  createSignedUrl(storagePath: string, expiresInSeconds: number): Promise<string | null>;
+  /**
+   * Null signedUrl signals a Storage/provider failure — never thrown
+   * across this boundary so the route can map it to one sanitized 500
+   * without echoing provider error text. `transform`, when given, asks for
+   * a smaller rendered variant (the viewer's modal preview, never the
+   * "view full resolution" path) — the production implementation is
+   * responsible for falling back to an untransformed signed URL if the
+   * transformed request itself fails (e.g. Image Transformations not
+   * enabled on this Supabase project), never surfacing that as a total
+   * failure; see mintSignedUrlWithTransformFallback below.
+   */
+  createSignedUrl(storagePath: string, expiresInSeconds: number, transform?: OwnerLeadFilePreviewTransform): Promise<string | null>;
+}
+
+/** The one Storage call shape both the transformed and fallback attempts below share — narrowed to exactly what createSignedUrl needs so this stays testable without a real SupabaseClient. */
+type SignedUrlMinter = (
+  transform?: OwnerLeadFilePreviewTransform,
+) => Promise<{ data: { signedUrl: string } | null; error: unknown }>;
+
+/**
+ * PERF — never guesses whether this Supabase project actually has Image
+ * Transformations enabled (a paid, per-project add-on; this session has no
+ * way to confirm it from here without either the secret key or a live
+ * owner session against production). Attempts the transformed mint first
+ * when a transform is given; if THAT specific attempt errors for any
+ * reason, retries once with no transform at all — exercising the viewer's
+ * already-working untransformed path rather than ever turning an unproven
+ * infra assumption into a broken photo. No transform requested at all
+ * skips straight to the single untransformed attempt.
+ */
+export async function mintSignedUrlWithTransformFallback(
+  mint: SignedUrlMinter,
+  transform: OwnerLeadFilePreviewTransform | undefined,
+): Promise<string | null> {
+  if (transform) {
+    const transformed = await mint(transform);
+    if (!transformed.error && transformed.data) return transformed.data.signedUrl;
+  }
+  const plain = await mint(undefined);
+  if (plain.error || !plain.data) return null;
+  return plain.data.signedUrl;
 }
 
 export function createProductionOwnerLeadFileAccessServiceDeps(): OwnerLeadFileAccessServiceDeps {
@@ -67,10 +125,14 @@ export function createProductionOwnerLeadFileAccessServiceDeps(): OwnerLeadFileA
       return parsed.data;
     },
 
-    async createSignedUrl(storagePath, expiresInSeconds) {
-      const { data, error } = await admin.storage.from(LEAD_FILES_BUCKET).createSignedUrl(storagePath, expiresInSeconds);
-      if (error || !data) return null;
-      return data.signedUrl;
+    async createSignedUrl(storagePath, expiresInSeconds, transform) {
+      return mintSignedUrlWithTransformFallback(
+        (t) =>
+          t
+            ? admin.storage.from(LEAD_FILES_BUCKET).createSignedUrl(storagePath, expiresInSeconds, { transform: t })
+            : admin.storage.from(LEAD_FILES_BUCKET).createSignedUrl(storagePath, expiresInSeconds),
+        transform,
+      );
     },
   };
 }
@@ -92,6 +154,8 @@ export async function getOwnerLeadFileAccess(
   leadId: string,
   fileId: string,
   deps: OwnerLeadFileAccessServiceDeps,
+  /** `preview: true` — the viewer modal's own fast-loading variant, never the "view full resolution" path. Purely a presentational hint to Storage; never affects any authorization check above. */
+  options?: { readonly preview?: boolean },
 ): Promise<OwnerLeadFileAccessResult> {
   // PERF — queryLeadIsCompleted(leadId) and queryLeadFile(fileId) are
   // genuinely independent reads (neither's result depends on the other),
@@ -116,7 +180,11 @@ export async function getOwnerLeadFileAccess(
     return { ok: false, reason: "not_found" };
   }
 
-  const url = await deps.createSignedUrl(file.storage_path, OWNER_LEAD_FILE_ACCESS_SIGNED_URL_TTL_SECONDS);
+  const url = await deps.createSignedUrl(
+    file.storage_path,
+    OWNER_LEAD_FILE_ACCESS_SIGNED_URL_TTL_SECONDS,
+    options?.preview ? OWNER_LEAD_FILE_PREVIEW_TRANSFORM : undefined,
+  );
   if (!url) {
     return { ok: false, reason: "storage_error" };
   }
