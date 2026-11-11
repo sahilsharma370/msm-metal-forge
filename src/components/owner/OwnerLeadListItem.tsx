@@ -1,13 +1,10 @@
 import { Link } from "@tanstack/react-router";
 import { AlertTriangle, ChevronRight, MapPin, Phone, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { cn } from "@/lib/utils";
 import type { OwnerLeadListItem as OwnerLeadListItemType } from "@/lib/owner/owner-leads-contract";
 import {
   OWNER_LEAD_STATUS_LABELS,
-  OWNER_LEAD_STATUS_TEXT_CLASS,
   OWNER_LEAD_INTENT_LABELS,
-  OWNER_LEAD_INTENT_TEXT_CLASS,
   OWNER_LEAD_MATERIAL_LABELS,
   formatQuantity,
   formatPhoneForDisplay,
@@ -225,17 +222,14 @@ export function OwnerLeadListItem({ lead }: OwnerLeadListItemProps) {
           )}
         </div>
 
-        {/* 4. Status — plain coloured text, same PRIMARY_TEXT_CLASS
-            typography as every other primary value (Contact name,
-            Material, Location, Received) — no dot, badge, or pill. Only
-            the colour utility is overridden per status via `cn()`.
-            Left-aligned flush with the Status track's left edge. The
-            notification-attention indicator, when present, sits below it,
-            left-aligned too. */}
+        {/* 4. Status — neutral, semibold text (CHECKPOINT OWNER ENQUIRIES
+            SIX-CIRCLE PASS — per-status colour removed; status is no
+            longer the row's own colour-coded signal, just a clearly
+            weighted value). No dot, badge, or pill. Left-aligned flush with
+            the Status track's left edge. The notification-attention
+            indicator, when present, sits below it, left-aligned too. */}
         <div className={CELL_STACK_CLASS}>
-          <p className={cn(PRIMARY_TEXT_CLASS, OWNER_LEAD_STATUS_TEXT_CLASS[lead.status])}>
-            {OWNER_LEAD_STATUS_LABELS[lead.status]}
-          </p>
+          <p className="truncate text-sm font-semibold text-foreground">{OWNER_LEAD_STATUS_LABELS[lead.status]}</p>
           {needsNotificationAttention ? (
             <Badge
               variant="outline"
@@ -254,14 +248,13 @@ export function OwnerLeadListItem({ lead }: OwnerLeadListItemProps) {
           <p className={SECONDARY_TEXT_CLASS}>{formatCaptureChannelVia(lead.captureChannel)}</p>
         </div>
 
-        {/* 6. Type — plain coloured text, matching Status's treatment
-            exactly (same PRIMARY_TEXT_CLASS typography, colour-only
-            override). Its own column now that it's no longer sharing a
-            track with the reference. */}
+        {/* 6. Type (Selling/Buying) — neutral text, same PRIMARY_TEXT_CLASS
+            typography as every other primary value (CHECKPOINT OWNER
+            ENQUIRIES SIX-CIRCLE PASS — per-intent colour removed, matching
+            Status's own neutral treatment). Its own column now that it's
+            no longer sharing a track with the reference. */}
         <div className="flex min-w-0 max-w-full items-center">
-          <p className={cn(PRIMARY_TEXT_CLASS, OWNER_LEAD_INTENT_TEXT_CLASS[lead.intent])}>
-            {OWNER_LEAD_INTENT_LABELS[lead.intent]}
-          </p>
+          <p className={PRIMARY_TEXT_CLASS}>{OWNER_LEAD_INTENT_LABELS[lead.intent]}</p>
         </div>
 
         {/* 7. Reference — its own column, restrained but visually important:

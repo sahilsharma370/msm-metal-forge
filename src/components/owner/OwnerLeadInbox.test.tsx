@@ -359,3 +359,45 @@ describe("OwnerLeadInbox — column heading discloses UAE once, not per row (CHE
     expect(screen.getByText(/received \(uae\)/i)).toBeInTheDocument();
   });
 });
+
+describe("OwnerLeadInbox — row hierarchy: Status and Type read as neutral, not colour-coded (CHECKPOINT OWNER ENQUIRIES SIX-CIRCLE PASS)", () => {
+  it.each([
+    ["new", "sell"],
+    ["completed", "sell"],
+    ["lost", "buy"],
+    ["needs_information", "buy"],
+  ] as const)("status=%s intent=%s renders neutral semibold status text and neutral intent text, no colour utility", (status, intent) => {
+    render(<OwnerLeadInbox {...baseProps({ state: baseState({ items: [sellLead({ status, intent, id: `lead-${status}-${intent}` })] }) })} />);
+    const list = within(screen.getByRole("region", { name: "Enquiries" }));
+    const statusText = list.getByText(OWNER_LEAD_STATUS_LABELS[status]);
+    expect(statusText.className).toMatch(/font-semibold/);
+    expect(statusText.className).toMatch(/text-foreground\b/);
+    expect(statusText.className).not.toMatch(/text-(copper-bright|amber|sky|emerald|rose)-?\d*/);
+
+    const intentLabel = intent === "sell" ? "Selling" : "Buying";
+    const intentText = list.getByText(intentLabel);
+    expect(intentText.className).not.toMatch(/text-(copper-bright|amber|sky|emerald|rose)-?\d*/);
+  });
+});
+
+describe("OwnerLeadInbox — collision guard: long values truncate instead of overflowing or colliding (CHECKPOINT OWNER ENQUIRIES SIX-CIRCLE PASS)", () => {
+  it("truncates a very long contact name, location area, and reference, each within its own cell", () => {
+    const longLead = sellLead({
+      contact: { name: "A".repeat(80) + " " + "B".repeat(80), phone: "+971501234567" },
+      location: { emirate: "dubai", area: "Z".repeat(100) },
+      reference: "MSM-260101-" + "R".repeat(60),
+    });
+    render(<OwnerLeadInbox {...baseProps({ state: baseState({ items: [longLead] }) })} />);
+
+    const name = screen.getByText(longLead.contact.name as string);
+    expect(name.className).toMatch(/truncate/);
+    expect(name.closest("div")?.className).toMatch(/min-w-0/);
+
+    const area = screen.getByText(longLead.location.area as string);
+    expect(area.className).toMatch(/truncate/);
+
+    const reference = screen.getByText(longLead.reference);
+    expect(reference.className).toMatch(/truncate/);
+    expect(reference.closest("div")?.className).toMatch(/min-w-0/);
+  });
+});

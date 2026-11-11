@@ -270,7 +270,7 @@ export function OwnerLeadFilters({
             onClear();
           }}
           disabled={isBusy}
-          className="h-8 gap-1.5 border-copper/40 text-copper-bright hover:bg-copper/10"
+          className="h-8 gap-1.5 border-copper/40 text-copper-bright hover:bg-copper/10 lg:h-9"
         >
           <X className="size-3.5" aria-hidden="true" />
           Reset

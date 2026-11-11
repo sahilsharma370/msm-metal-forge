@@ -269,7 +269,14 @@ export function OwnerLeadInbox({
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className={`${OWNER_CONTAINER_CLASS} flex flex-col gap-5 py-6 lg:pt-4`}>
+        {/* CHECKPOINT OWNER ENQUIRIES SIX-CIRCLE PASS — `lg:pt-4` (16px)
+            tightened to `lg:pt-2` (8px): the title/count block above and
+            this toolbar read as one loosely-grouped region at the prior
+            gap (OwnerPageHeader's own `lg:py-4` bottom padding plus this
+            wrapper's own top padding compounded to 32px of raw whitespace
+            with no divider between them on this page — `noDesktopDivider`
+            above). Below `lg`, unchanged. */}
+        <div className={`${OWNER_CONTAINER_CLASS} flex flex-col gap-5 py-6 lg:pt-2`}>
           {exportState.error ? (
             <div className="flex items-center justify-between gap-3 rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
               <span>{exportState.error}</span>
@@ -357,7 +364,12 @@ export function OwnerLeadInbox({
                     once here rather than repeated on every row's own
                     timestamp. */}
                 <div
-                  className={`hidden border-b border-white/10 px-4 py-1.5 text-left text-[10px] font-semibold tracking-wide text-foreground/45 uppercase sm:grid lg:py-3 ${OWNER_LEAD_ROW_GRID_CLASS}`}
+                  // CHECKPOINT OWNER ENQUIRIES SIX-CIRCLE PASS — contrast
+                  // raised `/45` -> `/60`: the prior value read too close to
+                  // the panel background to clearly anchor each column at a
+                  // glance; still deliberately quieter than any row's own
+                  // primary text (`text-foreground` at full opacity).
+                  className={`hidden border-b border-white/10 px-4 py-1.5 text-left text-[10px] font-semibold tracking-wide text-foreground/60 uppercase sm:grid lg:py-3 ${OWNER_LEAD_ROW_GRID_CLASS}`}
                 >
                   <span>Contact</span>
                   <span>Material / quantity</span>
