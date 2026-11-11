@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { Plus, RefreshCw } from "lucide-react";
+import { LogOut, Plus, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import msmLogo from "@/assets/msm-logo.svg";
 import { OwnerNav } from "./OwnerNav";
@@ -221,16 +221,29 @@ export function OwnerShell({ authClient, sessionChecker, onUnauthorized, childre
               </Button>
             ) : null}
             {/* Subtle vertical divider between Refresh and Log out, matching
-                the reference — desktop only, purely decorative. */}
-            <span aria-hidden="true" className="hidden h-5 w-px bg-white/15 lg:block" />
+                the reference — desktop only, purely decorative. CHECKPOINT
+                OWNER ENQUIRIES SIX-CIRCLE PASS — now gated on refreshHandler
+                existing at all: a page that never registers one (Add
+                enquiry's own Body, for one) left Log out as the only
+                right-side control with this divider still rendered right
+                before it — an orphaned separator with nothing on its other
+                side to separate from. */}
+            {refreshHandler ? <span aria-hidden="true" className="hidden h-5 w-px bg-white/15 lg:block" /> : null}
+            {/* Icon-only below `lg` — same treatment Refresh already uses
+                above — so this header's right-side actions (Log out, + Add
+                enquiry) stop colliding with the centre nav pill at phone
+                widths; `aria-label` keeps the accessible name stable even
+                though the visible text is gone on mobile. */}
             <Button
               type="button"
               variant="ghost"
               size="sm"
               onClick={() => void handleLogout()}
-              className="text-foreground/70 hover:text-foreground"
+              aria-label="Log out"
+              className="gap-1.5 text-foreground/70 hover:text-foreground"
             >
-              Log out
+              <LogOut className="size-4" aria-hidden="true" />
+              <span className="hidden lg:inline">Log out</span>
             </Button>
             {/* CHECKPOINT OWNER DESKTOP REFINEMENT / C2M-A — the one
                 persistent, copper primary action across Overview/
@@ -256,14 +269,14 @@ export function OwnerShell({ authClient, sessionChecker, onUnauthorized, childre
               >
                 <span tabIndex={-1}>
                   <Plus className="size-4" aria-hidden="true" />
-                  Add enquiry
+                  <span className="hidden lg:inline">Add enquiry</span>
                 </span>
               </Button>
             ) : (
-              <Button asChild variant="brand" size="sm" className="ml-1 gap-1.5 bg-copper hover:bg-copper/90">
+              <Button asChild variant="brand" size="sm" aria-label="Add enquiry" className="ml-1 gap-1.5 bg-copper hover:bg-copper/90">
                 <Link to="/owner/leads/new">
                   <Plus className="size-4" aria-hidden="true" />
-                  Add enquiry
+                  <span className="hidden lg:inline">Add enquiry</span>
                 </Link>
               </Button>
             )}

@@ -50,17 +50,18 @@ describe("lastNUaeDateKeys", () => {
 });
 
 describe("computeOwnerLeadOverview — zero data", () => {
-  it("produces honest zeros for every count, never omitting a vocabulary key", () => {
+  it("produces honest zeros for every count, never omitting a vocabulary key, in both windows", () => {
     const result = computeOwnerLeadOverview([], new Map(), new Map(), NOW);
 
-    expect(result.totals).toEqual({ total: 0, new: 0, open: 0, completed: 0 });
-    for (const status of OWNER_LEAD_STATUS_VALUES) expect(result.byStatus[status]).toBe(0);
-    for (const material of OWNER_LEAD_MATERIAL_VALUES) expect(result.byMaterial[material]).toBe(0);
-    for (const channel of OWNER_LEAD_CAPTURE_CHANNEL_VALUES) expect(result.byCaptureChannel[channel]).toBe(0);
-    expect(result.dailyCounts).toHaveLength(7);
-    expect(result.dailyCounts.every((day) => day.count === 0)).toBe(true);
-    expect(result.dailyCounts30).toHaveLength(30);
-    expect(result.dailyCounts30.every((day) => day.count === 0)).toBe(true);
+    for (const dataWindow of [result.sevenDay, result.thirtyDay]) {
+      expect(dataWindow.totals).toEqual({ total: 0, new: 0, open: 0, completed: 0 });
+      for (const status of OWNER_LEAD_STATUS_VALUES) expect(dataWindow.byStatus[status]).toBe(0);
+      for (const material of OWNER_LEAD_MATERIAL_VALUES) expect(dataWindow.byMaterial[material]).toBe(0);
+      for (const channel of OWNER_LEAD_CAPTURE_CHANNEL_VALUES) expect(dataWindow.byCaptureChannel[channel]).toBe(0);
+      expect(dataWindow.dailyCounts.every((day) => day.count === 0)).toBe(true);
+    }
+    expect(result.sevenDay.dailyCounts).toHaveLength(7);
+    expect(result.thirtyDay.dailyCounts).toHaveLength(30);
     expect(result.stale).toEqual({ thresholdHours: 72, count: 0 });
     expect(result.attentionCount).toBe(0);
     expect(result.attentionLeads).toEqual([]);
@@ -69,6 +70,11 @@ describe("computeOwnerLeadOverview — zero data", () => {
 
 describe("computeOwnerLeadOverview — status/open/closed definitions", () => {
   it("counts 'completed' status exactly, and open as everything outside {completed, lost, archived}", () => {
+    // submission_completed_at defaults to 2026-08-10 — inside the 30-day
+    // window ending 2026-08-18 (NOW), outside the 7-day one (starts
+    // 2026-08-12) — asserted against thirtyDay so this test's own intent
+    // (status/open/closed categorisation) stays independent of the
+    // date-window boundary covered separately below.
     const rows: OverviewLeadRow[] = [
       row({ id: "11111111-1111-1111-1111-111111111111", status: "new" }),
       row({ id: "22222222-2222-2222-2222-222222222222", status: "contacted" }),
@@ -78,33 +84,39 @@ describe("computeOwnerLeadOverview — status/open/closed definitions", () => {
     ];
     const result = computeOwnerLeadOverview(rows, new Map(), new Map(), NOW);
 
-    expect(result.totals.total).toBe(5);
-    expect(result.totals.new).toBe(1);
-    expect(result.totals.completed).toBe(1);
-    expect(result.totals.open).toBe(2); // new + contacted only
+    expect(result.thirtyDay.totals.total).toBe(5);
+    expect(result.thirtyDay.totals.new).toBe(1);
+    expect(result.thirtyDay.totals.completed).toBe(1);
+    expect(result.thirtyDay.totals.open).toBe(2); // new + contacted only
   });
 });
 
-describe("computeOwnerLeadOverview — daily bucketing (UAE boundary)", () => {
-  it("buckets by submission_completed_at converted to its Asia/Dubai calendar day, ignoring dates outside the 7-day window", () => {
+describe("computeOwnerLeadOverview — PERF/CORRECTNESS: the selected window governs totals/breakdowns too, not just dailyCounts (regression for the live '17 vs 61' report)", () => {
+  it("buckets by submission_completed_at converted to its Asia/Dubai calendar day, and excludes a lead entirely from a window its submission date falls outside — including from that window's own totals/breakdowns, not just its daily buckets", () => {
     const rows: OverviewLeadRow[] = [
-      // Falls in today's UAE bucket (2026-08-18) despite being 17th in UTC.
+      // Falls in today's UAE bucket (2026-08-18) despite being 17th in UTC — inside both the 7-day and 30-day windows.
       row({ id: "11111111-1111-1111-1111-111111111111", submission_completed_at: "2026-08-17T21:30:00.000Z" }),
-      // Falls outside the 7-day window entirely (too old) — must not appear anywhere.
+      // Falls outside even the 30-day window entirely — must not appear in either window's totals, breakdowns, or daily buckets.
       row({ id: "22222222-2222-2222-2222-222222222222", submission_completed_at: "2026-01-01T00:00:00.000Z" }),
     ];
     const result = computeOwnerLeadOverview(rows, new Map(), new Map(), NOW);
 
-    const today = result.dailyCounts.find((day) => day.date === "2026-08-18");
-    expect(today?.count).toBe(1);
-    const totalBucketed = result.dailyCounts.reduce((sum, day) => sum + day.count, 0);
-    expect(totalBucketed).toBe(1); // the out-of-window row contributes to totals but not to any daily bucket
-    expect(result.totals.total).toBe(2);
+    const today7 = result.sevenDay.dailyCounts.find((day) => day.date === "2026-08-18");
+    expect(today7?.count).toBe(1);
+    const today30 = result.thirtyDay.dailyCounts.find((day) => day.date === "2026-08-18");
+    expect(today30?.count).toBe(1);
 
-    // dailyCounts30 shares the same underlying bucket map — the last 7 of its 30 entries must equal dailyCounts exactly, and the 2026-01-01 row is outside even the 30-day window.
-    expect(result.dailyCounts30).toHaveLength(30);
-    expect(result.dailyCounts30.slice(-7)).toEqual(result.dailyCounts);
-    expect(result.dailyCounts30.reduce((sum, day) => sum + day.count, 0)).toBe(1);
+    // The regression this test guards: previously `totals.total` counted
+    // BOTH rows regardless of window (the live "61" symptom), while only
+    // dailyCounts was ever actually windowed (the live "17" symptom). Now
+    // the out-of-window row contributes to neither window's totals at all.
+    expect(result.sevenDay.totals.total).toBe(1);
+    expect(result.thirtyDay.totals.total).toBe(1);
+
+    expect(result.sevenDay.dailyCounts).toHaveLength(7);
+    expect(result.thirtyDay.dailyCounts).toHaveLength(30);
+    // The last 7 of the 30-day series must equal the 7-day series exactly — same underlying bucket map, same boundary.
+    expect(result.thirtyDay.dailyCounts.slice(-7)).toEqual(result.sevenDay.dailyCounts);
   });
 });
 
@@ -250,6 +262,7 @@ describe("getOwnerLeadOverview — wiring", () => {
 
     expect(activityQueriedWith).toEqual([openId]);
     expect(notificationQueriedWith.slice().sort()).toEqual([closedId, openId].sort());
-    expect(result.totals.total).toBe(2);
+    // Both rows' default submission_completed_at (2026-08-10) falls inside the 30-day window ending "now", outside the 7-day one.
+    expect(result.thirtyDay.totals.total).toBe(2);
   });
 });

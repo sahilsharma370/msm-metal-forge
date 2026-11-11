@@ -30,6 +30,7 @@ import {
 import {
   isOwnerLeadClosedStatus,
   type OwnerLeadOverviewData,
+  type OwnerLeadOverviewWindow,
   type OwnerOverviewAttentionReason,
 } from "@/lib/owner/owner-lead-overview-contract";
 import { deriveNotificationSummaryStatus } from "./owner-leads.server";
@@ -205,23 +206,78 @@ function zeroCounts<K extends string>(values: readonly K[]): Record<K, number> {
   return record;
 }
 
+/** Mutable per-window accumulator — one instance per date window (7-day, 30-day), filled by accumulateIntoWindow as rows are scanned once. */
+interface WindowAccumulator {
+  readonly byStatus: Record<OwnerLeadStatus, number>;
+  readonly byIntent: Record<OwnerLeadIntent, number>;
+  readonly byMaterial: Record<OwnerLeadMaterial, number>;
+  readonly byCaptureChannel: Record<OwnerLeadCaptureChannel, number>;
+  total: number;
+  openCount: number;
+  completedCount: number;
+}
+
+function freshWindowAccumulator(): WindowAccumulator {
+  return {
+    byStatus: zeroCounts<OwnerLeadStatus>(OWNER_LEAD_STATUS_VALUES),
+    byIntent: zeroCounts<OwnerLeadIntent>(OWNER_LEAD_INTENT_VALUES),
+    byMaterial: zeroCounts<OwnerLeadMaterial>(OWNER_LEAD_MATERIAL_VALUES),
+    byCaptureChannel: zeroCounts<OwnerLeadCaptureChannel>(OWNER_LEAD_CAPTURE_CHANNEL_VALUES),
+    total: 0,
+    openCount: 0,
+    completedCount: 0,
+  };
+}
+
+function accumulateIntoWindow(accumulator: WindowAccumulator, row: OverviewLeadRow): void {
+  accumulator.byStatus[row.status] += 1;
+  accumulator.byIntent[row.intent] += 1;
+  accumulator.byMaterial[row.material] += 1;
+  accumulator.byCaptureChannel[row.capture_channel] += 1;
+  accumulator.total += 1;
+  if (!isOwnerLeadClosedStatus(row.status)) accumulator.openCount += 1;
+  if (row.status === "completed") accumulator.completedCount += 1;
+}
+
+function finalizeWindow(
+  accumulator: WindowAccumulator,
+  dateKeys: readonly string[],
+  dailyCountByKey: ReadonlyMap<string, number>,
+): OwnerLeadOverviewWindow {
+  return {
+    totals: {
+      total: accumulator.total,
+      new: accumulator.byStatus.new,
+      open: accumulator.openCount,
+      completed: accumulator.completedCount,
+    },
+    byStatus: accumulator.byStatus,
+    byIntent: accumulator.byIntent,
+    byMaterial: accumulator.byMaterial,
+    byCaptureChannel: accumulator.byCaptureChannel,
+    dailyCounts: dateKeys.map((date) => ({ date, count: dailyCountByKey.get(date) ?? 0 })),
+  };
+}
+
 export function computeOwnerLeadOverview(
   rows: readonly OverviewLeadRow[],
   latestActivityByLeadId: ReadonlyMap<string, string>,
   notificationStatusByLeadId: ReadonlyMap<string, string>,
   now: Date,
 ): OwnerLeadOverviewData {
-  const byStatus = zeroCounts<OwnerLeadStatus>(OWNER_LEAD_STATUS_VALUES);
-  const byIntent = zeroCounts<OwnerLeadIntent>(OWNER_LEAD_INTENT_VALUES);
-  const byMaterial = zeroCounts<OwnerLeadMaterial>(OWNER_LEAD_MATERIAL_VALUES);
-  const byCaptureChannel = zeroCounts<OwnerLeadCaptureChannel>(OWNER_LEAD_CAPTURE_CHANNEL_VALUES);
-
   const dailyDateKeys = lastNUaeDateKeys(now, 7);
   const dailyDateKeys30 = lastNUaeDateKeys(now, 30);
+  // A lead's own Asia/Dubai submission date, checked against each window's
+  // own date-key set — the exact same per-day bucketing dailyCounts/
+  // dailyCounts30 already used, reused here (not re-derived) so a lead
+  // counting toward "last 7 days" is defined identically everywhere: one
+  // real Asia/Dubai calendar-date comparison, never a raw UTC/ms cutoff.
+  const sevenDayKeySet = new Set(dailyDateKeys);
+  const thirtyDayKeySet = new Set(dailyDateKeys30);
   const dailyCountByKey = new Map<string, number>(dailyDateKeys30.map((key) => [key, 0]));
 
-  let openCount = 0;
-  let completedCount = 0;
+  const sevenDayAccumulator = freshWindowAccumulator();
+  const thirtyDayAccumulator = freshWindowAccumulator();
 
   interface AttentionCandidate {
     readonly id: string;
@@ -237,19 +293,24 @@ export function computeOwnerLeadOverview(
   let notificationAttentionCount = 0;
 
   for (const row of rows) {
-    byStatus[row.status] += 1;
-    byIntent[row.intent] += 1;
-    byMaterial[row.material] += 1;
-    byCaptureChannel[row.capture_channel] += 1;
-
-    const isClosed = isOwnerLeadClosedStatus(row.status);
-    if (!isClosed) openCount += 1;
-    if (row.status === "completed") completedCount += 1;
-
     const dayKey = uaeDateKey(row.submission_completed_at);
-    if (dailyCountByKey.has(dayKey)) {
+    const isInThirtyDayWindow = thirtyDayKeySet.has(dayKey);
+    const isInSevenDayWindow = sevenDayKeySet.has(dayKey);
+
+    if (isInThirtyDayWindow) {
+      accumulateIntoWindow(thirtyDayAccumulator, row);
       dailyCountByKey.set(dayKey, (dailyCountByKey.get(dayKey) ?? 0) + 1);
     }
+    if (isInSevenDayWindow) {
+      accumulateIntoWindow(sevenDayAccumulator, row);
+    }
+
+    // Stale/attention detection stays all-time (every row, not just the
+    // current window) — see this function's own OwnerLeadOverviewData
+    // header comment for why: neither is a point-in-time count that should
+    // disappear once a lead's submission date drops out of the selected
+    // range.
+    const isClosed = isOwnerLeadClosedStatus(row.status);
 
     const notificationStatus = deriveNotificationSummaryStatus(
       notificationStatusByLeadId.get(row.id),
@@ -288,18 +349,8 @@ export function computeOwnerLeadOverview(
 
   return {
     generatedAt: now.toISOString(),
-    totals: {
-      total: rows.length,
-      new: byStatus.new,
-      open: openCount,
-      completed: completedCount,
-    },
-    byStatus,
-    byIntent,
-    byMaterial,
-    byCaptureChannel,
-    dailyCounts: dailyDateKeys.map((date) => ({ date, count: dailyCountByKey.get(date) ?? 0 })),
-    dailyCounts30: dailyDateKeys30.map((date) => ({ date, count: dailyCountByKey.get(date) ?? 0 })),
+    sevenDay: finalizeWindow(sevenDayAccumulator, dailyDateKeys, dailyCountByKey),
+    thirtyDay: finalizeWindow(thirtyDayAccumulator, dailyDateKeys30, dailyCountByKey),
     stale: { thresholdHours: STALE_THRESHOLD_HOURS, count: staleCount },
     attentionCount: notificationAttentionCount,
     attentionLeads,

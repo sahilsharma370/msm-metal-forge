@@ -395,7 +395,7 @@ export function OwnerLeadEditForm({ intent, reference, initialFields, isSubmitti
             <Button type="button" variant="outline" onClick={handleCancelClick} disabled={isSubmitting}>
               Cancel
             </Button>
-            <Button type="submit" variant="brand" disabled={!canSubmit} className="gap-1.5">
+            <Button type="submit" variant="brand" disabled={!canSubmit} className="gap-1.5 bg-copper hover:bg-copper/90">
               {isSubmitting ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : null}
               {isSubmitting ? "Saving…" : "Save changes"}
             </Button>

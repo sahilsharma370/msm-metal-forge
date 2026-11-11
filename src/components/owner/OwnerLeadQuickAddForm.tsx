@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { OWNER_CONTAINER_CLASS } from "./OwnerPageHeader";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { OWNER_LEAD_INTENT_VALUES, OWNER_LEAD_MATERIAL_VALUES } from "@/lib/owner/owner-leads-contract";
 import {
@@ -162,7 +163,7 @@ export function OwnerLeadQuickAddForm({ isSubmitting, error, onSubmit, onClearEr
             <p className="mt-1 font-mono text-sm text-foreground/70">{success.reference}</p>
           </div>
           <div className="flex flex-wrap items-center justify-center gap-2">
-            <Button type="button" variant="brand" onClick={() => onOpenLead(success.leadId)}>
+            <Button type="button" variant="brand" className="bg-copper hover:bg-copper/90" onClick={() => onOpenLead(success.leadId)}>
               Open enquiry
             </Button>
             <Button type="button" variant="outline" onClick={handleAddAnother}>
@@ -177,7 +178,15 @@ export function OwnerLeadQuickAddForm({ isSubmitting, error, onSubmit, onClearEr
   return (
     <form onSubmit={(event) => void handleSubmit(event)} className="flex min-h-0 flex-1 flex-col" noValidate>
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-2xl px-4 py-6">
+        {/* CHECKPOINT OWNER ENQUIRIES SIX-CIRCLE PASS — outer padding now
+            OWNER_CONTAINER_CLASS (the same left/right padding the page
+            header above uses), with max-w-2xl centering nested one level
+            in — matches OwnerPageHeader's own `narrowContent` structure
+            exactly, so Back to enquiries/the form's own left edge lines up
+            with the title/description's left edge above it, not a
+            separately-chosen `px-4`. */}
+        <div className={`${OWNER_CONTAINER_CLASS} py-6`}>
+          <div className="mx-auto w-full max-w-2xl">
           <button
             type="button"
             onClick={onCancel}
@@ -258,7 +267,17 @@ export function OwnerLeadQuickAddForm({ isSubmitting, error, onSubmit, onClearEr
 
             <div className="flex flex-col gap-4 border-t border-white/10 pt-6">
               <p className="label-eyebrow text-copper-bright">Material &amp; quantity</p>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              {/* Material, Amount and Unit sit in one balanced row on desktop
+                  (plain grid spacing, matching every other section — no
+                  inset sub-panel). The "describe the material/unit" fields
+                  stay conditional and simply wrap onto their own row when
+                  present; the unit control (and its label) dims until a
+                  quantity is actually entered — purely presentational, never
+                  disabled, so an unrelated unit selection can't appear
+                  meaningful while quantity is still empty; validation
+                  semantics are unchanged (a unit alone remains perfectly
+                  valid to save, exactly as before). */}
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                 <div className="flex flex-col gap-1.5">
                   <FieldLabel htmlFor={`${fieldId}-material`}>Material</FieldLabel>
                   <Select value={fields.material} onValueChange={(value) => update("material", value as QuickAddFieldState["material"])}>
@@ -269,6 +288,43 @@ export function OwnerLeadQuickAddForm({ isSubmitting, error, onSubmit, onClearEr
                       {OWNER_LEAD_MATERIAL_VALUES.map((value) => (
                         <SelectItem key={value} value={value} className={SELECT_ITEM_CLASS_NAME}>
                           {OWNER_LEAD_MATERIAL_LABELS[value]}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <FieldLabel htmlFor={`${fieldId}-quantity-value`} optional>
+                    Amount
+                  </FieldLabel>
+                  <Input
+                    className={INPUT_CLASS_NAME}
+                    id={`${fieldId}-quantity-value`}
+                    type="number"
+                    min={0}
+                    step="any"
+                    value={fields.quantityValue}
+                    onChange={(event) => update("quantityValue", event.target.value)}
+                  />
+                </div>
+                <div className={`flex flex-col gap-1.5 transition-opacity ${hasQuantity ? "" : "opacity-70"}`}>
+                  <FieldLabel htmlFor={`${fieldId}-quantity-unit`}>Unit</FieldLabel>
+                  <Select
+                    value={fields.quantityUnit || NONE_VALUE}
+                    onValueChange={(value) =>
+                      update("quantityUnit", value === NONE_VALUE ? "" : (value as QuickAddFieldState["quantityUnit"]))
+                    }
+                  >
+                    <SelectTrigger id={`${fieldId}-quantity-unit`} className={SELECT_TRIGGER_CLASS_NAME}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className={SELECT_CONTENT_CLASS_NAME}>
+                      <SelectItem value={NONE_VALUE} className={SELECT_ITEM_CLASS_NAME}>
+                        —
+                      </SelectItem>
+                      {QUICK_ADD_QUANTITY_UNIT_VALUES.map((value) => (
+                        <SelectItem key={value} value={value} className={SELECT_ITEM_CLASS_NAME}>
+                          {UNIT_LABELS[value]}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -287,70 +343,19 @@ export function OwnerLeadQuickAddForm({ isSubmitting, error, onSubmit, onClearEr
                     />
                   </div>
                 ) : null}
-              </div>
-
-              {/* Quantity + unit read as one logical field group: a single
-                  inset sub-panel, rather than three independent grid cells,
-                  so they visually belong together. The unit control (and its
-                  label) dims until a quantity is actually entered — purely
-                  presentational, never disabled — so an unrelated unit
-                  selection can't appear meaningful while quantity is still
-                  empty; validation semantics are unchanged (a unit alone
-                  remains perfectly valid to save, exactly as before). */}
-              <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
-                <p className="mb-3 text-xs font-medium text-foreground/60">Quantity</p>
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                {fields.quantityUnit === "other" ? (
                   <div className="flex flex-col gap-1.5">
-                    <FieldLabel htmlFor={`${fieldId}-quantity-value`} optional>
-                      Amount
-                    </FieldLabel>
+                    <FieldLabel htmlFor={`${fieldId}-quantity-unit-other`}>Describe the unit</FieldLabel>
                     <Input
                       className={INPUT_CLASS_NAME}
-                      id={`${fieldId}-quantity-value`}
-                      type="number"
-                      min={0}
-                      step="any"
-                      value={fields.quantityValue}
-                      onChange={(event) => update("quantityValue", event.target.value)}
+                      id={`${fieldId}-quantity-unit-other`}
+                      value={fields.quantityUnitOther}
+                      onChange={(event) => update("quantityUnitOther", event.target.value)}
+                      maxLength={60}
+                      required
                     />
                   </div>
-                  <div className={`flex flex-col gap-1.5 transition-opacity ${hasQuantity ? "" : "opacity-50"}`}>
-                    <FieldLabel htmlFor={`${fieldId}-quantity-unit`}>Unit</FieldLabel>
-                    <Select
-                      value={fields.quantityUnit || NONE_VALUE}
-                      onValueChange={(value) =>
-                        update("quantityUnit", value === NONE_VALUE ? "" : (value as QuickAddFieldState["quantityUnit"]))
-                      }
-                    >
-                      <SelectTrigger id={`${fieldId}-quantity-unit`} className={SELECT_TRIGGER_CLASS_NAME}>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent className={SELECT_CONTENT_CLASS_NAME}>
-                        <SelectItem value={NONE_VALUE} className={SELECT_ITEM_CLASS_NAME}>
-                          —
-                        </SelectItem>
-                        {QUICK_ADD_QUANTITY_UNIT_VALUES.map((value) => (
-                          <SelectItem key={value} value={value} className={SELECT_ITEM_CLASS_NAME}>
-                            {UNIT_LABELS[value]}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  {fields.quantityUnit === "other" ? (
-                    <div className="flex flex-col gap-1.5">
-                      <FieldLabel htmlFor={`${fieldId}-quantity-unit-other`}>Describe the unit</FieldLabel>
-                      <Input
-                        className={INPUT_CLASS_NAME}
-                        id={`${fieldId}-quantity-unit-other`}
-                        value={fields.quantityUnitOther}
-                        onChange={(event) => update("quantityUnitOther", event.target.value)}
-                        maxLength={60}
-                        required
-                      />
-                    </div>
-                  ) : null}
-                </div>
+                ) : null}
               </div>
             </div>
 
@@ -420,6 +425,7 @@ export function OwnerLeadQuickAddForm({ isSubmitting, error, onSubmit, onClearEr
               </div>
             </div>
           </fieldset>
+          </div>
         </div>
       </div>
 
@@ -431,7 +437,7 @@ export function OwnerLeadQuickAddForm({ isSubmitting, error, onSubmit, onClearEr
           any non-notched device/browser and previously left the buttons
           flush against the viewport edge. */}
       <div
-        className="flex shrink-0 items-center border-t border-white/10 bg-navy-deep/95 px-4 pt-[18px]"
+        className={`flex shrink-0 items-center border-t border-white/10 bg-navy-deep/95 pt-[18px] ${OWNER_CONTAINER_CLASS}`}
         style={{ paddingBottom: "calc(18px + env(safe-area-inset-bottom, 0px))" }}
       >
         <div className="mx-auto flex w-full max-w-2xl flex-wrap items-center justify-between gap-3">
@@ -442,7 +448,7 @@ export function OwnerLeadQuickAddForm({ isSubmitting, error, onSubmit, onClearEr
             <Button type="button" variant="outline" onClick={onCancel} disabled={isSubmitting}>
               Cancel
             </Button>
-            <Button type="submit" variant="brand" disabled={!canSubmit} className="gap-1.5">
+            <Button type="submit" variant="brand" disabled={!canSubmit} className="gap-1.5 bg-copper hover:bg-copper/90">
               {isSubmitting ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : null}
               {isSubmitting ? "Saving…" : "Save enquiry"}
             </Button>

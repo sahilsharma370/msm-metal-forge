@@ -140,7 +140,7 @@ describe("OwnerInboxBody — real fetch-binding regression (C2J-D2)", () => {
     await waitFor(() => expect(screen.getByText(/demo seller/i)).toBeInTheDocument());
     expect(screen.getByText(/demo buyer/i)).toBeInTheDocument();
     expect(screen.queryByText(/something went wrong/i)).not.toBeInTheDocument();
-    expect(screen.getByText(/^2 enquiries$/i)).toBeInTheDocument();
+    expect(screen.getByText(/^2 enquiries shown$/i)).toBeInTheDocument();
   });
 
   it("demonstrates the exact original defect: an unbound fetchImpl throws Illegal Invocation and surfaces the generic error (proves the fix is load-bearing, not incidental)", async () => {

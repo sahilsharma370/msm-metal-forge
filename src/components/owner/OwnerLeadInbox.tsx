@@ -135,6 +135,34 @@ function OwnerLeadRows({ items }: { readonly items: readonly OwnerLeadListItemTy
         if (!event.currentTarget.contains(event.relatedTarget)) setIndicator(null);
       }}
     >
+      {/* CHECKPOINT OWNER ENQUIRIES SIX-CIRCLE PASS — the row's own hover/
+          focus tint used to live on the Link itself (`hover:bg-white/5`),
+          inset by the ul's own `sm:px-4` padding — the tint's own left/
+          right edges sat 16px short of the section's actual inner border
+          on both sides (and short of the chevron's own track past it),
+          while THIS rail already correctly reaches the ul's true edge
+          (an absolutely-positioned child measures from the ul's own
+          border-box, unaffected by the ul's padding). Restructuring the
+          padding itself to fix that risked disturbing this row grid's own
+          hard-won overflow fix (see OWNER_LEAD_ROW_GRID_CLASS's own
+          header comment) with no way to visually confirm the result this
+          pass — instead, this reuses the exact same proven offsetTop/
+          offsetHeight positioning as the rail below for a second,
+          full-width overlay (negative z-index, so the row's own text
+          paints above it; the rail's own z-10 keeps it above this too),
+          giving the tint the identical edge-to-edge reach the rail
+          already has, including the chevron's own trailing track. The
+          Link's own hover/focus background classes are removed in favour
+          of this one shared, full-width implementation. */}
+      <span
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-x-0 top-0 -z-10 bg-white/5 transition-opacity duration-[180ms] ease-[cubic-bezier(0.22,1,0.36,1)]"
+        style={{
+          transform: `translateY(${indicator?.top ?? 0}px)`,
+          height: indicator?.height ?? 0,
+          opacity: indicator ? 1 : 0,
+        }}
+      />
       <span
         aria-hidden="true"
         className="pointer-events-none absolute top-0 left-0 z-10 hidden w-0.5 rounded-r-full bg-copper transition-[transform,opacity] duration-[180ms] ease-[cubic-bezier(0.22,1,0.36,1)] sm:block"
@@ -209,56 +237,65 @@ export function OwnerLeadInbox({
   // nested closure.
   const exportableView: "inbox" | "archived" | null = state.view === "trash" ? null : state.view;
 
-  const loadedCountLabel = `${state.items.length} ${state.items.length === 1 ? "enquiry" : "enquiries"}`;
+  // CHECKPOINT OWNER ENQUIRIES SIX-CIRCLE PASS — "shown", not a bare count:
+  // the list API is cursor-paginated (nextCursor/hasMore only — no total
+  // row count field anywhere in its response), so this number is always
+  // exactly how many rows are currently loaded into the page, never a
+  // confirmed total even once hasMore is false (that's coincidental, not a
+  // field the backend actually returns). Labelling it as a total would
+  // overclaim precision the API was never asked to provide.
+  const loadedCountLabel = `${state.items.length} ${state.items.length === 1 ? "enquiry" : "enquiries"} shown`;
   // A short first page (fewer items than one full page, and nothing more to
   // load) never had real pagination context — "You've reached the end of
   // the list" is meaningless noise there. It only earns its place once a
   // genuine full page was loaded first.
   const showEndOfListFooter = !state.hasMore && state.items.length >= DEFAULT_OWNER_LEAD_LIST_PAGE_LIMIT;
 
+  // CHECKPOINT OWNER ENQUIRIES SIX-CIRCLE PASS — Export CSV moved into the
+  // filters toolbar (far right, after Channel, grouped with Reset — see
+  // OwnerLeadFilters' own exportAction prop) from the page-title header it
+  // previously occupied alone. Exact same button/handler/conditions as
+  // before, just relocated and threaded down as a prop instead of rendered
+  // directly here.
+  const exportButton = exportableView ? (
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      className="h-8 gap-1.5 lg:h-9"
+      disabled={exportState.isExporting}
+      onClick={() => {
+        onClearExportError();
+        void onExportCsv({
+          view: exportableView,
+          ...(state.appliedFilters.status ? { status: state.appliedFilters.status } : {}),
+          ...(state.appliedFilters.intent ? { intent: state.appliedFilters.intent } : {}),
+          ...(state.appliedFilters.material ? { material: state.appliedFilters.material } : {}),
+          ...(state.appliedFilters.captureChannel ? { captureChannel: state.appliedFilters.captureChannel } : {}),
+          ...(state.appliedFilters.q ? { q: state.appliedFilters.q } : {}),
+        });
+      }}
+    >
+      {exportState.isExporting ? (
+        <Loader2 className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+      ) : (
+        <Download className="size-4" aria-hidden="true" />
+      )}
+      {exportState.isExporting ? "Exporting…" : "Export CSV"}
+    </Button>
+  ) : null;
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {/* CHECKPOINT OWNER DESKTOP CORRECTION — no page-level "+ Add enquiry"
           here any more: the persistent header (OwnerShell) already provides
           the one canonical copy of this action, and showing it twice
-          overweighted copper on this exact screen.
-          CHECKPOINT OWNER ENQUIRIES REFERENCE PASS — Export CSV now renders
-          as this header's own `actions` slot (title row, far right) instead
-          of sharing a row with the Inbox/Archived/Trash tabs below —
-          exact same button, handler and conditions, just relocated. */}
+          overweighted copper on this exact screen. Export CSV no longer
+          renders here either — see exportButton above. */}
       <OwnerPageHeader
         title="Enquiries"
         description={state.isInitialLoading ? "Every completed enquiry, newest first." : loadedCountLabel}
         noDesktopDivider
-        actions={
-          exportableView ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="gap-1.5"
-              disabled={exportState.isExporting}
-              onClick={() => {
-                onClearExportError();
-                void onExportCsv({
-                  view: exportableView,
-                  ...(state.appliedFilters.status ? { status: state.appliedFilters.status } : {}),
-                  ...(state.appliedFilters.intent ? { intent: state.appliedFilters.intent } : {}),
-                  ...(state.appliedFilters.material ? { material: state.appliedFilters.material } : {}),
-                  ...(state.appliedFilters.captureChannel ? { captureChannel: state.appliedFilters.captureChannel } : {}),
-                  ...(state.appliedFilters.q ? { q: state.appliedFilters.q } : {}),
-                });
-              }}
-            >
-              {exportState.isExporting ? (
-                <Loader2 className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
-              ) : (
-                <Download className="size-4" aria-hidden="true" />
-              )}
-              {exportState.isExporting ? "Exporting…" : "Export CSV"}
-            </Button>
-          ) : undefined
-        }
       />
 
       <div aria-live="polite" className="sr-only">
@@ -311,6 +348,7 @@ export function OwnerLeadInbox({
                 hasActiveFilters={hasActiveFilters}
                 isBusy={isBusy}
                 view={state.view}
+                exportAction={exportButton}
               />
             </div>
           </div>

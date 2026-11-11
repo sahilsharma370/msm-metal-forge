@@ -63,8 +63,18 @@ export function OwnerLeadStatusControl({ currentStatus, isSaving, error, onChang
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-end gap-3">
-        <div className="flex flex-col gap-1.5">
+      {/* CHECKPOINT OWNER ENQUIRIES SIX-CIRCLE PASS — the select's own track
+          changed from a fixed `w-56` to `flex-1 min-w-0` + a `w-full`
+          trigger: this card now sits in a narrower (4-of-12-column) sidebar
+          than it originally did, and a fixed 224px trigger plus the Save
+          button's own natural width could together exceed the sidebar's
+          real available width at a narrower desktop/laptop viewport —
+          `flex-wrap` would then drop the button to its own row below,
+          breaking the aligned select+button row this pass asks for. A
+          flexible track means the select always shrinks to share the row
+          with the button instead of ever forcing a wrap. */}
+      <div className="flex items-end gap-3">
+        <div className="flex min-w-0 flex-1 flex-col gap-1.5">
           <Label htmlFor="owner-lead-status-select">Status</Label>
           <Select
             value={pendingStatus}
@@ -82,7 +92,7 @@ export function OwnerLeadStatusControl({ currentStatus, isSaving, error, onChang
                 light popup breaking the approved system. */}
             <SelectTrigger
               id="owner-lead-status-select"
-              className="w-56 rounded-xl border-white/15 bg-navy-deep/95 hover:border-white/25"
+              className="w-full rounded-xl border-white/15 bg-navy-deep/95 hover:border-white/25"
             >
               <SelectValue />
             </SelectTrigger>
@@ -121,7 +131,7 @@ export function OwnerLeadStatusControl({ currentStatus, isSaving, error, onChang
             </SelectContent>
           </Select>
         </div>
-        <Button type="button" size="sm" variant="outline" disabled={!canSave} onClick={() => void handleSave()} className="gap-1.5">
+        <Button type="button" size="sm" variant="outline" disabled={!canSave} onClick={() => void handleSave()} className="shrink-0 gap-1.5">
           {isSaving ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : null}
           {isSaving ? "Saving…" : "Update status"}
         </Button>

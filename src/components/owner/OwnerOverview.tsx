@@ -25,7 +25,7 @@ import {
   formatUaeCalendarDateShort,
 } from "./owner-lead-format";
 import { OWNER_LEAD_STATUS_VALUES, OWNER_LEAD_MATERIAL_VALUES, OWNER_LEAD_CAPTURE_CHANNEL_VALUES } from "@/lib/owner/owner-leads-contract";
-import type { OwnerLeadOverviewData, OwnerOverviewDailyCount } from "@/lib/owner/owner-lead-overview-contract";
+import type { OwnerLeadOverviewData, OwnerLeadOverviewWindow, OwnerOverviewDailyCount } from "@/lib/owner/owner-lead-overview-contract";
 
 /**
  * Visual-correction pass — matched against a canonical target screenshot
@@ -148,24 +148,39 @@ function KpiCard({
         </Button>
       </div>
       <div>
-        <p className="font-display text-[40px] leading-none font-semibold text-white">{value}</p>
-        {hint ? (
-          <p className="mt-1 truncate text-[11px]" style={{ color: TEXT_MUTED }}>
-            {hint}
-          </p>
-        ) : null}
+        <p className="font-display text-[40px] leading-none font-semibold tabular-nums text-white">{value}</p>
+        {/* CHECKPOINT OWNER OVERVIEW SIX-CIRCLE PASS — always rendered (never
+            conditionally omitted), `invisible` (not absent) when there is no
+            real hint: the outer card uses `justify-between` to bottom-pin
+            this value+hint block as a single unit, so the value's own
+            baseline previously sat higher on every card WITH a hint (Open)
+            than on every card WITHOUT one (Total/New/Completed) — the hint
+            line's own height was what the block's bottom edge measured
+            from. Reserving the same slot on every card unconditionally
+            means the value's own position is identical across all four,
+            regardless of which one happens to carry a hint. */}
+        <p className={`mt-1 truncate text-[11px] ${hint ? "" : "invisible"}`} style={{ color: TEXT_MUTED }}>
+          {hint ?? "placeholder"}
+        </p>
       </div>
     </div>
   );
 }
 
-function KpiRow({ data }: { readonly data: OwnerLeadOverviewData }) {
+/**
+ * CHECKPOINT OWNER MOBILE HEADER FIX — a fixed 2-column grid below `lg` left
+ * each card's own label row (icon + text + chevron) with only ~50px for the
+ * text at phone widths, truncating even short labels like "New"/"Open" to a
+ * single letter at 320px. One column below `sm` gives every label its full
+ * card width instead.
+ */
+function KpiRow({ window: dataWindow }: { readonly window: OwnerLeadOverviewWindow }) {
   return (
-    <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-      <KpiCard icon={FileStack} label="Total enquiries" value={data.totals.total} />
-      <KpiCard icon={FileText} label="New" value={data.totals.new} status="new" />
-      <KpiCard icon={Clock} label="Open" value={data.totals.open} hint="Includes New & other active statuses" />
-      <KpiCard icon={CheckCircle2} label="Completed" value={data.totals.completed} status="completed" />
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <KpiCard icon={FileStack} label="Total enquiries" value={dataWindow.totals.total} />
+      <KpiCard icon={FileText} label="New" value={dataWindow.totals.new} status="new" />
+      <KpiCard icon={Clock} label="Open" value={dataWindow.totals.open} hint="Includes New & other active statuses" />
+      <KpiCard icon={CheckCircle2} label="Completed" value={dataWindow.totals.completed} status="completed" />
     </div>
   );
 }
@@ -193,7 +208,7 @@ function RankedBarList({ entries }: { readonly entries: readonly RankedEntry[] }
             <span className="h-1.5 flex-1 overflow-hidden rounded-full" style={{ backgroundColor: TRACK_BG }}>
               {percent > 0 ? <span className="block h-full rounded-full" style={{ width: `${percent}%`, backgroundColor: ORANGE }} /> : null}
             </span>
-            <span className="w-8 shrink-0 text-right text-[13px] font-medium text-white">{entry.count}</span>
+            <span className="w-8 shrink-0 text-right text-[13px] font-medium tabular-nums text-white">{entry.count}</span>
           </li>
         );
       })}
@@ -210,11 +225,11 @@ function CardTitle({ icon: Icon, children }: { readonly icon?: typeof Package; r
   );
 }
 
-function StatusPipeline({ data }: { readonly data: OwnerLeadOverviewData }) {
+function StatusPipeline({ window: dataWindow }: { readonly window: OwnerLeadOverviewWindow }) {
   const entries: RankedEntry[] = OWNER_LEAD_STATUS_VALUES.map((status) => ({
     key: status,
     label: OWNER_LEAD_STATUS_LABELS[status],
-    count: data.byStatus[status] ?? 0,
+    count: dataWindow.byStatus[status] ?? 0,
   }));
   return (
     <div className={`${CARD_CLASS} flex h-full min-h-0 flex-col p-4`} style={CARD_STYLE}>
@@ -224,9 +239,9 @@ function StatusPipeline({ data }: { readonly data: OwnerLeadOverviewData }) {
   );
 }
 
-function MaterialMix({ data }: { readonly data: OwnerLeadOverviewData }) {
+function MaterialMix({ window: dataWindow }: { readonly window: OwnerLeadOverviewWindow }) {
   const entries: RankedEntry[] = [...OWNER_LEAD_MATERIAL_VALUES]
-    .map((material) => ({ key: material, label: OWNER_LEAD_MATERIAL_LABELS[material], count: data.byMaterial[material] ?? 0 }))
+    .map((material) => ({ key: material, label: OWNER_LEAD_MATERIAL_LABELS[material], count: dataWindow.byMaterial[material] ?? 0 }))
     .sort((a, b) => b.count - a.count);
   return (
     <div className={`${CARD_CLASS} flex h-[204px] flex-col p-4`} style={CARD_STYLE}>
@@ -236,11 +251,11 @@ function MaterialMix({ data }: { readonly data: OwnerLeadOverviewData }) {
   );
 }
 
-function Source({ data }: { readonly data: OwnerLeadOverviewData }) {
+function Source({ window: dataWindow }: { readonly window: OwnerLeadOverviewWindow }) {
   const entries: RankedEntry[] = OWNER_LEAD_CAPTURE_CHANNEL_VALUES.map((channel) => ({
     key: channel,
     label: OWNER_LEAD_CAPTURE_CHANNEL_LABELS[channel],
-    count: data.byCaptureChannel[channel] ?? 0,
+    count: dataWindow.byCaptureChannel[channel] ?? 0,
   }));
   return (
     <div className={`${CARD_CLASS} flex h-[204px] flex-col p-4`} style={CARD_STYLE}>
@@ -278,17 +293,17 @@ function EnquiryTypeRow({ color, label, count, percent }: { readonly color: stri
       <span className="flex-1 truncate text-[13px]" style={{ color: TEXT_SECONDARY }}>
         {label}
       </span>
-      <span className="text-[15px] font-semibold text-white">{count}</span>
-      <span className="w-9 shrink-0 text-right text-[12px]" style={{ color: TEXT_MUTED }}>
+      <span className="text-[15px] font-semibold tabular-nums text-white">{count}</span>
+      <span className="w-9 shrink-0 text-right text-[12px] tabular-nums" style={{ color: TEXT_MUTED }}>
         {percent}%
       </span>
     </div>
   );
 }
 
-function EnquiryType({ data }: { readonly data: OwnerLeadOverviewData }) {
-  const sell = data.byIntent.sell ?? 0;
-  const buy = data.byIntent.buy ?? 0;
+function EnquiryType({ window: dataWindow }: { readonly window: OwnerLeadOverviewWindow }) {
+  const sell = dataWindow.byIntent.sell ?? 0;
+  const buy = dataWindow.byIntent.buy ?? 0;
   const total = sell + buy;
   const { sellPercent, buyPercent } = computeDonutSplit(sell, buy);
   const chartData =
@@ -300,33 +315,36 @@ function EnquiryType({ data }: { readonly data: OwnerLeadOverviewData }) {
       : [{ key: "empty", value: 1, fill: TRACK_BG }];
 
   return (
-    <div className={`${CARD_CLASS} flex h-[204px] flex-col p-4`} style={CARD_STYLE}>
+    <div className={`${CARD_CLASS} flex h-[204px] flex-col p-3`} style={CARD_STYLE}>
       <CardTitle icon={ArrowLeftRight}>Enquiry type</CardTitle>
-      {/* Donut refinement pass — the card's own title row (text-lg, ~28px
-          line-height + mb-2) plus its p-4 padding leaves ~136px of actual
-          vertical room in a 204px card; a 148px circle left zero margin
-          there (and even less once the card height was trimmed for the
-          one-screen-fit pass), which is what read as "too large for its
-          card." 120px diameter keeps that same breathing room.
-          Stroke thickness matched to the approved reference separately —
-          that image shows a noticeably thin ring, not the 18px one this
-          pass originally shipped; innerRadius 53 / outerRadius 60 is a 7px
-          stroke at the same 120px outer diameter (same centre, same
-          colours, 12-o'clock start, exact data — only the band width
-          changed). */}
-      <div className="grid flex-1 grid-cols-[120px_1px_1fr] items-center gap-4">
-        <div className="relative size-[120px] shrink-0" role="img" aria-label={`Selling ${sell} (${sellPercent}%), Buying ${buy} (${buyPercent}%)`}>
+      {/* CHECKPOINT OWNER OVERVIEW SIX-CIRCLE PASS — restores the approved
+          ~148px donut (a prior "one-screen-fit" pass had shrunk it to
+          120px to fit this card's own 204px height at p-4 padding). Tighter
+          p-3 padding on this one card (not the shared CARD_CLASS other
+          cards still use) recovers exactly the ~12px needed: title row
+          (~32px incl. margin) + 148px circle + p-3's 24px vertical padding
+          = 204px, the unchanged card height every sibling in this row also
+          uses. Stroke scaled proportionally with the diameter (7px at
+          120px -> 9px at 148px) so the ring reads the same relative
+          thickness, not thinner for being on a bigger circle. paddingAngle
+          is now always 0 — clean adjoining segments, no gap between
+          Selling/Buying, matching the approved reference exactly (an
+          earlier pass had added a 6° gap; removed). Same centre, same
+          colours, 12-o'clock start (startAngle=90/endAngle=-270),
+          unchanged. */}
+      <div className="grid flex-1 grid-cols-[148px_1px_1fr] items-center gap-4">
+        <div className="relative size-[148px] shrink-0" role="img" aria-label={`Selling ${sell} (${sellPercent}%), Buying ${buy} (${buyPercent}%)`}>
           <div aria-hidden="true" className="absolute inset-0">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie
                   data={chartData}
                   dataKey="value"
-                  innerRadius={53}
-                  outerRadius={60}
+                  innerRadius={65}
+                  outerRadius={74}
                   startAngle={90}
                   endAngle={-270}
-                  paddingAngle={total > 0 ? 6 : 0}
+                  paddingAngle={0}
                   stroke="none"
                   isAnimationActive={false}
                 >
@@ -338,13 +356,13 @@ function EnquiryType({ data }: { readonly data: OwnerLeadOverviewData }) {
             </ResponsiveContainer>
           </div>
           <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-0.5">
-            <span className="text-[27px] leading-none font-bold text-white">{total}</span>
+            <span className="text-[27px] leading-none font-bold tabular-nums text-white">{total}</span>
             <span className="text-[11px] leading-none font-medium tracking-wide uppercase" style={{ color: TEXT_MUTED }}>
               Total
             </span>
           </div>
         </div>
-        <span aria-hidden="true" className="h-[111px] w-px justify-self-center" style={{ backgroundColor: TRACK_BG }} />
+        <span aria-hidden="true" className="h-[136px] w-px justify-self-center" style={{ backgroundColor: TRACK_BG }} />
         <div className="flex flex-col justify-center gap-2.5">
           <EnquiryTypeRow color={ORANGE} label="Selling" count={sell} percent={sellPercent} />
           <span aria-hidden="true" className="h-px w-full" style={{ backgroundColor: TRACK_BG }} />
@@ -464,12 +482,12 @@ function ThirtyDayGrid({ days, todayDate }: { readonly days: readonly OwnerOverv
 
 type TrendRange = 7 | 30;
 
-/** `range` is owned by the page (`OwnerOverview`'s own state, driven by the header's `DateRangeControl`) — this panel is a pure display of whichever series that selection points to, never a second independent toggle. */
-function TrendPanel({ data, range }: { readonly data: OwnerLeadOverviewData; readonly range: TrendRange }) {
-  const days = range === 7 ? data.dailyCounts : data.dailyCounts30;
+/** `range` is owned by the page (`OwnerOverview`'s own state, driven by the header's `DateRangeControl`) — this panel is a pure display of whichever window that selection points to, never a second independent toggle. */
+function TrendPanel({ window: dataWindow, range }: { readonly window: OwnerLeadOverviewWindow; readonly range: TrendRange }) {
+  const days = dataWindow.dailyCounts;
   const total = sumDailyCounts(days);
   const peak = peakDailyCount(days);
-  const todayDate = data.dailyCounts[data.dailyCounts.length - 1]?.date ?? "";
+  const todayDate = days[days.length - 1]?.date ?? "";
 
   return (
     <div className={`${CARD_CLASS} flex h-full min-h-0 flex-col p-4`} style={CARD_STYLE}>
@@ -532,7 +550,11 @@ function OverviewHeading({ actions }: { readonly actions?: ReactNode }) {
 // ---------------------------------------------------------------------------
 
 export function OwnerOverview({ state, refresh }: OwnerOverviewProps) {
-  const [headerRange, setHeaderRange] = useState<TrendRange>(7);
+  // CHECKPOINT OWNER OVERVIEW SIX-CIRCLE PASS — default range is 30 days
+  // (Last 7 days is the alternative, selectable from the same control) —
+  // the code previously defaulted to 7; flagged explicitly in this pass's
+  // own report in case 7 was actually the intended default.
+  const [headerRange, setHeaderRange] = useState<TrendRange>(30);
 
   if (state.isLoading && !state.data) {
     return (
@@ -573,7 +595,14 @@ export function OwnerOverview({ state, refresh }: OwnerOverviewProps) {
   const data = state.data;
   if (!data) return null;
 
-  const rangeLabel = formatUaeDateRangeLabel(headerRange === 7 ? data.dailyCounts : data.dailyCounts30);
+  // CHECKPOINT OWNER OVERVIEW RANGE-SCOPING FIX — the ONE place the
+  // selected range is resolved to its own fully-scoped bundle; every card
+  // below reads from this same `dataWindow`, never the raw `data` object
+  // directly, so the KPIs/status pipeline/material mix/enquiry type/source
+  // can never again silently diverge from the trend's own range the way
+  // they did when only dailyCounts/dailyCounts30 were windowed.
+  const dataWindow = headerRange === 7 ? data.sevenDay : data.thirtyDay;
+  const rangeLabel = formatUaeDateRangeLabel(dataWindow.dailyCounts);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col" style={{ backgroundColor: OVERVIEW_BG }}>
@@ -595,19 +624,19 @@ export function OwnerOverview({ state, refresh }: OwnerOverviewProps) {
       */}
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className={`${OWNER_CONTAINER_CLASS} flex h-full min-h-0 flex-col gap-3 pb-4`}>
-          <KpiRow data={data} />
+          <KpiRow window={dataWindow} />
 
           <div className="grid min-h-[300px] flex-1 grid-cols-1 gap-4 lg:grid-cols-3">
             <div className="min-h-0 lg:col-span-2">
-              <TrendPanel data={data} range={headerRange} />
+              <TrendPanel window={dataWindow} range={headerRange} />
             </div>
-            <StatusPipeline data={data} />
+            <StatusPipeline window={dataWindow} />
           </div>
 
           <div className="grid shrink-0 grid-cols-1 gap-4 lg:grid-cols-3">
-            <MaterialMix data={data} />
-            <EnquiryType data={data} />
-            <Source data={data} />
+            <MaterialMix window={dataWindow} />
+            <EnquiryType window={dataWindow} />
+            <Source window={dataWindow} />
           </div>
         </div>
       </div>

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { Search, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -77,6 +77,8 @@ export interface OwnerLeadFiltersProps {
   readonly isBusy: boolean;
   /** Archived already has its own tab (see OwnerLeadInbox's view control) — the Inbox filter's own Status dropdown hides "Archived" only when `view` is "inbox" (the default); the Archived/Trash tabs still get the full status vocabulary. Never touches OWNER_LEAD_STATUS_VALUES itself, the detail status control, or the archive workflow. */
   readonly view?: OwnerLeadView;
+  /** CHECKPOINT OWNER ENQUIRIES SIX-CIRCLE PASS — Export CSV, rendered at the far right of this same toolbar (after Channel), grouped with Reset. Owned entirely by the caller (OwnerLeadInbox) — this component only places it; the button/handler/disabled-state are unchanged from when it lived in the page header. */
+  readonly exportAction?: ReactNode;
 }
 
 /** `exactOptionalPropertyTypes` makes `{ ...previous, key: undefined }` a type error (the field type is e.g. `OwnerLeadStatus`, never `| undefined`) — this removes the key entirely instead of setting it to undefined, which is also the semantically correct "no filter" representation. */
@@ -102,6 +104,7 @@ export function OwnerLeadFilters({
   hasActiveFilters,
   isBusy,
   view = "inbox",
+  exportAction,
 }: OwnerLeadFiltersProps) {
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Archived already has its own tab — offering it again inside the Inbox
@@ -259,23 +262,35 @@ export function OwnerLeadFilters({
         </Select>
       </div>
 
-      {/* Reset only exists at all once a filter/search is genuinely active — never a visible disabled no-op. */}
-      {hasActiveFilters ? (
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() => {
-            if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
-            onClear();
-          }}
-          disabled={isBusy}
-          className="h-8 gap-1.5 border-copper/40 text-copper-bright hover:bg-copper/10 lg:h-9"
-        >
-          <X className="size-3.5" aria-hidden="true" />
-          Reset
-        </Button>
-      ) : null}
+      {/* CHECKPOINT OWNER ENQUIRIES SIX-CIRCLE PASS — Export CSV moved here
+          (far right of this toolbar, after Channel) from the page-title
+          header it previously shared no row with; grouped with Reset via
+          one flex cluster in this grid's own single trailing `auto` track
+          (the track itself is unchanged — only its content is now a small
+          group instead of a lone button), with a subtle vertical divider
+          between the two only when both are actually present. Reset still
+          only exists at all once a filter/search is genuinely active —
+          never a visible disabled no-op. */}
+      <div className="flex items-center gap-2">
+        {exportAction}
+        {exportAction && hasActiveFilters ? <span aria-hidden="true" className="hidden h-5 w-px bg-white/10 lg:block" /> : null}
+        {hasActiveFilters ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+              onClear();
+            }}
+            disabled={isBusy}
+            className="h-8 gap-1.5 border-copper/40 text-copper-bright hover:bg-copper/10 lg:h-9"
+          >
+            <X className="size-3.5" aria-hidden="true" />
+            Reset
+          </Button>
+        ) : null}
+      </div>
     </form>
   );
 }

@@ -74,10 +74,30 @@ const ownerOverviewStaleLeadSchema = z
   .strict();
 export type OwnerOverviewStaleLead = z.infer<typeof ownerOverviewStaleLeadSchema>;
 
-export const ownerLeadOverviewDataSchema = z
+/**
+ * CHECKPOINT OWNER OVERVIEW RANGE-SCOPING FIX — one full aggregate bundle
+ * (totals, every breakdown, and its own daily series), scoped to exactly
+ * one date window. Previously `totals`/`byStatus`/`byIntent`/`byMaterial`/
+ * `byCaptureChannel` lived at the top level as a SINGLE all-time snapshot,
+ * entirely independent of the 7/30-day range selector — only the daily
+ * series was ever actually windowed. That meant switching the Overview
+ * page's range control changed the trend chart alone while the KPIs,
+ * Status pipeline, Material mix, Enquiry type, and Source cards kept
+ * showing the same all-time counts regardless of which range was
+ * selected (reported live as "17 in the trend, 61 everywhere else" for a
+ * 7-day selection) — confirmed via owner-lead-overview.server.ts's own
+ * unscoped queryOwnerVisibleLeads()/computeOwnerLeadOverview. The fix:
+ * every one of those breakdowns is now computed per-window, the same way
+ * dailyCounts/dailyCounts30 already were, so the SAME range genuinely
+ * governs the KPIs, trend, status pipeline, material, type, and source
+ * together. `stale`/`attentionCount`/`attentionLeads` are deliberately
+ * NOT windowed here — they are actionable, never time-boxed items (a
+ * 90-day-old stale lead or a failed notification does not stop mattering
+ * once it drops out of "last 7 days"), so they stay as one all-time
+ * snapshot, same as before this fix.
+ */
+const ownerOverviewWindowSchema = z
   .object({
-    /** Server request time this snapshot was computed at (ISO), so the UI can label it rather than imply live data. */
-    generatedAt: z.string(),
     totals: z
       .object({
         total: z.number().int().nonnegative(),
@@ -90,10 +110,20 @@ export const ownerLeadOverviewDataSchema = z
     byIntent: intentCountsSchema,
     byMaterial: materialCountsSchema,
     byCaptureChannel: captureChannelCountsSchema,
-    /** Exactly 7 entries, oldest first, one per Asia/Dubai calendar day ending today (UAE). */
-    dailyCounts: z.array(ownerOverviewDailyCountSchema).length(7),
-    /** Exactly 30 entries, oldest first, one per Asia/Dubai calendar day ending today (UAE) — the same bucketing as `dailyCounts`, just a longer window. Computed alongside it in one pass so the Overview page's 7/30-day toggle never needs a second request. */
-    dailyCounts30: z.array(ownerOverviewDailyCountSchema).length(30),
+    /** Oldest first, one per Asia/Dubai calendar day ending today (UAE) — exactly as many entries as this window covers (7 or 30). */
+    dailyCounts: z.array(ownerOverviewDailyCountSchema),
+  })
+  .strict();
+export type OwnerLeadOverviewWindow = z.infer<typeof ownerOverviewWindowSchema>;
+
+export const ownerLeadOverviewDataSchema = z
+  .object({
+    /** Server request time this snapshot was computed at (ISO), so the UI can label it rather than imply live data. */
+    generatedAt: z.string(),
+    /** Every KPI/breakdown/daily-count, scoped to the last 7 Asia/Dubai calendar days ending today. */
+    sevenDay: ownerOverviewWindowSchema.extend({ dailyCounts: z.array(ownerOverviewDailyCountSchema).length(7) }),
+    /** The same shape, scoped to the last 30 Asia/Dubai calendar days ending today — computed alongside sevenDay in one pass so the Overview page's 7/30-day toggle never needs a second request. */
+    thirtyDay: ownerOverviewWindowSchema.extend({ dailyCounts: z.array(ownerOverviewDailyCountSchema).length(30) }),
     stale: z
       .object({
         /** Provisional rule — see ownerOverviewStaleLeadSchema's own comment. */

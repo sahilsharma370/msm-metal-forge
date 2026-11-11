@@ -437,3 +437,20 @@ describe("OwnerLeadFileViewer — PERF: the modal preview is a smaller, separate
     expect(screen.getByRole("img")).toBeInTheDocument();
   });
 });
+
+describe("OwnerLeadFileViewer — accessible dialog description, no visible temporary-link sentence (CHECKPOINT OWNER ENQUIRIES SIX-CIRCLE PASS)", () => {
+  it("never shows the 'this link is temporary' sentence visibly, but still gives the dialog an accessible description", async () => {
+    requestOwnerLeadFileAccessMock.mockResolvedValue({ kind: "ok", data: { url: "https://example.test/signed", expiresInSeconds: 60 } });
+    const user = userEvent.setup();
+    render(<OwnerLeadFileViewer leadId="lead-1" file={imageFile()} deps={fakeDeps} onUnauthorized={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /view/i }));
+    await waitFor(() => expect(screen.getByRole("img")).toBeInTheDocument());
+
+    expect(screen.queryByText(/this link is temporary/i)).not.toBeInTheDocument();
+
+    const dialog = screen.getByRole("dialog");
+    const describedBy = dialog.getAttribute("aria-describedby");
+    expect(describedBy).toBeTruthy();
+    expect(document.getElementById(describedBy as string)).toHaveTextContent(/temporary preview/i);
+  });
+});

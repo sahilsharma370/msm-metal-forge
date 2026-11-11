@@ -44,7 +44,11 @@ export function OwnerLeadQuickAddBody({ onUnauthorized }: { readonly onUnauthori
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <OwnerPageHeader title="Add enquiry" description="Record a phone, WhatsApp or walk-in enquiry directly into the enquiry list." />
+      <OwnerPageHeader
+        title="Add enquiry"
+        description="Record a phone, WhatsApp or walk-in enquiry directly into the enquiry list."
+        narrowContent
+      />
       {/* CHECKPOINT OWNER DESKTOP REFINEMENT — OwnerLeadQuickAddForm now owns
           its own internal shell (compact centred scrollable fields region +
           a static, never-sticky-inside-scroll action footer), the same

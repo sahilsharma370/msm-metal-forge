@@ -172,7 +172,7 @@ export function OwnerLeadListItem({ lead }: OwnerLeadListItemProps) {
       <Link
         to="/owner/leads/$leadId"
         params={{ leadId: lead.id }}
-        className={`group flex flex-col gap-1.5 px-4 py-2.5 transition-colors hover:bg-white/5 focus-visible:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset ${OWNER_LEAD_ROW_SUBGRID_CLASS} ${ROW_HEIGHT_CLASS} sm:items-center sm:gap-4 sm:px-0`}
+        className={`group flex flex-col gap-1.5 px-4 py-2.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset ${OWNER_LEAD_ROW_SUBGRID_CLASS} ${ROW_HEIGHT_CLASS} sm:items-center sm:gap-4 sm:px-0`}
       >
         {/* 1. Contact — name is the row's strongest primary text, phone second. */}
         <div className={CELL_STACK_CLASS}>
@@ -244,7 +244,7 @@ export function OwnerLeadListItem({ lead }: OwnerLeadListItemProps) {
 
         {/* 5. Received (UAE) — the timestamp is the first line; the capture channel reads beneath it as a quiet "Via ..." fragment, never repeating "(UAE time)" per row. */}
         <div className={CELL_STACK_CLASS}>
-          <p className={PRIMARY_TEXT_CLASS}>{submitted ?? MISSING}</p>
+          <p className={`${PRIMARY_TEXT_CLASS} tabular-nums`}>{submitted ?? MISSING}</p>
           <p className={SECONDARY_TEXT_CLASS}>{formatCaptureChannelVia(lead.captureChannel)}</p>
         </div>
 

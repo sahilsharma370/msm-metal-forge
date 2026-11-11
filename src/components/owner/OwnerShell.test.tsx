@@ -7,7 +7,17 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom/vitest";
 
-/** OwnerShell now renders OwnerNav (real <Link>s to /owner/overview, /owner, /owner/leads/new) — same stub-Link-as-<a> pattern as OwnerLeadInbox.test.tsx, since there is no real router context in this render. */
+/**
+ * OwnerShell now renders OwnerNav (real <Link>s to /owner/overview, /owner,
+ * /owner/leads/new) — same stub-Link-as-<a> pattern as OwnerLeadInbox.test.tsx,
+ * since there is no real router context in this render. OwnerNav also now
+ * calls `useRouterState` directly (CHECKPOINT OWNER ENQUIRIES SIX-CIRCLE PASS
+ * — computing its own active-section state instead of relying on Link's own
+ * activeProps/exact matching), which throws outside a real router; stubbed
+ * to a fixed "/owner" pathname here — these tests exercise OwnerShell's own
+ * auth/session/cache behaviour, never which nav link happens to be
+ * highlighted.
+ */
 vi.mock("@tanstack/react-router", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@tanstack/react-router")>();
   return {
@@ -17,6 +27,7 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
         {children}
       </a>
     ),
+    useRouterState: () => "/owner",
   };
 });
 
@@ -318,16 +329,33 @@ describe("OwnerShell — authorized", () => {
     nowSpy.mockRestore();
   });
 
-  it("does not render a Refresh button when no page registers one", async () => {
+  it("does not render a Refresh button when no page registers one, and never leaves the orphan divider behind it either (CHECKPOINT OWNER ENQUIRIES SIX-CIRCLE PASS)", async () => {
     const authClient = fakeAuthClient({ getAccessToken: vi.fn().mockResolvedValue("at-1") });
     const sessionChecker = fakeSessionChecker({ check: vi.fn().mockResolvedValue({ ok: true, owner: { userId: "u1", role: "owner" } }) });
-    render(
+    const { container } = render(
       <OwnerShell authClient={authClient} sessionChecker={sessionChecker} onUnauthorized={vi.fn()}>
         {() => <p>page content</p>}
       </OwnerShell>,
     );
     await screen.findByText("page content");
     expect(screen.queryByRole("button", { name: /refresh/i })).not.toBeInTheDocument();
+    // The divider between Refresh and Log out is `aria-hidden`, so it is
+    // queried directly rather than via role — it must not render at all
+    // once Log out is the only right-side control.
+    expect(container.querySelector("span[aria-hidden='true'].w-px")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /log out/i })).toBeInTheDocument();
+  });
+
+  it("renders the divider once a page registers a Refresh handler — grouping it with Log out, never orphaned", async () => {
+    const authClient = fakeAuthClient({ getAccessToken: vi.fn().mockResolvedValue("at-1") });
+    const sessionChecker = fakeSessionChecker({ check: vi.fn().mockResolvedValue({ ok: true, owner: { userId: "u1", role: "owner" } }) });
+    const { container } = render(
+      <OwnerShell authClient={authClient} sessionChecker={sessionChecker} onUnauthorized={vi.fn()}>
+        {(_owner, registerRefresh) => <PageWithRefresh registerRefresh={registerRefresh} onRefresh={vi.fn()} />}
+      </OwnerShell>,
+    );
+    await screen.findByRole("button", { name: /refresh/i });
+    expect(container.querySelector("span[aria-hidden='true'].w-px")).toBeInTheDocument();
   });
 });
 

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom/vitest";
 
@@ -351,12 +351,37 @@ describe("OwnerLeadInbox — Export CSV (CHECKPOINT C2M-A)", () => {
     await user.click(screen.getByRole("button", { name: /dismiss/i }));
     expect(onClearExportError).toHaveBeenCalledTimes(1);
   });
+
+  it("renders inside the filters toolbar (role=search), not the page title header (CHECKPOINT OWNER ENQUIRIES SIX-CIRCLE PASS)", () => {
+    render(<OwnerLeadInbox {...baseProps({ state: baseState({ view: "inbox" }) })} />);
+    const toolbar = screen.getByRole("search", { name: /filter enquiries/i });
+    expect(within(toolbar).getByRole("button", { name: /export csv/i })).toBeInTheDocument();
+  });
+
+  it("is grouped with Reset once a filter is active", () => {
+    render(<OwnerLeadInbox {...baseProps({ state: baseState({ view: "inbox", appliedFilters: { material: "copper" } }) })} />);
+    const toolbar = screen.getByRole("search", { name: /filter enquiries/i });
+    expect(within(toolbar).getByRole("button", { name: /export csv/i })).toBeInTheDocument();
+    expect(within(toolbar).getByRole("button", { name: /reset/i })).toBeInTheDocument();
+  });
 });
 
 describe("OwnerLeadInbox — column heading discloses UAE once, not per row (CHECKPOINT C2M-A)", () => {
   it("shows 'Received (UAE)' in the column heading", () => {
     render(<OwnerLeadInbox {...baseProps({ state: baseState({ items: [sellLead()] }) })} />);
     expect(screen.getByText(/received \(uae\)/i)).toBeInTheDocument();
+  });
+});
+
+describe("OwnerLeadInbox — count label reflects loaded rows, never implies a true total (CHECKPOINT OWNER ENQUIRIES SIX-CIRCLE PASS)", () => {
+  it("labels the count 'shown' — the list API is cursor-paginated and never returns a true total row count", () => {
+    render(<OwnerLeadInbox {...baseProps({ state: baseState({ items: [sellLead(), buyLead()], hasMore: true }) })} />);
+    expect(screen.getByText("2 enquiries shown")).toBeInTheDocument();
+  });
+
+  it("still reads 'shown', not a bare total, even once every row is loaded (hasMore: false) — the API never confirms that count as a true total", () => {
+    render(<OwnerLeadInbox {...baseProps({ state: baseState({ items: [sellLead()], hasMore: false }) })} />);
+    expect(screen.getByText("1 enquiry shown")).toBeInTheDocument();
   });
 });
 
@@ -399,5 +424,47 @@ describe("OwnerLeadInbox — collision guard: long values truncate instead of ov
     const reference = screen.getByText(longLead.reference);
     expect(reference.className).toMatch(/truncate/);
     expect(reference.closest("div")?.className).toMatch(/min-w-0/);
+  });
+});
+
+describe("OwnerLeadInbox — full-row hover/focus tint (CHECKPOINT OWNER ENQUIRIES SIX-CIRCLE PASS)", () => {
+  it("activates the shared full-width tint on hover of the first, middle, and last row, and clears it on mouse-leave", () => {
+    const leads = [
+      sellLead({ id: "lead-first", reference: "MSM-260101-FIRST1" }),
+      sellLead({ id: "lead-middle", reference: "MSM-260101-MIDDL1" }),
+      sellLead({ id: "lead-last", reference: "MSM-260101-LAST01" }),
+    ];
+    const { container } = render(<OwnerLeadInbox {...baseProps({ state: baseState({ items: leads }) })} />);
+    const list = screen.getByRole("region", { name: "Enquiries" });
+    const tint = within(list).getByText("", { selector: "ul > span[aria-hidden='true'].bg-white\\/5" });
+
+    expect(tint).toHaveStyle({ opacity: "0" });
+
+    for (const reference of ["MSM-260101-FIRST1", "MSM-260101-MIDDL1", "MSM-260101-LAST01"]) {
+      const row = screen.getByText(reference).closest("li") as HTMLElement;
+      fireEvent.mouseOver(row);
+      expect(tint).toHaveStyle({ opacity: "1" });
+      fireEvent.mouseLeave(container.querySelector("ul") as HTMLElement);
+      expect(tint).toHaveStyle({ opacity: "0" });
+    }
+  });
+
+  it("also activates the tint on keyboard focus (not hover-only), and clears it once focus leaves the list", () => {
+    render(<OwnerLeadInbox {...baseProps({ state: baseState({ items: [sellLead()] }) })} />);
+    const list = screen.getByRole("region", { name: "Enquiries" });
+    const tint = within(list).getByText("", { selector: "ul > span[aria-hidden='true'].bg-white\\/5" });
+    const row = screen.getByRole("link").closest("li") as HTMLElement;
+
+    fireEvent.focus(row.querySelector("a") as HTMLElement);
+    expect(tint).toHaveStyle({ opacity: "1" });
+  });
+
+  it("the row's own Link no longer carries its own inset hover/focus background — the shared full-width tint is the only one", () => {
+    render(<OwnerLeadInbox {...baseProps({ state: baseState({ items: [sellLead()] }) })} />);
+    const link = screen.getByRole("link");
+    expect(link.className).not.toMatch(/hover:bg-white\/5/);
+    expect(link.className).not.toMatch(/focus-visible:bg-white\/5/);
+    // The focus ring itself must still be present — only the background duplication is removed.
+    expect(link.className).toMatch(/focus-visible:ring-2/);
   });
 });

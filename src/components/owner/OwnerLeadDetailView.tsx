@@ -37,7 +37,6 @@ import {
   buildTelHref,
   buildOwnerWhatsAppHref,
   buildOwnerMailtoHref,
-  resolvePrimaryContactAction,
 } from "./owner-lead-format";
 
 /**
@@ -71,13 +70,16 @@ export interface OwnerLeadDetailViewProps {
   readonly onMutated: () => void;
 }
 
+/** CHECKPOINT OWNER ENQUIRIES SIX-CIRCLE PASS — `min-w-0` on the wrapper (grid items default to a content-based min-width, which blocks wrapping from ever kicking in) + `break-words` on the value — a long email or free-text value wraps onto further lines instead of overflowing its own grid cell and pushing whatever sits beside/after it out of view. Unlike the Enquiries list row (which truncates — space there is fixed and tight), this detail view has room to show the value in full. */
+const FIELD_VALUE_CLASS = "text-sm break-words text-foreground";
+
 /** Hides entirely when the value is absent — for genuinely optional free-text fields (Notes, Description, ...) that are routinely blank and not worth flagging. */
 function Field({ label, value }: { label: string; value: string | null | undefined }) {
   if (!value) return null;
   return (
-    <div>
+    <div className="min-w-0">
       <dt className="text-xs text-muted-foreground">{label}</dt>
-      <dd className="text-sm text-foreground">{value}</dd>
+      <dd className={FIELD_VALUE_CLASS}>{value}</dd>
     </div>
   );
 }
@@ -85,9 +87,9 @@ function Field({ label, value }: { label: string; value: string | null | undefin
 /** Always renders — shows "Not provided" rather than silently leaving an ambiguous gap, for the handful of fields whose absence is itself operationally meaningful (what/how much/where). */
 function RequiredField({ label, value }: { label: string; value: string | null | undefined }) {
   return (
-    <div>
+    <div className="min-w-0">
       <dt className="text-xs text-muted-foreground">{label}</dt>
-      <dd className="text-sm text-foreground">{value || "Not provided"}</dd>
+      <dd className={FIELD_VALUE_CLASS}>{value || "Not provided"}</dd>
     </div>
   );
 }
@@ -145,18 +147,6 @@ export function OwnerLeadDetailView({ leadId, data, deps, onUnauthorized, onMuta
   // first word of a multi-word emirate.
   const emirateLabel = formatEmirateLabel(lead.location.emirate);
   const isSafeExternalLink = (href: string) => /^https?:\/\//i.test(href);
-  // CHECKPOINT C2M-A — exactly one primary (copper) contact action, chosen
-  // by the customer's own stated preferred contact method whenever it has
-  // a usable value, falling back to the capture channel (Quick Add leads
-  // only) and finally to the existing Call-first default — never a method
-  // with no underlying value. See resolvePrimaryContactAction's own header
-  // comment for the full priority order.
-  const primaryContactAction = resolvePrimaryContactAction({
-    preferredContact: lead.enquiry.preferredContact,
-    captureChannel: lead.captureChannel,
-    hasPhone: telHref !== null,
-    hasEmail: mailtoHref !== null,
-  });
   // CHECKPOINT OWNER DESKTOP CORRECTION — the notification panel is
   // technical noise in every normal state (sent/pending/not_required): the
   // owner never needs to see "0 attempts, 0 manual requeues" for a message
@@ -386,10 +376,22 @@ export function OwnerLeadDetailView({ leadId, data, deps, onUnauthorized, onMuta
         {/* Side — 4 columns: contact actions, the merged status+note workflow card, and (only when actionable) notification. Sticky where the viewport is tall enough, never overlapping the header. */}
         <div className="flex flex-col gap-5 lg:sticky lg:top-[86px] lg:col-span-4 lg:h-fit lg:self-start">
           <Panel id="owner-lead-contact-heading" title="Contact">
+            {/* CHECKPOINT OWNER ENQUIRIES SIX-CIRCLE PASS — fixed per-channel
+                styling, not a dynamically-chosen "primary" action: WhatsApp
+                always matches the darker-copper Add-enquiry treatment
+                (variant="brand" alone renders the brighter copper-bright —
+                see button.tsx — so the same bg-copper/hover:bg-copper/90
+                override Add-enquiry itself uses is applied here too); Call
+                and Email always stay outlined, all three at the identical
+                size/gap so sizing and focus states read as one consistent
+                set regardless of which methods a given lead happens to
+                have. resolvePrimaryContactAction's own priority-order logic
+                is unchanged and still covered by its own tests — it is
+                simply no longer consulted for button styling here. */}
             {telHref || whatsappHref || mailtoHref ? (
               <div className="mb-4 flex flex-wrap gap-2">
                 {telHref ? (
-                  <Button asChild size="sm" variant={primaryContactAction === "call" ? "brand" : "outline"} className="gap-1.5">
+                  <Button asChild size="sm" variant="outline" className="gap-1.5">
                     <a href={telHref} aria-label={`Call ${contactLabel}`}>
                       <Phone className="size-4" aria-hidden="true" />
                       Call
@@ -397,7 +399,7 @@ export function OwnerLeadDetailView({ leadId, data, deps, onUnauthorized, onMuta
                   </Button>
                 ) : null}
                 {whatsappHref ? (
-                  <Button asChild size="sm" variant={primaryContactAction === "whatsapp" ? "brand" : "outline"} className="gap-1.5">
+                  <Button asChild size="sm" variant="brand" className="gap-1.5 bg-copper hover:bg-copper/90">
                     <a href={whatsappHref} target="_blank" rel="noopener noreferrer" aria-label={`Message ${contactLabel} on WhatsApp`}>
                       <MessageCircle className="size-4" aria-hidden="true" />
                       WhatsApp
@@ -405,7 +407,7 @@ export function OwnerLeadDetailView({ leadId, data, deps, onUnauthorized, onMuta
                   </Button>
                 ) : null}
                 {mailtoHref ? (
-                  <Button asChild size="sm" variant={primaryContactAction === "email" ? "brand" : "outline"} className="gap-1.5">
+                  <Button asChild size="sm" variant="outline" className="gap-1.5">
                     <a href={mailtoHref} aria-label={`Email ${contactLabel}`}>
                       <Mail className="size-4" aria-hidden="true" />
                       Email
@@ -441,7 +443,7 @@ export function OwnerLeadDetailView({ leadId, data, deps, onUnauthorized, onMuta
               <Button
                 type="button"
                 variant="brand"
-                className="mt-2 gap-1.5"
+                className="mt-2 gap-1.5 bg-copper hover:bg-copper/90"
                 disabled={mutations.state.isRestoring}
                 onClick={() => void mutations.restoreLead()}
               >
@@ -450,8 +452,17 @@ export function OwnerLeadDetailView({ leadId, data, deps, onUnauthorized, onMuta
               </Button>
             </Panel>
           ) : (
-            <Panel id="owner-lead-manage-heading" title="Status">
-              <div className="flex flex-col gap-6">
+            // CHECKPOINT OWNER ENQUIRIES SIX-CIRCLE PASS — the card heading
+            // renamed Status -> Workflow (this card is both the status
+            // control AND the note composer; "Status" alone undersold the
+            // second half). The Status FIELD LABEL itself, inside
+            // OwnerLeadStatusControl, is unchanged. The gap before Internal
+            // note dropped from gap-6 (24px, visually an outsized jump
+            // relative to every other section-to-section spacing on this
+            // page) to gap-4 (16px), matching the Contact card's own
+            // internal field-grid spacing.
+            <Panel id="owner-lead-manage-heading" title="Workflow">
+              <div className="flex flex-col gap-4">
                 <OwnerLeadStatusControl
                   currentStatus={lead.status}
                   isSaving={mutations.state.isChangingStatus}

@@ -247,9 +247,10 @@ describe("OwnerLeadDetailView — activity timeline", () => {
 });
 
 describe("OwnerLeadDetailView — Manage section", () => {
-  it("renders the status control and note composer", () => {
+  it("renders the status control and note composer under a 'Workflow' heading (CHECKPOINT OWNER ENQUIRIES SIX-CIRCLE PASS — renamed from 'Status' so the Status *field* can keep that exact label without a duplicate-looking heading)", () => {
     render(<OwnerLeadDetailView leadId="lead-1" data={sellData()} deps={fakeDeps} onUnauthorized={vi.fn()} onMutated={vi.fn()} />);
-    expect(screen.getByRole("heading", { name: "Status" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Workflow" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Status")).toBeInTheDocument();
     expect(screen.getByRole("combobox")).toBeInTheDocument();
     expect(screen.getByLabelText(/internal note/i)).toBeInTheDocument();
   });
@@ -334,19 +335,23 @@ describe("OwnerLeadDetailView — Contact card (CHECKPOINT C2M-A)", () => {
     expect(screen.queryByRole("link", { name: /^email/i })).not.toBeInTheDocument();
   });
 
-  it("makes WhatsApp the primary (brand) action when the customer's stated preference is whatsapp", () => {
+  it("CHECKPOINT OWNER ENQUIRIES SIX-CIRCLE PASS — WhatsApp always matches the darker-copper Add-enquiry treatment, regardless of the customer's stated preferred contact method", () => {
     render(<OwnerLeadDetailView leadId="lead-1" data={sellData()} deps={fakeDeps} onUnauthorized={vi.fn()} onMutated={vi.fn()} />);
     const whatsappLink = screen.getByRole("link", { name: /message ahmed seller on whatsapp/i });
-    const callLink = screen.getByRole("link", { name: /call ahmed seller/i });
-    // The brand button variant renders bg-copper-bright; the outline variant does not.
-    expect(whatsappLink.closest("a")?.className).toMatch(/copper-bright/);
-    expect(callLink.closest("a")?.className).not.toMatch(/copper-bright/);
+    // variant="brand" alone renders bg-copper-bright (the brighter accent
+    // tone) — the darker bg-copper override is what actually matches
+    // Add-enquiry's own treatment, so this asserts that exact class, not
+    // just "brand".
+    expect(whatsappLink.className).toMatch(/\bbg-copper\b/);
+    expect(whatsappLink.className).not.toMatch(/copper-bright/);
   });
 
-  it("makes Call the primary action when the customer's stated preference is call", () => {
-    render(<OwnerLeadDetailView leadId="lead-2" data={buyData()} deps={fakeDeps} onUnauthorized={vi.fn()} onMutated={vi.fn()} />);
-    const callLink = screen.getByRole("link", { name: /call fatima buyer/i });
-    expect(callLink.className).toMatch(/copper-bright/);
+  it("Call and Email always stay outlined — never the copper treatment, regardless of preferred contact method", () => {
+    render(<OwnerLeadDetailView leadId="lead-1" data={sellData()} deps={fakeDeps} onUnauthorized={vi.fn()} onMutated={vi.fn()} />);
+    const callLink = screen.getByRole("link", { name: /call ahmed seller/i });
+    const emailLink = screen.getByRole("link", { name: /email ahmed seller/i });
+    expect(callLink.className).not.toMatch(/bg-copper/);
+    expect(emailLink.className).not.toMatch(/bg-copper/);
   });
 
   it("displays the preferred contact method as text, exactly once (no duplicate elsewhere on the page)", () => {

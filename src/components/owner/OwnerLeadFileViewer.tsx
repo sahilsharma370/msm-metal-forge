@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { AlertCircle, Eye, ExternalLink, FileText, Loader2 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import type { OwnerLeadDetailFile } from "@/lib/owner/owner-lead-detail-contract";
 import { requestOwnerLeadFileAccess, type OwnerLeadsTransportDeps } from "./owner-leads-transport";
 import { formatByteSize } from "./owner-lead-format";
@@ -260,6 +260,16 @@ export function OwnerLeadFileViewer({ leadId, file, deps, onUnauthorized }: Owne
           <DialogContent className="max-w-3xl">
             <DialogHeader>
               <DialogTitle>{file.originalFilename}</DialogTitle>
+              {/* CHECKPOINT OWNER ENQUIRIES SIX-CIRCLE PASS — the "this link
+                  is temporary" sentence is no longer shown visibly (it read
+                  as owner-facing noise with no action attached to it), but
+                  the same information stays available to assistive tech via
+                  a proper DialogDescription (Radix's own accessible-name/
+                  description wiring — aria-describedby is already applied
+                  automatically), rather than just silently dropping it. */}
+              <DialogDescription className="sr-only">
+                Temporary preview of {file.originalFilename}. This link stops working shortly after opening.
+              </DialogDescription>
             </DialogHeader>
             {status === "error" ? (
               <div role="alert" className="flex flex-col items-center gap-2 py-12 text-sm text-destructive">
@@ -295,8 +305,7 @@ export function OwnerLeadFileViewer({ leadId, file, deps, onUnauthorized }: Owne
                 ) : null}
               </>
             )}
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-xs text-muted-foreground">This link is temporary and stops working shortly after opening.</p>
+            <div className="flex items-center justify-end gap-3">
               {status === "ready" && imageLoaded ? (
                 <Button
                   type="button"
